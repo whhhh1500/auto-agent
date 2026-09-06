@@ -244,7 +244,7 @@ func TestRunLeaseRenewalErrorCancelsRun(t *testing.T) {
 	clock.waitTimerAt(t, 3*time.Second)
 	leaser.renewResults <- leaseResult{err: errors.New("database unavailable")}
 	clock.Advance(3 * time.Second)
-	<-leaser.renewCalls
+	waitForRenewCall(t, server, leaser, clock, "renewal-error")
 	select {
 	case <-runCtx.Done():
 	case <-time.After(time.Second):

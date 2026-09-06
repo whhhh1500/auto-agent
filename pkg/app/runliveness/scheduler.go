@@ -199,10 +199,16 @@ func (s *Scheduler) loop() {
 		close(s.done)
 	}()
 	var timer Timer
+	var timerDeadline time.Time
 	saturated := false
 	for {
-		_, wait, hasTask := s.next()
+		deadline, hasTask := s.next()
 		if !hasTask {
+			if timer != nil {
+				stopTimer(timer)
+				timer = nil
+				timerDeadline = time.Time{}
+			}
 			select {
 			case <-s.stop:
 				return
@@ -224,43 +230,76 @@ func (s *Scheduler) loop() {
 			}
 			continue
 		}
-		if wait < 0 {
-			wait = 0
-		}
 		if timer == nil {
-			timer = s.clock.NewTimer(wait)
-		} else {
-			if !timer.Stop() {
-				select {
-				case <-timer.C():
-				default:
-				}
-			}
-			timer.Reset(wait)
+			timer = s.armTimer(nil, deadline)
+			timerDeadline = deadline
+		} else if !timerDeadline.Equal(deadline) {
+			// A wake can be left over from Register after this deadline was
+			// already armed. Resetting that timer with an old relative duration
+			// can postpone an elapsed deadline by a full interval, so only rearm
+			// when the earliest absolute deadline actually changed.
+			timer = s.armTimer(timer, deadline)
+			timerDeadline = deadline
 		}
 		select {
 		case <-s.stop:
 			if timer != nil {
-				timer.Stop()
+				stopTimer(timer)
 			}
 			return
 		case <-s.wake:
 		case item := <-s.finish:
 			s.complete(item)
 		case <-timer.C():
+			timerDeadline = time.Time{}
 			saturated = s.dispatchDue(s.clock.Now())
 		}
 	}
 }
 
-func (s *Scheduler) next() (time.Time, time.Duration, bool) {
+func stopTimer(timer Timer) {
+	if timer == nil || timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C():
+	default:
+	}
+}
+
+func (s *Scheduler) timerWait(deadline time.Time) time.Duration {
+	wait := deadline.Sub(s.clock.Now())
+	if wait < 0 {
+		return 0
+	}
+	return wait
+}
+
+func (s *Scheduler) armTimer(timer Timer, deadline time.Time) Timer {
+	wait := s.timerWait(deadline)
+	if timer == nil {
+		timer = s.clock.NewTimer(wait)
+	} else {
+		stopTimer(timer)
+		timer.Reset(wait)
+	}
+	// A clock can pass deadline between calculating a relative wait and arming
+	// the timer. Recheck immediately so a manual clock advance, or a long
+	// scheduling pause, cannot defer an already elapsed deadline by wait.
+	if wait > 0 && !s.clock.Now().Before(deadline) {
+		stopTimer(timer)
+		timer.Reset(0)
+	}
+	return timer
+}
+
+func (s *Scheduler) next() (time.Time, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.heap) == 0 {
-		return time.Time{}, 0, false
+		return time.Time{}, false
 	}
-	now := s.clock.Now()
-	return now, s.heap[0].next.Sub(now), true
+	return s.heap[0].next, true
 }
 
 func (s *Scheduler) dispatchDue(now time.Time) bool {

@@ -23,6 +23,74 @@ type manualTimer struct {
 	ch     chan time.Time
 }
 
+// stopGatedClock makes a stale scheduler wake deterministic. Before the
+// scheduler fix, a pending wake could stop an unchanged timer, let this clock
+// advance, then reset the timer with the old relative delay. The gate blocks
+// that stop so the test can prove the loop remains armed for the same deadline.
+type stopGatedClock struct {
+	base          *manualClock
+	observed      chan struct{}
+	stopEntered   chan struct{}
+	releaseStop   chan struct{}
+	releaseStopMu sync.Once
+}
+
+type stopGatedTimer struct {
+	Timer
+	clock *stopGatedClock
+}
+
+func newStopGatedClock() *stopGatedClock {
+	return &stopGatedClock{
+		base:        newManualClock(),
+		observed:    make(chan struct{}, 4),
+		stopEntered: make(chan struct{}, 1),
+		releaseStop: make(chan struct{}),
+	}
+}
+
+func (c *stopGatedClock) Now() time.Time { return c.base.Now() }
+
+func (c *stopGatedClock) NewTimer(duration time.Duration) Timer {
+	return stopGatedTimer{Timer: c.base.NewTimer(duration), clock: c}
+}
+
+func (t stopGatedTimer) C() <-chan time.Time {
+	select {
+	case t.clock.observed <- struct{}{}:
+	default:
+	}
+	return t.Timer.C()
+}
+
+func (t stopGatedTimer) Stop() bool {
+	stopped := t.Timer.Stop()
+	select {
+	case t.clock.stopEntered <- struct{}{}:
+	default:
+	}
+	<-t.clock.releaseStop
+	return stopped
+}
+
+func (c *stopGatedClock) release() {
+	c.releaseStopMu.Do(func() { close(c.releaseStop) })
+}
+
+func (c *stopGatedClock) waitObserved(t *testing.T, phase string) {
+	t.Helper()
+	select {
+	case <-c.observed:
+	case <-time.After(time.Second):
+		select {
+		case <-c.stopEntered:
+			t.Fatalf("scheduler stopped an unchanged timer while processing %s wake", phase)
+		default:
+			t.Fatalf("scheduler did not wait on its timer while processing %s wake", phase)
+		}
+	}
+}
+
 func newManualClock() *manualClock {
 	return &manualClock{now: time.Unix(1, 0).UTC(), changed: make(chan struct{}, 32)}
 }
@@ -131,6 +199,40 @@ func newManualScheduler(t *testing.T, workers int) (*Scheduler, *manualClock) {
 		}
 	})
 	return scheduler, clock
+}
+
+func TestSchedulerWakeDoesNotResetUnchangedDeadline(t *testing.T) {
+	clock := newStopGatedClock()
+	scheduler, err := New(Config{Clock: clock, Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		clock.release()
+		if err := scheduler.Close(context.Background()); err != nil {
+			t.Errorf("close scheduler: %v", err)
+		}
+	})
+	runs := make(chan struct{}, 1)
+	if _, err := scheduler.Register(context.Background(), "unchanged-deadline", time.Second, func(context.Context) error {
+		runs <- struct{}{}
+		return nil
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	clock.base.waitTimerAt(t, time.Second)
+	clock.waitObserved(t, "initial")
+	// This wake is intentionally redundant: it models a coalesced Register
+	// signal arriving after the deadline timer was already armed.
+	scheduler.signal()
+	clock.waitObserved(t, "redundant")
+	clock.base.Advance(time.Second)
+	select {
+	case <-runs:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler lost an elapsed deadline after a redundant wake")
+	}
+	clock.release()
 }
 
 func TestSchedulerRunsOneCallbackPerKeyAndReschedules(t *testing.T) {
