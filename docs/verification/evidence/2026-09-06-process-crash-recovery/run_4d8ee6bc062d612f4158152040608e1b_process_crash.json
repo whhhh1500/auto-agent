@@ -1,0 +1,170 @@
+{
+  "before_kill": {
+    "active_span_id": "da3d91bc8218853d",
+    "active_trace_id": "bab5079878909b77c0aa544d48963fa4",
+    "blocked_at_fault": true,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_4d8ee6bc062d612f4158152040608e1b",
+          "session.id": "sess_c2f6f14a739b7d8fdaf29eb07af85087",
+          "worker.id": "process-crash"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "8377186b93a1c7fa",
+        "status": "Unset",
+        "trace_id": "9d653e7783fd25edc11214c267667205"
+      },
+      {
+        "attributes": {
+          "model.outcome": "ok",
+          "run.id": "run_4d8ee6bc062d612f4158152040608e1b",
+          "run.step": "0",
+          "session.id": "sess_c2f6f14a739b7d8fdaf29eb07af85087"
+        },
+        "duration_ms": 4603,
+        "name": "harness.model.call",
+        "parent_id": "d9649592cb6dc630",
+        "span_id": "a9707c0439f00bf3",
+        "status": "Unset",
+        "trace_id": "bab5079878909b77c0aa544d48963fa4"
+      }
+    ],
+    "input_tokens": 89,
+    "model_calls": 1,
+    "model_request_ms": [
+      4603
+    ],
+    "output_tokens": 149,
+    "phase": "crash",
+    "pid": 32224
+  },
+  "durable_prefix_before_kill": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_77dae9ec9b9641fdb846595584e1e931",
+      "seq": 4,
+      "type": "tool/call"
+    }
+  ],
+  "durable_version_before_kill": 5,
+  "effects_after": 1,
+  "effects_before": 1,
+  "fault_point": "effect_committed",
+  "final_sql_history": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_77dae9ec9b9641fdb846595584e1e931",
+      "seq": 4,
+      "type": "tool/call"
+    },
+    {
+      "call_id": "call_77dae9ec9b9641fdb846595584e1e931",
+      "code": "tool_outcome_unknown",
+      "seq": 5,
+      "type": "tool/result"
+    },
+    {
+      "seq": 6,
+      "type": "step/end"
+    },
+    {
+      "code": "run_interrupted",
+      "seq": 7,
+      "type": "run/error"
+    },
+    {
+      "seq": 8,
+      "status": "failed",
+      "type": "run/end"
+    }
+  ],
+  "hard_kill_abnormal": true,
+  "hard_kill_exit_code": 1,
+  "journal_after": {
+    "call_id": "call_77dae9ec9b9641fdb846595584e1e931",
+    "has_result": false,
+    "rows": 1,
+    "state": "started"
+  },
+  "journal_before": {
+    "call_id": "call_77dae9ec9b9641fdb846595584e1e931",
+    "has_result": false,
+    "rows": 1,
+    "state": "started"
+  },
+  "live_model": true,
+  "queue_after": {
+    "rows": 0
+  },
+  "queue_before": {
+    "attempt": 1,
+    "generation": 1,
+    "rows": 1,
+    "worker_id": "process-crash"
+  },
+  "recovered_claims": 1,
+  "recovery_failures": 0,
+  "replacement": {
+    "blocked_at_fault": false,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_4d8ee6bc062d612f4158152040608e1b",
+          "session.id": "sess_c2f6f14a739b7d8fdaf29eb07af85087",
+          "worker.id": "process-recover"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "edd0d3530032a988",
+        "status": "Unset",
+        "trace_id": "59bcfdcfd4e48838a07b24b8a76cfd5e"
+      }
+    ],
+    "input_tokens": 0,
+    "model_calls": 0,
+    "model_request_ms": null,
+    "output_tokens": 0,
+    "phase": "recover",
+    "pid": 31100
+  },
+  "run_error_code": "run_interrupted",
+  "run_id": "run_4d8ee6bc062d612f4158152040608e1b",
+  "run_status": "failed",
+  "session_id": "sess_c2f6f14a739b7d8fdaf29eb07af85087"
+}

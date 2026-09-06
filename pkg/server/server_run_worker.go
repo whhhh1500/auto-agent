@@ -401,6 +401,8 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	if canary != nil && canary.Candidate && s.logger != nil {
 		s.logger.InfoContext(runCtx, "canary selected", slog.String("canary", canary.ID), slog.String("profile", canary.ProfileID), slog.String("run", task.RunID), slog.String("worker", workerID))
 	}
+	writer := storage.NewWriteBehind(s.sessions, session, expectedVersion, s.maxWriteDelay)
+	runRuntime, checkpointFailure := runtimeWithToolCheckpoint(runRuntime, writer, cancelRun)
 	var runExecutor runexecutor.RunExecutor
 	var compositionMetadata map[string]string
 	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume)
@@ -408,7 +410,6 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "executor_selection_failed", err, true)
 	}
-	writer := storage.NewWriteBehind(s.sessions, session, expectedVersion, s.maxWriteDelay)
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
 		writer.MarkDirty()
@@ -427,7 +428,7 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 		}, emit)
 	}
 	status := effectiveRunStatus(result, runErr)
-	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone) {
+	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone && !checkpointFailure.Failed()) {
 		claim.stop()
 		abortCtx, cancelAbort := context.WithTimeout(context.Background(), terminalPersistenceTimeout)
 		_ = writer.Abort(abortCtx)
@@ -438,7 +439,7 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	flushErr := writer.Flush(flushCtx)
 	cancelFlush()
 	claim.stop()
-	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone) {
+	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone && !checkpointFailure.Failed()) {
 		return errRunClaimLost
 	}
 	if flushErr != nil {

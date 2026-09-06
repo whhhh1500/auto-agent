@@ -20,6 +20,10 @@ type FastDispatch struct {
 	Answer  string
 }
 
+type fastToolCallRecorder interface {
+	recordFastToolCall(ToolCall) error
+}
+
 // FastRouter holds ordered deterministic routes evaluated before the LLM.
 type FastRouter struct {
 	rules []FastRule
@@ -55,6 +59,11 @@ func (r *FastRouter) Dispatch(ctx context.Context, text string, tools ToolRuntim
 			return FastDispatch{}, err
 		}
 		call := ToolCall{ID: callID, Name: rule.Capability, Args: args}
+		if recorder, ok := tools.(fastToolCallRecorder); ok {
+			if err := recorder.recordFastToolCall(call); err != nil {
+				return FastDispatch{Matched: true, Call: &call}, err
+			}
+		}
 		result, err := tools.Execute(ctx, call)
 		if err != nil {
 			return FastDispatch{Matched: true, Call: &call}, err

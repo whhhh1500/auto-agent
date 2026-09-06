@@ -337,6 +337,150 @@ func TestWriteBehindBatchesAndFlushes(t *testing.T) {
 	}
 }
 
+func TestWriteBehindCheckpointKeepsBackgroundCheckpointingActive(t *testing.T) {
+	store := NewMemorySessionStore()
+	_, _, _, user := testScopes()
+	principal := testPrincipal(user)
+	session := mustSession(t, user, principal)
+	ctx := context.Background()
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := NewWriteBehind(store, session, 0, time.Millisecond)
+	if _, err := session.Append("run-a", EvUserMessage, UserMessageData{Text: "before checkpoint"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	if err := writer.Checkpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := session.Append("run-a", EvAssistantMessage, AssistantMessageData{Text: "after checkpoint"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	deadline := time.Now().Add(time.Second)
+	for writer.SavedVersion() != session.Version() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if writer.SavedVersion() != session.Version() {
+		t.Fatalf("background batching stopped after Checkpoint: saved=%d session=%d", writer.SavedVersion(), session.Version())
+	}
+	loaded, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version() != session.Version() {
+		t.Fatalf("store stopped at version %d; want %d", loaded.Version(), session.Version())
+	}
+}
+
+func TestWriteBehindCheckpointWaitsForBackgroundFlushAndReschedules(t *testing.T) {
+	store := newBlockingSnapshotStore()
+	_, _, _, user := testScopes()
+	principal := testPrincipal(user)
+	session := mustSession(t, user, principal)
+	ctx := context.Background()
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := NewWriteBehind(store, session, 0, time.Millisecond)
+	if _, err := session.Append("run-a", EvUserMessage, UserMessageData{Text: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	waitForSignal(t, store.firstSaveStarted, "background save to start")
+
+	if _, err := session.Append("run-a", EvAssistantMessage, AssistantMessageData{Text: "two"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	checkpointResult := make(chan error, 1)
+	go func() { checkpointResult <- writer.Checkpoint(ctx) }()
+	select {
+	case err := <-checkpointResult:
+		t.Fatalf("Checkpoint returned before the in-flight save completed: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(store.releaseFirstSave)
+	select {
+	case err := <-checkpointResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Checkpoint did not finish after the background save was released")
+	}
+	if got := store.SaveCalls(); got != 2 {
+		t.Fatalf("Checkpoint did not drain the event appended during background flush: saves=%d", got)
+	}
+	if err := writer.Checkpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.SaveCalls(); got != 2 {
+		t.Fatalf("repeat Checkpoint wrote an already durable version: saves=%d", got)
+	}
+
+	if _, err := session.Append("run-a", EvAssistantMessage, AssistantMessageData{Text: "three"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	deadline := time.Now().Add(time.Second)
+	for writer.SavedVersion() != session.Version() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if writer.SavedVersion() != session.Version() {
+		t.Fatalf("background scheduling did not resume after Checkpoint: saved=%d session=%d", writer.SavedVersion(), session.Version())
+	}
+	if got := store.SaveCalls(); got != 3 {
+		t.Fatalf("resumed background scheduling saved %d times; want 3", got)
+	}
+}
+
+func TestWriteBehindFlushStopsBackgroundCheckpointing(t *testing.T) {
+	store := NewMemorySessionStore()
+	_, _, _, user := testScopes()
+	principal := testPrincipal(user)
+	session := mustSession(t, user, principal)
+	ctx := context.Background()
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := NewWriteBehind(store, session, 0, 10*time.Millisecond)
+	if _, err := session.Append("run-a", EvUserMessage, UserMessageData{Text: "terminal"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	if err := writer.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append("run-a", EvAssistantMessage, AssistantMessageData{Text: "after close"}); err != nil {
+		t.Fatal(err)
+	}
+	writer.MarkDirty()
+	if err := writer.Checkpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	loaded, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version() != 1 || writer.SavedVersion() != 1 {
+		t.Fatalf("closed writer performed delayed persistence: store=%d saved=%d", loaded.Version(), writer.SavedVersion())
+	}
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if !writer.closed || writer.timer != nil {
+		t.Fatalf("Flush did not close scheduling: closed=%t timer=%v", writer.closed, writer.timer)
+	}
+}
+
 func TestWriteBehindReportsConflict(t *testing.T) {
 	memory := NewMemorySessionStore()
 	_, _, _, user := testScopes()

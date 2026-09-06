@@ -1,0 +1,186 @@
+{
+  "before_kill": {
+    "active_span_id": "58c47da642e43119",
+    "active_trace_id": "9b18a5f5b3ec7de27fb892f4b6644064",
+    "blocked_at_fault": true,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_c78f2a2646cfd5725f9ae5766dc69266",
+          "session.id": "sess_6c45d3e70a8d197ab8abaf2d107f7b4d",
+          "worker.id": "process-crash"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "57d775433f57b4b0",
+        "status": "Unset",
+        "trace_id": "253d55c962bafff1cc367111702b3fdd"
+      },
+      {
+        "attributes": {
+          "model.outcome": "ok",
+          "run.id": "run_c78f2a2646cfd5725f9ae5766dc69266",
+          "run.step": "0",
+          "session.id": "sess_6c45d3e70a8d197ab8abaf2d107f7b4d"
+        },
+        "duration_ms": 2569,
+        "name": "harness.model.call",
+        "parent_id": "58c47da642e43119",
+        "span_id": "6877e12f485b28c6",
+        "status": "Unset",
+        "trace_id": "9b18a5f5b3ec7de27fb892f4b6644064"
+      },
+      {
+        "attributes": {
+          "call.id": "call_133f400b4aa14af795fc6c92ed1735f9",
+          "capability.id": "crash.effect",
+          "run.id": "run_c78f2a2646cfd5725f9ae5766dc69266",
+          "session.id": "sess_6c45d3e70a8d197ab8abaf2d107f7b4d",
+          "tool.idempotent": "false",
+          "tool.outcome": "ok"
+        },
+        "duration_ms": 0,
+        "name": "harness.tool.call",
+        "parent_id": "58c47da642e43119",
+        "span_id": "f79369c962fd6312",
+        "status": "Unset",
+        "trace_id": "9b18a5f5b3ec7de27fb892f4b6644064"
+      }
+    ],
+    "input_tokens": 89,
+    "model_calls": 1,
+    "model_request_ms": [
+      2569
+    ],
+    "output_tokens": 135,
+    "phase": "crash",
+    "pid": 5100
+  },
+  "durable_prefix_before_kill": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_133f400b4aa14af795fc6c92ed1735f9",
+      "seq": 4,
+      "type": "tool/call"
+    }
+  ],
+  "durable_version_before_kill": 5,
+  "effects_after": 1,
+  "effects_before": 1,
+  "fault_point": "journal_completed",
+  "final_sql_history": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_133f400b4aa14af795fc6c92ed1735f9",
+      "seq": 4,
+      "type": "tool/call"
+    },
+    {
+      "call_id": "call_133f400b4aa14af795fc6c92ed1735f9",
+      "code": "tool_outcome_unknown",
+      "seq": 5,
+      "type": "tool/result"
+    },
+    {
+      "seq": 6,
+      "type": "step/end"
+    },
+    {
+      "code": "run_interrupted",
+      "seq": 7,
+      "type": "run/error"
+    },
+    {
+      "seq": 8,
+      "status": "failed",
+      "type": "run/end"
+    }
+  ],
+  "hard_kill_abnormal": true,
+  "hard_kill_exit_code": 1,
+  "journal_after": {
+    "call_id": "call_133f400b4aa14af795fc6c92ed1735f9",
+    "has_result": true,
+    "rows": 1,
+    "state": "completed"
+  },
+  "journal_before": {
+    "call_id": "call_133f400b4aa14af795fc6c92ed1735f9",
+    "has_result": true,
+    "rows": 1,
+    "state": "completed"
+  },
+  "live_model": true,
+  "queue_after": {
+    "rows": 0
+  },
+  "queue_before": {
+    "attempt": 1,
+    "generation": 1,
+    "rows": 1,
+    "worker_id": "process-crash"
+  },
+  "recovered_claims": 1,
+  "recovery_failures": 0,
+  "replacement": {
+    "blocked_at_fault": false,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_c78f2a2646cfd5725f9ae5766dc69266",
+          "session.id": "sess_6c45d3e70a8d197ab8abaf2d107f7b4d",
+          "worker.id": "process-recover"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "a1b6ed118c43c019",
+        "status": "Unset",
+        "trace_id": "13b4311b1499743db9aa374fdf54b8bd"
+      }
+    ],
+    "input_tokens": 0,
+    "model_calls": 0,
+    "model_request_ms": null,
+    "output_tokens": 0,
+    "phase": "recover",
+    "pid": 19896
+  },
+  "run_error_code": "run_interrupted",
+  "run_id": "run_c78f2a2646cfd5725f9ae5766dc69266",
+  "run_status": "failed",
+  "session_id": "sess_6c45d3e70a8d197ab8abaf2d107f7b4d"
+}

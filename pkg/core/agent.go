@@ -11,6 +11,7 @@ import (
 )
 
 var terminalHookTimeout = 5 * time.Second
+var errFastToolCallAppend = errors.New("fast tool call append failed")
 
 const (
 	DefaultMaxSteps     = 10
@@ -241,24 +242,15 @@ func (a *Agent) RunTurn(ctx context.Context, input TurnInput) (turnResult TurnRe
 	if a.opts.Fast != nil {
 		dispatch, err := safeFastDispatch(a.opts.Fast, ctx, input.Text, a.tools)
 		if err != nil {
+			if errors.Is(err, errFastToolCallAppend) {
+				return a.fail(info, "event_append_failed", err, false)
+			}
 			if pending, ok := IsApprovalPending(err); ok && dispatch.Call != nil {
-				if appendErr := a.append(input.RunID, EvToolCall, ToolCallData{
-					CallID: dispatch.Call.ID, Name: dispatch.Call.Name, Args: dispatch.Call.Args,
-				}); appendErr != nil {
-					return a.fail(info, "event_append_failed", appendErr, false)
-				}
 				return a.pauseForApproval(info, pending, *dispatch.Call, nil, true)
 			}
 			return a.fail(info, "fast_route_failed", err, isRetryable(err))
 		}
 		if dispatch.Matched {
-			if dispatch.Call != nil {
-				if err := a.append(input.RunID, EvToolCall, ToolCallData{
-					CallID: dispatch.Call.ID, Name: dispatch.Call.Name, Args: dispatch.Call.Args,
-				}); err != nil {
-					return a.fail(info, "event_append_failed", err, false)
-				}
-			}
 			if dispatch.Result != nil && dispatch.Call != nil {
 				if err := a.append(input.RunID, EvToolResult, ToolResultData{
 					CallID: dispatch.Call.ID, Content: dispatch.Result.Content,
@@ -628,6 +620,13 @@ func (a *Agent) append(runID string, eventType SessionEventType, data any) error
 		if err := safeEventCallback(a.opts.OnEvent, event); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (g *guardedToolRuntime) recordFastToolCall(call ToolCall) error {
+	if err := g.agent.append(g.agent.runID, EvToolCall, ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}); err != nil {
+		return errors.Join(errFastToolCallAppend, err)
 	}
 	return nil
 }

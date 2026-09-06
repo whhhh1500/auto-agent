@@ -83,12 +83,14 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			s.logger.InfoContext(runCtx, "canary selected", slogString("canary", canary.ID), slogString("profile", canary.ProfileID), slogString("run", runID))
 		}
 	}
+	expectedVersion := session.Version()
+	writer := storage.NewWriteBehind(s.sessions, session, expectedVersion, s.maxWriteDelay)
+	runRuntime, checkpointFailure := runtimeWithToolCheckpoint(runRuntime, writer, cancel)
 	runExecutor, compositionMetadata, err := s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, runID, false)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 		return
 	}
-	expectedVersion := session.Version()
 	durableRunCreated := false
 	durableRunFinished := false
 	stopRunControlMonitor := func() {}
@@ -116,10 +118,15 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// Write-behind: persist a stable ordered prefix at most maxWriteDelay
 	// behind the producer, then flush everything synchronously before the
 	// response completes. A crash loses at most one batching window.
-	writer := storage.NewWriteBehind(s.sessions, session, expectedVersion, s.maxWriteDelay)
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
-		writeSSE(w, flusher, string(event.Type), event)
+		// The core guard maps the cancellation used to stop after a checkpoint
+		// failure to tool_cancelled. That is an execution detail, not the
+		// authoritative terminal cause. Do not expose a contradictory terminal
+		// before the final Flush reports store_error below.
+		if !checkpointFailure.Failed() || (event.Type != core.EvRunError && event.Type != core.EvRunEnd) {
+			writeSSE(w, flusher, string(event.Type), event)
+		}
 		writer.MarkDirty()
 		s.observeEvent(r, seenObsHits, session, event)
 	}
@@ -141,7 +148,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 				s.logger.ErrorContext(flushCtx, "finish durable run failed", slogString("run", runID), slogString("error", err.Error()))
 			}
 		}
-		writeSSE(w, flusher, "store/error", map[string]string{"error": flushErr.Error()})
+		writeSSE(w, flusher, "store/error", map[string]string{
+			"error": flushErr.Error(), "code": "store_error", "status": string(core.RunFailed),
+		})
 		return
 	}
 	if status == core.RunWaitingApproval {

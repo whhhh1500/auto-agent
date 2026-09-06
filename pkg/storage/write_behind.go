@@ -63,12 +63,29 @@ func (w *WriteBehind) MarkDirty() {
 	w.scheduleLocked()
 }
 
+// Checkpoint persists everything pending synchronously without closing the
+// writer. Later MarkDirty calls continue background batching.
+func (w *WriteBehind) Checkpoint(ctx context.Context) error {
+	return w.flush(ctx, false)
+}
+
 // Flush persists everything pending synchronously and stops background
 // flushing. It must be called before the run's transport response completes
 // so a durable prefix is on disk before the client stops listening.
 func (w *WriteBehind) Flush(ctx context.Context) error {
+	return w.flush(ctx, true)
+}
+
+func (w *WriteBehind) flush(ctx context.Context, closeWriter bool) error {
 	w.mu.Lock()
-	w.closed = true
+	if w.closed && !closeWriter {
+		err := w.lastErr
+		w.mu.Unlock()
+		return err
+	}
+	if closeWriter {
+		w.closed = true
+	}
 	if w.session != nil && w.session.Version() > w.savedVersion {
 		w.dirty = true
 	}

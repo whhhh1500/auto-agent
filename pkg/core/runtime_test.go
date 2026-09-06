@@ -10,6 +10,73 @@ import (
 
 type neverLLM struct{ called bool }
 
+type fastCallOrderJournal struct {
+	session *Session
+	begins  int
+}
+
+type cancelingToolJournal struct {
+	cancel context.CancelFunc
+	cause  error
+	begins int
+}
+
+func (j *cancelingToolJournal) BeginToolInvocation(context.Context, ToolInvocation) (ToolInvocationRecord, ToolInvocationDecision, error) {
+	j.begins++
+	j.cancel()
+	return ToolInvocationRecord{}, "", j.cause
+}
+
+func (*cancelingToolJournal) CompleteToolInvocation(context.Context, ToolInvocation, CapabilityResult) (ToolInvocationRecord, error) {
+	return ToolInvocationRecord{}, errors.New("unexpected journal completion")
+}
+
+func (*cancelingToolJournal) MarkToolInvocationUncertain(context.Context, ToolInvocation, string) error {
+	return errors.New("unexpected uncertain journal mark")
+}
+
+type countingToolCallLLM struct {
+	call  ToolCall
+	calls int
+}
+
+func (*countingToolCallLLM) Provider() string { return "counting-tool-call" }
+
+func (m *countingToolCallLLM) Stream(_ context.Context, _ GenerateOptions, emit func(StreamChunk)) error {
+	m.calls++
+	call := m.call
+	emit(StreamChunk{Kind: StreamKindAssistant, ToolCall: &call})
+	emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishToolCalls})
+	return nil
+}
+
+type countingToolRuntime struct{ calls int }
+
+func (*countingToolRuntime) Schemas() []ToolSchema  { return nil }
+func (*countingToolRuntime) Authorized(string) bool { return true }
+func (*countingToolRuntime) MaxCallBudget() int     { return 1 }
+func (r *countingToolRuntime) Execute(context.Context, ToolCall) (CapabilityResult, error) {
+	r.calls++
+	return CapabilityResult{Content: "unexpected", OK: true}, nil
+}
+
+func (j *fastCallOrderJournal) BeginToolInvocation(_ context.Context, invocation ToolInvocation) (ToolInvocationRecord, ToolInvocationDecision, error) {
+	found, err := j.session.HasToolCall(invocation.RunID, invocation.CallID)
+	if err != nil || !found {
+		return ToolInvocationRecord{}, "", errors.New("journal began before fast tool call was appended")
+	}
+	j.begins++
+	return ToolInvocationRecord{ToolInvocation: invocation, State: ToolInvocationStarted}, ToolInvocationExecuteNew, nil
+}
+
+func (*fastCallOrderJournal) CompleteToolInvocation(_ context.Context, invocation ToolInvocation, result CapabilityResult) (ToolInvocationRecord, error) {
+	return ToolInvocationRecord{ToolInvocation: invocation, State: ToolInvocationCompleted, Result: &result}, nil
+}
+
+func (*fastCallOrderJournal) MarkToolInvocationUncertain(context.Context, ToolInvocation, string) error {
+	return nil
+}
+
 func (n *neverLLM) Provider() string { return "never" }
 
 func (n *neverLLM) Stream(context.Context, GenerateOptions, func(StreamChunk)) error {
@@ -219,6 +286,8 @@ func TestRuntimeAppendsMultiTurnFastPathWithAuditEvents(t *testing.T) {
 	session, _ := NewSession(SessionOptions{
 		ID: "session-a", ProfileID: "product.agent", Principal: principal, Scope: sessionScope,
 	})
+	journal := &fastCallOrderJournal{session: session}
+	runtime.ToolJournal = journal
 	for _, runID := range []string{"run-a", "run-b"} {
 		result, err := runtime.RunTurn(context.Background(), principal, session, TurnInput{RunID: runID, Text: "quote"}, nil)
 		if err != nil || result.Status != RunCompleted || result.Answer != "42" {
@@ -227,6 +296,9 @@ func TestRuntimeAppendsMultiTurnFastPathWithAuditEvents(t *testing.T) {
 	}
 	if llm.called {
 		t.Fatal("fast path called the LLM")
+	}
+	if journal.begins != 2 {
+		t.Fatalf("fast journal begins=%d, want 2 after durable tool-call append", journal.begins)
 	}
 	events := session.Events()
 	if len(events) != 12 || events[2].Type != EvToolCall || events[3].Type != EvToolResult || events[6].Seq != 6 {
@@ -251,6 +323,47 @@ func TestRuntimeAppendsMultiTurnFastPathWithAuditEvents(t *testing.T) {
 	headers := start.Composition.Capabilities[0].Manifest.Execution.Headers
 	if headers["Authorization"] != "[redacted]" || headers["X-Credential"] != "$credential:market-feed" {
 		t.Fatalf("run composition leaked a literal header or removed a credential reference: %#v", headers)
+	}
+}
+
+func TestAgentJournalCancellationPreservesCauseAndStopsModelLoop(t *testing.T) {
+	_, _, _, user := testScopes()
+	principal := testPrincipal(user)
+	ctx, cancel := context.WithCancel(context.Background())
+	journalCause := errors.New("journal write interrupted")
+	journal := &cancelingToolJournal{cancel: cancel, cause: journalCause}
+	model := &countingToolCallLLM{call: ToolCall{ID: "call-journal-cancel", Name: "market.quote"}}
+	tools := &countingToolRuntime{}
+	session := mustSession(t, user, principal)
+	agent, err := NewAgent(AgentOptions{
+		LLM: model, Tools: tools, Session: session, ToolJournal: journal, MaxSteps: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := agent.RunTurn(ctx, TurnInput{RunID: "run-journal-cancel", Text: "quote"})
+	if err == nil || result.Status != RunCancelled || !errors.Is(err, context.Canceled) || !errors.Is(err, journalCause) {
+		t.Fatalf("journal cancellation classification: result=%#v err=%v", result, err)
+	}
+	if model.calls != 1 {
+		t.Fatalf("model calls=%d, want one call before cancellation", model.calls)
+	}
+	if journal.begins != 1 || tools.calls != 0 {
+		t.Fatalf("journal/tool calls after cancellation: begins=%d tools=%d", journal.begins, tools.calls)
+	}
+	failureCode := ""
+	for _, event := range session.Events() {
+		if event.Type != EvRunError {
+			continue
+		}
+		var data RuntimeErrorData
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			t.Fatal(err)
+		}
+		failureCode = data.Code
+	}
+	if failureCode != "tool_cancelled" {
+		t.Fatalf("journal cancellation event code=%q", failureCode)
 	}
 }
 

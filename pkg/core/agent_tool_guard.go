@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -194,6 +195,9 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 		record, decision, journalErr := safeBeginToolInvocation(agent.opts.ToolJournal, ctx, invocation)
 		if journalErr != nil {
 			recordToolJournalTelemetry(agent.opts.Telemetry, ctx, call.Name, "error")
+			if err := ctx.Err(); err != nil {
+				return CapabilityResult{}, errors.Join(err, journalErr)
+			}
 			result := deniedResult(CodeToolJournalUnavailable, "tool invocation journal is unavailable")
 			if agent.opts.Hooks != nil {
 				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })

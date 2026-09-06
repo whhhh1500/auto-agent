@@ -1,0 +1,173 @@
+{
+  "before_kill": {
+    "active_call_id": "call_4a914e903bd05def1de92decb4407237",
+    "active_span_id": "1e74a38803d2b055",
+    "active_trace_id": "eb63885434958ce927760bda5f889599",
+    "blocked_at_fault": true,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_3bdcd9f13bbea22f927b52f9be510494",
+          "session.id": "sess_a10946c7d4ac8109771eb4ee5fccfb13",
+          "worker.id": "process-crash"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "484dce530dc49748",
+        "status": "Unset",
+        "trace_id": "a5a1e7b8dab91bbfd48843f727ca0cb7"
+      },
+      {
+        "attributes": {
+          "model.outcome": "ok",
+          "run.id": "run_3bdcd9f13bbea22f927b52f9be510494",
+          "run.step": "0",
+          "session.id": "sess_a10946c7d4ac8109771eb4ee5fccfb13"
+        },
+        "duration_ms": 0,
+        "name": "harness.model.call",
+        "parent_id": "ed2eb1267be8a978",
+        "span_id": "d1a2cda63b164d71",
+        "status": "Unset",
+        "trace_id": "eb63885434958ce927760bda5f889599"
+      }
+    ],
+    "input_tokens": 0,
+    "model_calls": 1,
+    "model_request_ms": [
+      0
+    ],
+    "output_tokens": 0,
+    "phase": "crash",
+    "pid": 29872
+  },
+  "durable_prefix_before_kill": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_4a914e903bd05def1de92decb4407237",
+      "seq": 4,
+      "type": "tool/call"
+    }
+  ],
+  "durable_version_before_kill": 5,
+  "effect_observed_durable_version": 5,
+  "effects_after": 1,
+  "effects_before": 1,
+  "fault_point": "effect_committed",
+  "final_sql_history": [
+    {
+      "seq": 0,
+      "type": "run/start"
+    },
+    {
+      "seq": 1,
+      "type": "user/message"
+    },
+    {
+      "seq": 2,
+      "type": "step/start"
+    },
+    {
+      "seq": 3,
+      "type": "assistant/message"
+    },
+    {
+      "call_id": "call_4a914e903bd05def1de92decb4407237",
+      "seq": 4,
+      "type": "tool/call"
+    },
+    {
+      "call_id": "call_4a914e903bd05def1de92decb4407237",
+      "code": "tool_outcome_unknown",
+      "seq": 5,
+      "type": "tool/result"
+    },
+    {
+      "seq": 6,
+      "type": "step/end"
+    },
+    {
+      "code": "run_interrupted",
+      "seq": 7,
+      "type": "run/error"
+    },
+    {
+      "seq": 8,
+      "status": "failed",
+      "type": "run/end"
+    }
+  ],
+  "hard_kill_abnormal": true,
+  "hard_kill_exit_code": 1,
+  "http_history_matches_sql": true,
+  "journal_after": {
+    "call_id": "call_4a914e903bd05def1de92decb4407237",
+    "has_result": false,
+    "rows": 1,
+    "state": "started"
+  },
+  "journal_before": {
+    "call_id": "call_4a914e903bd05def1de92decb4407237",
+    "has_result": false,
+    "rows": 1,
+    "state": "started"
+  },
+  "live_model": false,
+  "queue_after": {
+    "rows": 0
+  },
+  "queue_before": {
+    "attempt": 1,
+    "generation": 1,
+    "rows": 1,
+    "worker_id": "process-crash"
+  },
+  "recovered_claims": 1,
+  "recovery_failures": 0,
+  "replacement": {
+    "blocked_at_fault": false,
+    "ended_spans": [
+      {
+        "attributes": {
+          "claim.outcome": "claimed",
+          "run.id": "run_3bdcd9f13bbea22f927b52f9be510494",
+          "session.id": "sess_a10946c7d4ac8109771eb4ee5fccfb13",
+          "worker.id": "process-recover"
+        },
+        "duration_ms": 0,
+        "name": "harness.queue.claim",
+        "parent_id": "0000000000000000",
+        "span_id": "df70ef6016f03bbd",
+        "status": "Unset",
+        "trace_id": "37d8ef5477e16e24e794dd65dcab5e43"
+      }
+    ],
+    "input_tokens": 0,
+    "model_calls": 0,
+    "model_request_ms": null,
+    "output_tokens": 0,
+    "phase": "recover",
+    "pid": 30644
+  },
+  "run_error_code": "run_interrupted",
+  "run_id": "run_3bdcd9f13bbea22f927b52f9be510494",
+  "run_status": "failed",
+  "session_id": "sess_a10946c7d4ac8109771eb4ee5fccfb13"
+}

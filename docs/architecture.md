@@ -131,6 +131,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | WASM execution | Per-call isolated runtime, default 128 MiB guest linear memory / 30 s timeout, context cancellation enabled; optional caller-owned compilation cache | [Real WASI, resource and cache acceptance](performance/2026-09-06-wasm-resource-and-cache.md); limits do not cap total host RSS or hard-preempt arbitrary file reads / compilation |
 | Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
 | Optional tool disclosure | Restores up to 8 recent tool schemas from projected history and the current authorized snapshot; host-owned library dispatch is preserved | [4/24-tool real conversation comparison](performance/2026-09-06-tool-disclosure.md); extra discovery calls can increase total tokens and latency; `toollib.SetSearcher` does not replace the core searcher |
+| Queued worker process-crash recovery | Before a journaled tool begins, the server durably checkpoints the assistant/tool-call prefix; an unknown non-idempotent outcome is repaired as `run_interrupted` without provider replay | [Hard-kill PostgreSQL acceptance](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery); recovery is fail-closed, including a journal row already marked completed |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking
@@ -199,6 +200,40 @@ to the adapter configuration, outside the core contract.
   run/call identity and argument digest are recorded before the provider sees
   the request; completed outcomes replay canonically, while unknown
   non-idempotent outcomes fail closed instead of repeating a side effect.
+- The server creates one `WriteBehind` per synchronous or queued Run before
+  resolving its executor. `Checkpoint` is the repeatable synchronous operation:
+  later `MarkDirty` calls still use background batching and a later checkpoint
+  advances durability again while the writer is open. `Flush` is terminal: it
+  drains the pending prefix, closes background scheduling, and later `MarkDirty`
+  or `Checkpoint` calls neither persist new events nor reopen the writer. A
+  shallow copy of that Run's `Runtime` privately wraps
+  its journal and checkpoints the already appended assistant/tool-call prefix
+  before `BeginToolInvocation`; a failed checkpoint cancels the Run before the
+  inner journal begin, tool provider, or second model call. The shared server
+  Runtime is not mutated. This cancellation is internal stop control: synchronous
+  SSE suppresses the resulting `tool_cancelled` / cancelled `run/end` pair and
+  instead emits one structured `store/error` with `code=store_error`,
+  `status=failed`, and the original persistence error. Synchronous and queued
+  RunControl records settle as `failed/store_error`; the failed checkpoint does
+  not leave a partial durable Session history.
+- The wrapped Runtime is supplied through `RunExecutor` dependencies, so a
+  registered custom executor gets the boundary only while it uses that
+  Runtime's guarded tool path inside `RunTurn` / `ResumeTurn`. Direct provider
+  execution, or asynchronous use of the Runtime or `emit` after the executor
+  method returns, is outside the executor contract and this guarantee.
+- FastRouter now constructs the matched call and, when invoked through the
+  Agent's guarded Runtime, appends `EvToolCall` before guarded `Execute` reaches
+  the journal and any side effect. The public `Dispatch` API remains compatible
+  for other `ToolRuntime` implementations. This ordering has an offline unit
+  test; it has not received a separate process-crash or live-model acceptance.
+- The pre-tool checkpoint adds one durable append interaction per journaled,
+  protected tool side effect. Ordinary stream chunks remain write-behind
+  batched; they are not synchronously persisted one by one. Current recovery
+  also treats a pre-crash `journal_completed` record as `run_interrupted` and
+  does not automatically continue the model from its completed result. This is
+  a deliberate safety boundary, not completed continuation support; its cost
+  still requires a dedicated benchmark. The current live acceptance is one
+  serial Gemini sample per fault point, not a performance distribution.
 - Runtime and infrastructure paths emit through a bounded `core.Telemetry`
   seam. IDs stay trace-only, operational metric dimensions stay bounded, and
   telemetry failures or panics never affect execution semantics.

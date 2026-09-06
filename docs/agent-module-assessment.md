@@ -18,6 +18,8 @@
 
 后续 [LLM 摘要完整计量验收](performance/2026-09-06-llm-summary-accounting.md)再做 9 次串行请求，补齐摘要的工具元数据、有效 usage、Run 身份、trace 和 SQL 统计；普通模型失败后的用量也保留。三个工具来源事实在本地提取/LLM 摘要下均答对，但计入三次摘要调用后，LLM 组总 token 从 4,423 增至 12,990、耗时从 10.05 秒增至 34.18 秒。本地仍为默认；不把普通回答请求变小误写成整段成本降低。
 
+[queued worker 进程硬终止验收](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)随后以确定性离线模型、真实 PostgreSQL 和两组真实 OS 子进程补测 `effect_committed` / `journal_completed`。修复前两点都把业务效果从 1 次重放为 2 次；修复后 durable prefix 为 5 条，业务效果和 journal 各保持 1，替换进程模型调用为 0，最终均以 `run_interrupted` 失败收束。另以 Gemini 串行各跑一次，共 2 次模型请求、恢复进程 0 次、无自动重试；单样本总测试耗时 8.29 秒，不是性能基准。
+
 | 模块 | 职责 | 本轮真实验收状态 | 已跑通的边界 / 未覆盖内容 |
 | --- | --- | --- | --- |
 | [M01](#m01) | Agent 循环 | 已验证路径 | 真实模型→工具→模型→终态；含文本与工具循环。 |
@@ -31,14 +33,14 @@
 | [M09](#m09) | 模型协议 | 已验证路径 | 现有端点的 Chat Completions 兼容协议，model=gemini-3.8-flash；未测原生 Gemini / Responses / Anthropic。 |
 | [M10](#m10) | 模型设置 / Key | 部分验证 | 现有 env URL / Key 实际可用；没有验证数据库模型设置缓存和 Console 修改。 |
 | [M11](#m11) | Gate / Retry | 未作为生产能力验证 | 串行由验收包装器的互斥锁和间隔保证；未安装生产 Gate，自动重试为 0。 |
-| [M12](#m12) | FastRouter | 本轮未验 | 未安装 FastRouter，所有场景均进入模型循环。 |
+| [M12](#m12) | FastRouter | 离线顺序已验证 | guarded 路径先 append `EvToolCall`、再 journal Begin 和工具效果；公共 Dispatch 兼容。未做独立进程或 live crash。 |
 | [M13](#m13) | Session / 事件 | 已验证路径 | 会话重建后记住随机值；HTTP 历史分页与 SQL 原始事件逐项相等，保留终态。 |
 | [M14](#m14) | 上下文组装 | 发现问题后验证并优化 | 修复兼容别名、Workflow 内部结果和工具 Schema 漏算；最终工具预算先于旧历史选择，自定义 ContextEstimator 已接入；预算超限上游调用为 0。 |
 | [M15](#m15) | 摘要 / 压缩 | 两种策略有明确实测路径 | 120/60 连续三次摘要、不同历史事实、重建后事件/投影恢复；先验本地摘要，后用 9 次请求对照本地/LLM 并计入全部摘要费用。合成历史，无限轮记忆未验。 |
 | [M16](#m16) | 工具保护 / Hook | 已验证路径 | OnBeforeTool 拒绝后模型回答 BLOCKED，工具副作用为 0；未穷举全部策略。 |
 | [M17](#m17) | 人工审批 | 已验证路径 | 真实模型请求工具→持久暂停→替换服务实例→同 Run 恢复；副作用和终态各 1 次。该既有夹具未装 ContextAssembler。 |
-| [M18](#m18) | ToolJournal | 部分验证 | SQL journal 参与工具执行及审批恢复；非幂等崩溃窗口未在本轮注入。 |
-| [M19](#m19) | 队列 / 租约 | 部分验证 | HTTP async 入队、RunWorkerOnce 领取与 SQL 终态；未启动并发 worker，未做超时租约压力验证。 |
+| [M18](#m18) | ToolJournal | 已验证故障路径 | 非幂等工具在 effect committed / journal completed 两点被真实硬杀；恢复保持 1 条 journal 与 1 次副作用并 fail closed。完成结果自动续跑未实现。 |
+| [M19](#m19) | 队列 / 租约 | 已验证故障路径 | 独立 worker 进程硬杀、过期 claim 回收、不同 PID 替换进程及队列清空通过；长期并发故障迁移未测。 |
 | [M20](#m20) | 子 Agent | 已验证路径 | 真实父子模型调用、子工具随机值、SQL delegation link、父子历史及同 trace 的 span 关联；未测子审批中断恢复。 |
 | [M21](#m21) | Workflow | 发现问题后验证 | 7→double=14→plus=17，受保护内层调用与三份工具结果均可审计，真实最终回答 17；不是复杂 DAG 验收。 |
 | [M22](#m22) | Graph | 本轮未验 | 未切换 Graph RunExecutor；Workflow 通过不能替代 Graph 验收。 |
@@ -53,7 +55,7 @@
 | [M31](#m31) | Private Runner | 本轮未验 | 未启动独立 Worker 或验证远程任务协议。 |
 | [M32](#m32) | Memory | 发现问题后验证 | 真实 remember 写 SQL；关闭服务和连接；另一 Session 通过 recall 取回未出现在新提示中的随机值。 |
 | [M33](#m33) | RAG | 已验证路径 | SQL 关键词检索返回本租户随机值且不含另一租户值；未测试 embedding / 向量召回质量。 |
-| [M34](#m34) | 持久化 | 已验证路径 | 真实 PostgreSQL 的 Session / Run / Approval / Journal / Memory / RAG / Delegation 部分路径；不是所有存储后端验收。 |
+| [M34](#m34) | 持久化 | 已验证路径 | 真实 PostgreSQL 的 Session / Run / Approval / Journal / Memory / RAG / Delegation 部分路径；硬杀前 5 条 durable prefix 与恢复后 HTTP/SQL 9 条事件一致。不是所有存储后端验收。 |
 | [M35](#m35) | Artifact / 对象存储 | 本轮未验 | 审计 JSON 是测试本地文件，不是 Artifact/S3 生产链路。 |
 | [M36](#m36) | 身份与账号 | 本轮未验 | Authenticator 直接返回测试 Principal；没有真实账号登录/Token 生命周期测试。 |
 | [M37](#m37) | 配置管理 | 本轮未验 | 夹具 Go 注册和 env 读取不能替代持久配置管理 API 验收。 |
@@ -62,8 +64,8 @@
 | [M40](#m40) | 发布 / Canary | 本轮未验 | 没有真实模型驱动的发布、灰度或回滚操作。 |
 | [M41](#m41) | HTTP / SSE | 部分验证 | 真实 HTTP 创建 Session、async Run、历史分页和重建后读取；流式 chunk 已入库，未使用真实 SSE 断线客户端。 |
 | [M42](#m42) | Console | 本轮未验 UI | 已查其历史所依赖的事件 API；没有浏览器操作或页面渲染验收。 |
-| [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；后续已补齐上下文成本指标并用 SDK reader 真实验证，未连接远端 OTLP / Grafana。 |
-| [M44](#m44) | 质量与验证 | 已有可执行标准 | 新增显式启用的串行真实模型测试和离线 HTTP/SQL 回归；验收包含 trace、聊天历史及失败记录。 |
+| [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；硬杀验收保留未 end 的 active tool span 事实，替换进程无 model/tool span。未连接远端 OTLP / Grafana。 |
+| [M44](#m44) | 质量与验证 | 已有可执行标准 | 串行真实模型与离线 HTTP/SQL/进程硬杀分层；checkpoint 失败另核对 inner Begin 0、tool 0、model 1、无部分历史及 `failed/store_error`。 |
 
 **统一审核标准已加入测试：** 同时核对业务结果、HTTP 聊天历史与 SQL 事件、工具调用/结果配对、OTel Run/Model/Tool 关联和唯一终态；子 Agent 还核对 SQL 父子关联与 span 父子关系。新增标准的真实样本为子 Agent 和 Workflow 历史恢复，不能追溯声称早先未采集的场景也有完整 OTel 证据。审计原始样本与边界见验收记录。
 
@@ -263,11 +265,11 @@ flowchart TD
 
 ### M12 — FastRouter 快速路由
 
-**实现 / 状态：** [fastrouter.go](../pkg/core/fastrouter.go)提供可选规则路由，命中后可直接执行相应能力，仍进入工具保护路径；不是默认存在的语义分类模型，也不是通用规划器。
+**实现 / 状态：** [fastrouter.go](../pkg/core/fastrouter.go)提供可选规则路由。命中后先构造 call；通过 Agent guarded Runtime 调用时，先追加 `EvToolCall`，再进入 guarded Execute、journal Begin 和工具副作用，使 server checkpoint 能持久化同一 call identity。外部 `ToolRuntime` 的公共 `Dispatch` 用法保持兼容。它不是默认存在的语义分类模型，也不是通用规划器。
 
 **扩展：** E1：构造 `FastRouter`，通过 `Add(FastRule)` 注册 Match/Args/Answer，再由 `FastRouterResolver` 为 Profile 返回路由实例；`FastRouter` 本身是具体类型。语义分类属于额外适配，其模型成本、置信度与回退需自行定义，不能绕过 capability 可见性、Schema 和审批。
 
-**性能：** 命中确定性规则可能减少一次模型往返，这是结构上的收益；本次未测命中率、误路由率或实际节省时间。加入 LLM 分类器后未必更快。
+**验证 / 性能：** 离线顺序测试检查 tool call 先于 journal Begin 和 effect；server 测试分别覆盖同步与 queued checkpoint，命中时模型调用为 0，另有审批暂停/恢复复用同一 call 的回归。没有为 FastRouter 单独注入进程崩溃，也没有 FastRouter live-model crash 证据。命中确定性规则可能减少一次模型往返，这是结构上的收益；本次未测命中率、误路由率或实际节省时间。加入 LLM 分类器后未必更快。
 
 **对比 / 取舍：** 类似图框架的条件边或 middleware 分流。固定命令与稳定意图可优先用本模块，开放式任务更适合交给模型循环或通用图编排。
 
@@ -339,11 +341,15 @@ flowchart TD
 
 ### M18 — 持久工具调用日志与未知结果处理
 
-**实现 / 状态：** [tool_journal.go](../pkg/core/tool_journal.go)、[repair.go](../pkg/core/repair.go)记录接受、执行与结果证据；默认服务注入 SQL ToolJournal。稳定 call identity 用于去重与恢复；非幂等工具执行结果未知时关闭自动重放，避免猜测副作用。
+**实现 / 状态：** [tool_journal.go](../pkg/core/tool_journal.go)、[repair.go](../pkg/core/repair.go)记录接受、执行与结果证据；默认服务注入 SQL ToolJournal。服务为每个同步/queued Run 浅复制 Runtime，以私有 journal wrapper 在底层 Begin 前调用可重复 `WriteBehind.Checkpoint`，同步保存已追加的 tool call；Run 结束仍由 `Flush` 终结并关闭 writer，之后的 `MarkDirty` / `Checkpoint` 不再持久化或重启调度，共享 Runtime 不变。稳定 call identity 用于去重与恢复；非幂等工具执行结果未知时关闭自动重放，避免猜测副作用。注册的自定义 executor 通过依赖收到这份 Runtime，只有在方法返回前使用其受保护工具路径才在该保证内；返回后异步使用 Runtime/emit 不在合同内。
 
 **扩展：** E1：实现 ToolInvocationJournal，或给工具接入可验证幂等键 / 外部状态查询。新增外部副作用必须设计“服务已执行但本地未落库”的处理，单靠内部事务无法原子提交第三方世界。
 
-**性能：** 每次受保护工具调用多出持久交互，可能增加数据库写入与争用；暂无单独 journal p99。127.38 完整会话/秒的既有本地负载包含这类成本，但不是 journal 独立吞吐。
+**性能：** 每个使用 journal 的受保护工具副作用前新增一次同步 durable append；普通模型流 chunk 仍批量 write-behind，不逐 chunk 同步。两个 Gemini 故障点各有一次 live 样本，但暂无该新边界的独立 p50/p99；既有 127.38 完整会话/秒基线早于本次修复，不能写成已包含这项新增成本。应补真实 PostgreSQL 延迟 benchmark。
+
+**故障边界：** [真实进程硬杀证据](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)覆盖业务效果已提交和 journal 已完成两点。两点都避免重放并以 `run_interrupted` 失败收束。`journal_completed` 的完成结果目前不会自动送回模型续跑，这是明确的 fail-closed 安全边界和后续改进项，不是已实现能力。
+
+**checkpoint 失败：** 同步与 queued 离线测试都得到一次 store write、一次模型调用、inner Begin 0、工具效果 0；durable Session 不含部分历史，RunControl 均为 `failed/store_error`。服务仍主动取消内部 Run，以阻止工具和第二次模型调用；同步 SSE 会抑制由此产生的 `tool_cancelled` / cancelled `run/end`，最终只发送结构化 `store/error`（`code=store_error`、`status=failed`）并保留原始持久化错误。FastRouter 的 journal-before-effect 目前只有进程内顺序测试，不能并入上述独立进程/live crash 结论。
 
 **对比 / 取舍：** 本项目对此有明确合同，适合审批后写外部系统；LangGraph/Eino 恢复也需要关注节点重入与幂等。任何框架都不能仅凭 checkpoint 承诺任意远端非幂等操作严格 exactly-once。[C1](agent-framework-comparison.md#c1)、[C6](agent-framework-comparison.md#c6)
 
@@ -355,7 +361,7 @@ flowchart TD
 
 **扩展：** E0：使用既有 worker / 时间配置；E1：实现共享 Store、时钟或替代服务调度器，保持租约代次和失去所有权后的停止语义。要改成外部消息队列，需要实现领取、重复投递和租约合同，不能仅替换发送函数。
 
-**性能：** 既有 8 客户端 / 4 worker / 2 服务对象 / PostgreSQL 的 2,048 次本地模型会话全部成功，**127.38 次/秒、p95 168 ms**。本次调度器微基准每批注册 1,000 活动项并关闭，中位 **375.569 µs**；它不是 1,000 并发推理能力。
+**性能：** 既有 8 客户端 / 4 worker / 2 服务对象 / PostgreSQL 的 2,048 次本地模型会话全部成功，**127.38 次/秒、p95 168 ms**；该基线早于 pre-tool checkpoint 修复。本次调度器微基准每批注册 1,000 活动项并关闭，中位 **375.569 µs**；它不是 1,000 并发推理能力。另有两个独立子进程的硬杀/恢复正确性用例，但它们不是吞吐或长期迁移 benchmark。
 
 **对比 / 取舍：** 本项目已包含自托管服务调度；LangGraph Agent Server、Microsoft hosting 是更接近的比较对象，不能拿它与一个纯函数式 SDK 比“谁自带队列”就宣布全面胜出。跨 OS 进程、长稳态与故障迁移仍需补测。[C1](agent-framework-comparison.md#c1)、[C3](agent-framework-comparison.md#c3)
 
@@ -541,7 +547,7 @@ flowchart TD
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
-**性能：** 增量追加可减少整份会话写放大；write-behind 要区分内存接受与 durable flush，异常退出仍需按其合同处理。既有本地 PG 并发基线已覆盖部分完整链路，本次未做数据库大小增长、SQLite 锁竞争和远端 PG 压测。
+**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史，但新增同步交互尚未 benchmark。本次仍未做数据库大小增长、SQLite 锁竞争和远端 PG 压测。
 
 **对比 / 取舍：** 本项目自带的服务级存储范围较广，代价是 migration 与多 Store 一致性维护。LangGraph/Eino 的 checkpoint 后端聚焦编排恢复，不能直接当作整个 SaaS 数据层替代品；也不能据此说它们缺少持久化。
 
@@ -625,6 +631,8 @@ flowchart TD
 
 **实现 / 状态：** [pkg/server](../pkg/server)、[adapter/httpapi](../pkg/adapter/httpapi)、[OpenAPI](../openapi/harness-core-v1.yaml)提供会话、运行、审批、资源和管理接口；当前核验记录为 **102 个 `/v1` 操作**。SSE 输出实时观察，持久事件查询支持游标；不要假设 SSE 连接或 `Last-Event-ID` 自动保证所有消息重放。
 
+checkpoint 持久化失败时，内部取消只用于立即停止工具路径和后续模型调用；同步 SSE 不暴露内部 `tool_cancelled` / cancelled `run/end`，而发送带原始持久化错误的 `store/error`（`code=store_error`、`status=failed`）。该响应事件不是 durable Session 历史；同步与 queued 的持久 RunControl 都以 `failed/store_error` 收束。
+
 **扩展：** E1：新增类型化 HTTP adapter 并同步 OpenAPI/授权；E2：任何语言调用现有 HTTP API。当前没有正式多语言客户端 SDK、gRPC、入站 MCP 或 A2A 的完整内置服务面。
 
 **性能：** 编码、事件扇出、慢客户端与查询分页都有成本；既有并发基线覆盖部分 HTTP 链路，未覆盖大量 SSE 长连接与背压恢复。健康检查吞吐不能当作 Agent 会话吞吐。
@@ -651,6 +659,8 @@ flowchart TD
 
 [LLM 摘要验收](performance/2026-09-06-llm-summary-accounting.md)进一步区分普通/摘要模型 span，核对上游报告、持久 usage 增量与 SQL RunStat。已采集三次真实摘要调用；脚本模型另验证报告用量后失败仍保留费用、error span 和唯一失败终态，不写入替换摘要。未报告 usage 与明确 0 分别表示，不将前者当作免费。
 
+[进程硬终止验收](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)再核对首/替换进程的 queue claim、Run trace、model/tool span 与 PID。`effect_committed` 的 active tool span 因进程被硬杀而不可能正常 end，证据不补造 span；此前结束的 model span 仍与 Run trace 关联。替换进程只做持久状态修复，没有 model/tool span。离线与 Gemini live 两层都使用本地 exporter；这不是远端 telemetry 平台证据。
+
 **实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。
 
 **扩展：** E1：注入 exporter/telemetry 或日志实现，接现有观测后端；明确采样、敏感内容与属性基数。trace 不是持久审批事实来源，丢采样不能影响运行正确性。
@@ -667,7 +677,7 @@ flowchart TD
 
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 
-**性能：** 初版 6 个包、9 个微基准及历史条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)。后续真实调用与全仓检查分别记在上下文预算、WASM、工具披露、连续摘要和 LLM 摘要记录中；最新补做 9 次真实请求、2 MiB 拒绝路径五样本基准及全仓 PostgreSQL 测试。不能把早期源码评估、离线脚本或被跳过的测试合并成全部真实通过。
+**性能：** 初版 6 个包、9 个微基准及历史条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)。后续真实调用与全仓检查分别记在上下文预算、WASM、工具披露、连续摘要和 LLM 摘要记录中；最新进程硬杀补验包含两个显式串行 Gemini 样本，但没有测 pre-tool checkpoint 成本。不能把早期源码评估、离线脚本、被跳过的测试或单次 live 样本合并成全部真实通过或性能分布。
 
 **对比 / 取舍：** 现有测试证据支持继续开发，但未提供外部采用规模、长期事故率或跨框架性能优胜证据。应保持小接口和明确合同，优先补真实部署验证，而不是仅增加更多抽象或追求测试数量。
 
@@ -691,7 +701,7 @@ flowchart TD
 
 ## 扩展的建议顺序
 
-1. **继续补已确认的边界缺口。** 工具预算、上下文指标、WASM guest 资源/中断和披露后的模型声明已修复；披露有大小目录的真实总成本与恢复证据。继续长历史/任务恢复、厂商协议成本模型，以及更多任务/目录分布下的披露取舍评测，不能将局部收益当作整体优化完成。
+1. **继续补已确认的边界缺口。** 工具预算、上下文指标、WASM guest 资源/中断、披露后的模型声明和工具前 durable checkpoint 已修复。下一步量化 checkpoint 成本，并为 `journal_completed` 设计可证明安全的完成结果续跑；在此之前继续 fail closed。还需长历史/任务恢复、厂商协议成本模型，以及更多任务/目录分布下的披露取舍评测，不能将局部收益当作整体优化完成。
 2. **沿用现有治理主线。** 业务工具优先 E2；新模型、检索和云沙箱优先 E1 adapters。产品领域行为留在应用或 examples，避免扩大 `pkg/core`。
 3. **按实际需求补连接器。** 若首要需求是 E2B，先定义要“调用云端”还是“兼容其服务端 API”；若首要需求是 RAG，接成熟检索组件通常比自建全套 ingestion/embedding/ANN 更直接。
 4. **图能力先做选型试验。** 用一个包含分支、人工审批、重启恢复和外部副作用的真实业务，同时评估现有 Graph 与 LangGraph/Eino/ADK。没有需求驱动时不必把 ModuleHost、Workflow、Graph 再合并成更大的总抽象。
