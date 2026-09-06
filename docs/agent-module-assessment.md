@@ -357,11 +357,13 @@ flowchart TD
 
 ### M19 — 异步队列、租约、Worker 与存活调度
 
-**实现 / 状态：** [server_run_worker.go](../pkg/server/server_run_worker.go)、[server_lease.go](../pkg/server/server_lease.go)、[run_control.go](../pkg/storage/run_control.go)、[sql_leases.go](../pkg/storage/sql_leases.go)承接领取、续租和恢复；[runliveness/scheduler.go](../pkg/app/runliveness/scheduler.go)集中调度活动 Run 的存活任务。它们位于服务层，不是每次直接调用内核都自动启动的后台系统。
+**实现 / 状态：** [server_run_worker.go](../pkg/server/server_run_worker.go)、[server_lease.go](../pkg/server/server_lease.go)、[run_control.go](../pkg/storage/run_control.go)、[sql_leases.go](../pkg/storage/sql_leases.go)承接领取、续租和恢复；[runliveness/scheduler.go](../pkg/app/runliveness/scheduler.go)集中调度活动 Run 的存活任务。SQL queued 路径将当前 claim 的 worker、generation 和唯一 Session lease holder 传给同一事务的 fenced Session append；失去 fence 的旧 worker 只停止并 abort writer，不能再追加 Session terminal 或结算旧 claim。它们位于服务层，不是每次直接调用内核都自动启动的后台系统。
 
 **扩展：** E0：使用既有 worker / 时间配置；E1：实现共享 Store、时钟或替代服务调度器，保持租约代次和失去所有权后的停止语义。要改成外部消息队列，需要实现领取、重复投递和租约合同，不能仅替换发送函数。
 
 **性能：** 既有 8 客户端 / 4 worker / 2 服务对象 / PostgreSQL 的 2,048 次本地模型会话全部成功，**127.38 次/秒、p95 168 ms**；该基线早于 pre-tool checkpoint 修复。本次调度器微基准每批注册 1,000 活动项并关闭，中位 **375.569 µs**；它不是 1,000 并发推理能力。另有两个独立子进程的硬杀/恢复正确性用例，但它们不是吞吐或长期迁移 benchmark。
+
+**PostgreSQL fence 验证：** 独立 loopback PostgreSQL 17.6 上已运行 stale generation、末端 recheck 回滚、committed predecessor repair 和 `RenewRunClaim`/fenced-append 30 轮并发；对应 race、server approval/replacement race、全仓 PostgreSQL 门禁与两个真实 `Process.Kill` 故障点均通过，且验收期间未观察到 deadlock、statement timeout 或遗留 active lock wait。它证明当前 PG 17.6 下的事务和锁序行为，不是 PostgreSQL 16 CI 镜像、长期生产负载或跨版本性能的替代；未设置 `HARNESS_TEST_PG_DSN` 的默认测试会跳过 PG 用例。
 
 **对比 / 取舍：** 本项目已包含自托管服务调度；LangGraph Agent Server、Microsoft hosting 是更接近的比较对象，不能拿它与一个纯函数式 SDK 比“谁自带队列”就宣布全面胜出。跨 OS 进程、长稳态与故障迁移仍需补测。[C1](agent-framework-comparison.md#c1)、[C3](agent-framework-comparison.md#c3)
 
@@ -547,7 +549,7 @@ flowchart TD
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
-**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史。Pre-tool durable checkpoint 的局部开销见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)；其中分位数为 batch-normalized，并非单请求 tail，且 Memory/SQLite 结果不能替代 PostgreSQL。本次仍未做数据库大小增长、SQLite 锁竞争和远端 PG 压测。
+**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史。Pre-tool durable checkpoint 的局部开销见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)；其中分位数为 batch-normalized，并非单请求 tail，且 Memory/SQLite 结果不能替代 PostgreSQL。另已在 PostgreSQL 17.6 实测 fenced append 的 stale-generation 拒绝、最终 ownership recheck 的事务回滚、predecessor repair 与 claim-renew 并发锁序；这不是 CI PostgreSQL 16、远端 PG 压测、数据库大小增长或长期锁竞争的替代。
 
 **对比 / 取舍：** 本项目自带的服务级存储范围较广，代价是 migration 与多 Store 一致性维护。LangGraph/Eino 的 checkpoint 后端聚焦编排恢复，不能直接当作整个 SaaS 数据层替代品；也不能据此说它们缺少持久化。
 

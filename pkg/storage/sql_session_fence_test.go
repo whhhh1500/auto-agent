@@ -21,6 +21,13 @@ type fencedSQLFixture struct {
 	fence   SessionWriteFence
 }
 
+func newPostgresFenceTestContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func newSQLiteFencedFixture(t *testing.T) *fencedSQLFixture {
 	t.Helper()
 	return newFencedSQLFixture(t, newTestSQLStore(t), "session-fenced", "run-fenced")
@@ -868,14 +875,15 @@ func TestFencedWriteBehindUsesOptionalAppender(t *testing.T) {
 }
 
 func TestPostgresSessionStoreFencedAppend(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
 	db := newPostgresTestDB(t)
-	store, err := OpenSQLSessionStore(context.Background(), db, SQLDialectPostgres)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fixture := newFencedSQLFixture(t, store, "session-pg-fenced", "run-pg-fenced")
 	event := nextFencedEvent(t, fixture.session, fixture.fence.RunID, "postgres")
-	if err := store.AppendEventsFenced(context.Background(), fixture.fence, 1, []core.SessionEvent{event}); err != nil {
+	if err := store.AppendEventsFenced(ctx, fixture.fence, 1, []core.SessionEvent{event}); err != nil {
 		t.Fatal(err)
 	}
 	assertFencedSessionVersion(t, fixture, 2)
@@ -887,6 +895,133 @@ func TestPostgresSessionStoreFencedAppend(t *testing.T) {
 		t.Fatalf("postgres stale generation error=%v", err)
 	}
 	assertFencedSessionVersion(t, fixture, 2)
+}
+
+func TestPostgresFencedAppendFinalRecheckRollsBack(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
+	db := newPostgresTestDB(t)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newFencedSQLFixture(t, store, "session-pg-fence-rollback", "run-pg-fence-rollback")
+	const functionName = "fence_pg_change_owner_after_chunk"
+	const triggerName = "fence_pg_change_owner_after_chunk_trigger"
+	if _, err := db.ExecContext(ctx, `CREATE FUNCTION `+functionName+`() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	UPDATE run_queue SET worker_id = 'worker-triggered' WHERE run_id = TG_ARGV[0];
+	RETURN NEW;
+END;
+$$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TRIGGER `+triggerName+`
+		AFTER INSERT ON event_chunks FOR EACH ROW EXECUTE FUNCTION `+functionName+`('`+fixture.fence.RunID+`')`); err != nil {
+		t.Fatal(err)
+	}
+	end, err := fixture.session.Append(fixture.fence.RunID, core.EvRunEnd, core.RunEndData{Status: core.RunCompleted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.AppendEventsFenced(ctx, fixture.fence, 1, []core.SessionEvent{end})
+	if !errors.Is(err, ErrSessionWriteFenceLost) || errors.Is(err, core.ErrSessionConflict) {
+		t.Fatalf("final PostgreSQL fence recheck error=%v", err)
+	}
+	assertFencedSessionVersion(t, fixture, 1)
+	var chunks int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM event_chunks WHERE session_id = $1", fixture.fence.SessionID).Scan(&chunks); err != nil {
+		t.Fatal(err)
+	}
+	if chunks != 1 {
+		t.Fatalf("final fence failure left chunks=%d", chunks)
+	}
+	var status, workerID string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM run_evidence WHERE session_id = $1 AND run_id = $2", fixture.fence.SessionID, fixture.fence.RunID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT worker_id FROM run_queue WHERE run_id = $1", fixture.fence.RunID).Scan(&workerID); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(RunStatusRunning) || workerID != fixture.fence.WorkerID {
+		t.Fatalf("PostgreSQL rollback leaked state: evidence=%q queue worker=%q", status, workerID)
+	}
+}
+
+func TestPostgresFencedRepairClosesOnlyCommittedPredecessor(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
+	db := newPostgresTestDB(t)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newFencedSQLFixtureWithOpenRun(t, store, "session-pg-fence-repair", "run-pg-fence-current", "run-pg-fence-predecessor")
+	loaded := assertFencedSessionVersion(t, fixture, 1)
+	candidate := fencedRepairCandidate(t, loaded)
+	if err := store.AppendEventsFenced(ctx, fixture.fence, loaded.Version(), candidate); err == nil || !strings.Contains(err.Error(), "not fenced run") {
+		t.Fatalf("ordinary PostgreSQL fenced append accepted predecessor repair: %v", err)
+	}
+	repaired, applied, err := RepairInterruptedSessionFenced(ctx, store, fixture.fence, loaded)
+	if err != nil || !applied {
+		t.Fatalf("PostgreSQL fenced predecessor repair: applied=%t err=%v", applied, err)
+	}
+	if repaired.Version() != loaded.Version()+int64(len(candidate)) {
+		t.Fatalf("PostgreSQL repaired version=%d want=%d", repaired.Version(), loaded.Version()+int64(len(candidate)))
+	}
+	if status, exists := repaired.RunStatus("run-pg-fence-predecessor"); !exists || status != core.RunFailed {
+		t.Fatalf("PostgreSQL predecessor status: exists=%t status=%q", exists, status)
+	}
+	if _, exists := repaired.RunStatus(fixture.fence.RunID); exists {
+		t.Fatal("PostgreSQL repair synthesized events for current queued run")
+	}
+	var status string
+	if err := db.QueryRowContext(ctx, "SELECT status FROM run_evidence WHERE session_id = $1 AND run_id = $2", fixture.fence.SessionID, "run-pg-fence-predecessor").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != string(core.RunFailed) {
+		t.Fatalf("PostgreSQL predecessor evidence status=%q", status)
+	}
+}
+
+func TestPostgresFencedAppendAndRenewRunClaimDoNotDeadlock(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
+	db := newPostgresTestDB(t)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newFencedSQLFixture(t, store, "session-pg-fence-renew", "run-pg-fence-renew")
+	const iterations = 30
+	for iteration := 0; iteration < iterations; iteration++ {
+		event := nextFencedEvent(t, fixture.session, fixture.fence.RunID, "renew-race")
+		expectedVersion := event.Seq
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		start := make(chan struct{})
+		ready := make(chan struct{}, 2)
+		errs := make(chan error, 2)
+		go func() {
+			ready <- struct{}{}
+			<-start
+			errs <- store.AppendEventsFenced(ctx, fixture.fence, expectedVersion, []core.SessionEvent{event})
+		}()
+		go func() {
+			ready <- struct{}{}
+			<-start
+			ok, err := fixture.queue.RenewRunClaim(ctx, fixture.fence.RunID, fixture.fence.WorkerID, fixture.fence.QueueGeneration, time.Hour)
+			if err == nil && !ok {
+				err = errors.New("renewal lost its live PostgreSQL claim")
+			}
+			errs <- err
+		}()
+		<-ready
+		<-ready
+		close(start)
+		first, second := <-errs, <-errs
+		cancel()
+		if first != nil || second != nil {
+			t.Fatalf("PostgreSQL fence/renew iteration %d: append/renew errors=(%v, %v)", iteration, first, second)
+		}
+	}
+	assertFencedSessionVersion(t, fixture, 1+iterations)
 }
 
 func TestPostgresFencedSQLBinding(t *testing.T) {

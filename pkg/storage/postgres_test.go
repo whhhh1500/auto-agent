@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -36,7 +38,12 @@ func newPostgresTestDB(t *testing.T) *sql.DB {
 		_ = adminDB.Close()
 		t.Fatalf("connect postgres: %v", err)
 	}
-	schema := fmt.Sprintf("harness_test_%d", time.Now().UnixNano())
+	var entropy [12]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		_ = adminDB.Close()
+		t.Fatal(err)
+	}
+	schema := "harness_test_" + hex.EncodeToString(entropy[:])
 	if _, err := adminDB.ExecContext(ctx, "CREATE SCHEMA "+schema); err != nil {
 		_ = adminDB.Close()
 		t.Fatal(err)

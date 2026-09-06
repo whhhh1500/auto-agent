@@ -31,9 +31,18 @@ HTTP 审批恢复、Graph 示例，以及用户指定的 `gemini-3.8-flash` 模�
    fenced `WriteBehind` 覆盖后续 model/tool/checkpoint/background/terminal Session 写入。
    SQLite 定向和 race 验证覆盖旧 generation、queue lease 过期、cancel、background flush、
    predecessor repair、approval pause/resume 和 successor 完成。`ErrSessionWriteFenceLost`
-   只停止/abort stale worker，不会写 `store_error` terminal 或结算旧 claim。该补验没有运行
-   真实 PostgreSQL：未配置 DSN 时 PostgreSQL 用例按仓库约定跳过，因此 SQLite 结果不应被
-   表述为 PostgreSQL 锁竞争或事务行为的实测证据。
+   只停止/abort stale worker，不会写 `store_error` terminal 或结算旧 claim。后续在独立的
+   loopback PostgreSQL 17.6 集群上完成了真实事务验收：4 项 fenced-append 定向测试、
+   其 race 重复 5 次、server PostgreSQL approval/replacement 路径 race 重复 3 次、
+   `scripts/test-postgres` 全仓门禁（74 个顶层测试、23 个子测试、10 个包、零 skip）、
+   两个 queued worker `Process.Kill` 故障点，以及配置该测试库后的全仓 test/build/vet/
+   Staticcheck/modulecheck/gofmt/diff。定向场景验证 stale generation 拒绝、event chunk
+   插入后 ownership 改变时 chunk/run evidence/Session tip/trigger 更新同事务回滚、只修复
+   已提交的 predecessor，以及 `RenewRunClaim` 与 fenced append 并发 30 轮无死锁；验收期间
+   未观察到 deadlock、statement timeout 或遗留 active lock wait。默认不配置
+   `HARNESS_TEST_PG_DSN` 时，这些 `TestPostgres*` 用例仍按设计 skip，不能把默认本地全仓
+   测试当成该 PG 证据。该实测为 PostgreSQL 17.6，不能替代 CI PostgreSQL 16 镜像的版本
+   矩阵；CI 仍须独立运行。completed-result 自动续跑仍未实现，恢复继续 fail closed。
 
 恢复逻辑现在先使非空 Session 的投影缓存失效。工具调用新增可选、最多 64 KiB 的
 `continuation` 字符串，由外层协议适配器解释，原样随对应 assistant 工具调用持久化和
@@ -46,9 +55,8 @@ HTTP 审批恢复、Graph 示例，以及用户指定的 `gemini-3.8-flash` 模�
 ## 环境与本地证据
 
 - Windows amd64，Go 1.25.13，PostgreSQL 17.6。
-- PostgreSQL 使用本任务独立初始化的测试集群，仅绑定 `127.0.0.1:55436`；用例使用
-  随机、独占 schema 并清理自己创建的 schema。未接触业务数据库。
-  验收完成后已按该集群的精确 data 路径正常停止，`pg_ctl` 退出码 0；保留被忽略的诊断目录。
+- PostgreSQL 验收使用任务独立初始化、仅绑定 loopback 的 17.6 测试集群；用例使用随机、
+  独占 schema 并清理自己创建的 schema。未接触业务数据库；各验收完成后测试实例均正常停止。
 - `GOCACHE`、`GOTMPDIR`、`TEMP`、`TMP` 均显式设到 D 盘。
 - 原始日志位于仓库内被 Git 忽略的 `.tmp-assessment-closure-20260906/`。
   进程硬终止的修复前/后日志与脱敏 JSON 位于同样被忽略的
@@ -60,7 +68,7 @@ HTTP 审批恢复、Graph 示例，以及用户指定的 `gemini-3.8-flash` 模�
 
 | 检查 | 结果与范围 |
 | --- | --- |
-| PostgreSQL 全仓门禁 | 57 个顶层测试、21 个子测试、10 个包；零跳过、零失败 |
+| PostgreSQL 全仓门禁（generation-fence 后复验） | 74 个顶层测试、23 个子测试、10 个包；零跳过、零失败 |
 | 全仓 `go test -p 4 -json -count=1 -timeout 600s ./...`，配置测试 PG | 80 个包通过；1,616 个顶层测试通过，含子测试 2,381 条通过记录；10 条显式跳过；零失败 |
 | 构建、vet、格式检查 | `go build -p 4 ./...`、`go vet -p 4 ./...`、`scripts/verify-gofmt.ps1` 通过 |
 | Race | Windows 上全部相关包通过，包含 core、context assembly、model execution 与协议适配器、server、Graph 示例、PostgreSQL runner；配置真实测试 PG，非全仓 Linux race |
