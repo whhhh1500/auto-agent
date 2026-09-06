@@ -16,7 +16,8 @@ import (
 
 	"github.com/cc-auto-agent/harness-core/pkg/core"
 	oteltelemetry "github.com/cc-auto-agent/harness-core/pkg/telemetry/otel"
-	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -24,6 +25,7 @@ import (
 type serialAuditedAPI struct {
 	*postgresAPI
 	exporter *tracetest.InMemoryExporter
+	metrics  *sdkmetric.ManualReader
 }
 
 func newSerialAuditedAPI(t *testing.T, db *sql.DB, model core.LlmAdapter, effects *atomic.Int32) *serialAuditedAPI {
@@ -32,13 +34,16 @@ func newSerialAuditedAPI(t *testing.T, db *sql.DB, model core.LlmAdapter, effect
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
-	recorder, err := oteltelemetry.New(provider, noop.NewMeterProvider())
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = meterProvider.Shutdown(context.Background()) })
+	recorder, err := oteltelemetry.New(provider, meterProvider)
 	if err != nil {
 		t.Fatal(err)
 	}
 	api.server.runtime.Telemetry = recorder
 	api.server.telemetry = recorder
-	return &serialAuditedAPI{postgresAPI: api, exporter: exporter}
+	return &serialAuditedAPI{postgresAPI: api, exporter: exporter, metrics: reader}
 }
 
 // Read the same canonical event API used to reconstruct chat history and the
@@ -122,7 +127,26 @@ func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) 
 	}
 	// Export before assertions so failed acceptance is still reviewable after
 	// the isolated SQL schema is dropped. Only synthetic fixtures use this path.
-	serialWriteAudit(t, runID, map[string]any{"session_id": session, "run_id": runID, "events": events, "spans": spans})
+	var collected metricdata.ResourceMetrics
+	if err := api.metrics.Collect(context.Background(), &collected); err != nil {
+		t.Fatal(err)
+	}
+	contextMetrics := map[string]int64{}
+	for _, scope := range collected.ScopeMetrics {
+		for _, measurement := range scope.Metrics {
+			if measurement.Name == core.MetricModelContextInputBytes || measurement.Name == core.MetricModelContextInputTokens || measurement.Name == core.MetricModelContextDroppedGroups {
+				if sum, ok := measurement.Data.(metricdata.Sum[int64]); ok {
+					for _, point := range sum.DataPoints {
+						contextMetrics[measurement.Name] += point.Value
+					}
+				}
+			}
+		}
+	}
+	serialWriteAudit(t, runID, map[string]any{"session_id": session, "run_id": runID, "events": events, "spans": spans, "context_metrics_process_cumulative": contextMetrics})
+	if contextMetrics[core.MetricModelContextInputBytes] <= 0 || contextMetrics[core.MetricModelContextInputTokens] <= 0 {
+		t.Fatal("OTel reader did not collect model context cost")
+	}
 	var runSpan *serialSpanEvidence
 	modelSpans, steps, users, assistants, ends := 0, 0, 0, 0, 0
 	toolSpans := map[string]bool{}

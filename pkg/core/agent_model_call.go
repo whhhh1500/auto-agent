@@ -13,8 +13,9 @@ import (
 func (a *Agent) callModel(ctx context.Context, info RunInfo, step int, messages []ChatMessage) (modelStreamResult, string, error) {
 	var stream modelStreamResult
 	contextWindowTokens, maxOutputTokens := modelContextLimits(a.opts.LLM)
+	tools := a.tools.Schemas()
 	assembled, err := safeAssembleModelContext(a.opts.ContextAssembler, ctx, ModelContext{
-		System: a.opts.System, Messages: messages, ContextWindowTokens: contextWindowTokens, MaxOutputTokens: maxOutputTokens,
+		System: a.opts.System, Messages: messages, Tools: tools, ContextWindowTokens: contextWindowTokens, MaxOutputTokens: maxOutputTokens,
 	})
 	if err != nil {
 		return stream, "model_context_failed", err
@@ -58,7 +59,7 @@ func (a *Agent) callModel(ctx context.Context, info RunInfo, step int, messages 
 	}
 	stream, err = consumeModelStream(modelCtx, a.opts.LLM, GenerateOptions{
 		Provider: a.opts.Provider, Model: a.opts.Model, System: assembled.System,
-		Messages: messages, Tools: a.tools.Schemas(), ModelCall: modelRequest,
+		Messages: messages, Tools: tools, ModelCall: modelRequest,
 		AcceptedCall: acceptedCall,
 	}, func(chunk StreamChunk) error {
 		if a.opts.StreamChunks && chunk.Text != "" {

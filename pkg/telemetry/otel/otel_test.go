@@ -37,6 +37,10 @@ func TestRecorderExportsFixedSpansAndMetrics(t *testing.T) {
 	recorder.RecordHistogram(ctx, core.MetricRunDuration, 0.25, "s", core.TelemetryAttributes{"run.status": "completed"})
 	recorder.SetGauge(ctx, core.MetricQueueDepth, 3, "{run}", core.TelemetryAttributes{"run.status": "queued"})
 	recorder.AddCounter(ctx, core.MetricEvaluationRuns, 1, core.TelemetryAttributes{"evaluation.status": "completed"})
+	for _, name := range []string{core.MetricModelContextInputBytes, core.MetricModelContextInputTokens, core.MetricModelContextDroppedGroups} {
+		recorder.AddCounter(ctx, name, 7, nil)
+		recorder.AddCounter(ctx, name, 11, nil)
+	}
 	recorder.RecordHistogram(ctx, core.MetricEvaluationScore, 1, "1", core.TelemetryAttributes{"evaluation.passed": "true"})
 	span.End(errors.New("recorded test error"), core.TelemetryAttributes{"run.status": "failed"})
 
@@ -52,11 +56,18 @@ func TestRecorderExportsFixedSpansAndMetrics(t *testing.T) {
 	for _, scope := range metrics.ScopeMetrics {
 		for _, measurement := range scope.Metrics {
 			names[measurement.Name] = true
+			if measurement.Name == core.MetricModelContextInputBytes || measurement.Name == core.MetricModelContextInputTokens || measurement.Name == core.MetricModelContextDroppedGroups {
+				sum, ok := measurement.Data.(metricdata.Sum[int64])
+				if !ok || len(sum.DataPoints) != 1 || sum.DataPoints[0].Value != 18 {
+					t.Fatalf("context metric %s did not preserve accumulated cost", measurement.Name)
+				}
+			}
 		}
 	}
 	for _, name := range []string{
 		core.MetricRuns, core.MetricRunDuration, core.MetricQueueDepth,
 		core.MetricEvaluationRuns, core.MetricEvaluationScore,
+		core.MetricModelContextInputBytes, core.MetricModelContextInputTokens, core.MetricModelContextDroppedGroups,
 	} {
 		if !names[name] {
 			t.Fatalf("metric %s missing from %#v", name, names)

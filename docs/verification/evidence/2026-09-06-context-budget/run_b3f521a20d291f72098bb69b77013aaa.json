@@ -1,0 +1,968 @@
+{
+  "context_metrics_process_cumulative": {
+    "harness.model.context.dropped_groups": 23,
+    "harness.model.context.input_bytes": 14421,
+    "harness.model.context.input_tokens": 12923
+  },
+  "events": [
+    {
+      "data": {},
+      "run_id": "seed-history",
+      "seq": 0,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 0: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 1,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 2,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 1: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 3,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 4,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 2: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 5,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 6,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 3: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 7,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 8,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 4: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 9,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 10,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 5: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 11,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 12,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 6: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 13,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 14,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 7: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 15,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 16,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 8: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 17,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 18,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 9: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 19,
+      "time": "2026-09-06T05:44:41.2791543Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 20,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 10: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 21,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 22,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 11: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 23,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 24,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 12: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 25,
+      "time": "2026-09-06T05:44:41.2796645Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 26,
+      "time": "2026-09-06T05:44:41.2796736Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 13: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 27,
+      "time": "2026-09-06T05:44:41.2796736Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 28,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 14: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 29,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 30,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 15: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 31,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 32,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 16: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 33,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 34,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 17: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 35,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 36,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 18: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 37,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 38,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Archived unrelated note 19: This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. This historical catalog note is unrelated to the verification task. "
+      },
+      "run_id": "seed-history",
+      "seq": 39,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Archived."
+      },
+      "run_id": "seed-history",
+      "seq": 40,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "The verification marker is proof_86f3a9b8a438e235f8514aa2ff3b75c1. Remember it for the next question."
+      },
+      "run_id": "seed-history",
+      "seq": 41,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "ACK"
+      },
+      "run_id": "seed-history",
+      "seq": 42,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "seed-history",
+      "seq": 43,
+      "time": "2026-09-06T05:44:41.2796841Z",
+      "type": "run/end"
+    },
+    {
+      "data": {
+        "assignment_revision": "3aeabb4a3276cece593f9f4eb5a4278154b23b22703a5e3d07924ccdab645397",
+        "capability_snapshot_id": "2c7acd261a2d5ab73f7ed3011e287c44f1b5fe7c11fd9ee5530101a64c078bdc",
+        "composition": {
+          "capabilities": [
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_0",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_0",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_1",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_1",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_2",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_2",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_3",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_3",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_4",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_4",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_5",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_5",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_6",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_6",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                "id": "serial.catalog_7",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.catalog_7",
+                "tool": {
+                  "description": "Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. Optional catalog lookup; use only when the user asks to query this catalog. ",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            }
+          ],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 8,
+          "metadata": {
+            "harness.executor.id": "sequential",
+            "harness.executor.implementation_revision": "core-runtime-v1",
+            "harness.executor.version": "1"
+          },
+          "model": {
+            "model": "gemini-3.8-flash",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": [
+              "serial.catalog_0",
+              "serial.catalog_1",
+              "serial.catalog_2",
+              "serial.catalog_3",
+              "serial.catalog_4",
+              "serial.catalog_5",
+              "serial.catalog_6",
+              "serial.catalog_7"
+            ],
+            "created_at": "2026-09-06T05:44:41.2882025Z",
+            "fragments": [
+              {
+                "content": "Read the user's latest verification marker from the conversation and return only that exact marker. Catalog tools are unrelated to this request and must not be called.",
+                "id": "serial.budget.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "c1762f55179eaa471ad95d1f4edd13f532252cb9f5a71eca5179a9f40b848149",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "gemini-3.8-flash",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.budget",
+            "profile_id": "serial.budget",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_3b360b92c900c722ae9f159979e6d125",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "69af78303a2fdf9233808f46181b1a711c2028f0c22fbde12e27a22f018cb0bb",
+        "profile_snapshot_id": "c1762f55179eaa471ad95d1f4edd13f532252cb9f5a71eca5179a9f40b848149"
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 44,
+      "time": "2026-09-06T05:44:41.2887307Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "What is the verification marker I gave you? Return only the marker from our conversation."
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 45,
+      "time": "2026-09-06T05:44:41.2887307Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 46,
+      "time": "2026-09-06T05:44:41.2887307Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "proof_86f3a9b8a438e235f8514aa"
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 47,
+      "time": "2026-09-06T05:44:43.9554991Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "2ff3b75c1"
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 48,
+      "time": "2026-09-06T05:44:43.9633694Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "proof_86f3a9b8a438e235f8514aa2ff3b75c1"
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 49,
+      "time": "2026-09-06T05:44:43.9675152Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 50,
+      "time": "2026-09-06T05:44:43.9675152Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "input_tokens": 2501,
+        "output_tokens": 178
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 51,
+      "time": "2026-09-06T05:44:43.9675152Z",
+      "type": "run/usage"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+      "seq": 52,
+      "time": "2026-09-06T05:44:43.9675152Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_b3f521a20d291f72098bb69b77013aaa",
+  "session_id": "sess_3b360b92c900c722ae9f159979e6d125",
+  "spans": [
+    {
+      "attributes": {
+        "claim.outcome": "claimed",
+        "run.id": "run_b3f521a20d291f72098bb69b77013aaa",
+        "session.id": "sess_3b360b92c900c722ae9f159979e6d125",
+        "worker.id": "serial-acceptance"
+      },
+      "duration_ms": 0,
+      "name": "harness.queue.claim",
+      "parent_id": "0000000000000000",
+      "span_id": "2fe7c27db21f119d",
+      "status": "Unset",
+      "trace_id": "2e6a267ea01f2615bf98e6c751f57792"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "23",
+        "model.context.input_bytes": "14421",
+        "model.context.input_tokens": "12923",
+        "model.finish": "stop",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.budget",
+        "run.id": "run_b3f521a20d291f72098bb69b77013aaa",
+        "run.step": "0",
+        "session.id": "sess_3b360b92c900c722ae9f159979e6d125"
+      },
+      "duration_ms": 2678,
+      "name": "harness.model.call",
+      "parent_id": "bb74b36f2977e216",
+      "span_id": "eb76a1567314f1e4",
+      "status": "Unset",
+      "trace_id": "53ad45610a8a390f5af9b06a92397ff4"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.budget",
+        "run.id": "run_b3f521a20d291f72098bb69b77013aaa",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_3b360b92c900c722ae9f159979e6d125",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 2678,
+      "name": "harness.run.segment",
+      "parent_id": "0000000000000000",
+      "span_id": "bb74b36f2977e216",
+      "status": "Unset",
+      "trace_id": "53ad45610a8a390f5af9b06a92397ff4"
+    }
+  ]
+}

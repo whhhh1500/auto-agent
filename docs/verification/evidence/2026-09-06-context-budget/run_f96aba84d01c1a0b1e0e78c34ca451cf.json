@@ -1,0 +1,342 @@
+{
+  "context_metrics_process_cumulative": {
+    "harness.model.context.dropped_groups": 0,
+    "harness.model.context.input_bytes": 4353,
+    "harness.model.context.input_tokens": 3509
+  },
+  "events": [
+    {
+      "data": {
+        "capability_snapshot_id": "fe0593dc8965bafe8bd94a43246478c56d1312133cfdbc264eed1b2e3f5e4362",
+        "composition": {
+          "capabilities": [
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "id": "serial.child_lookup",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.child_lookup",
+                "tool": {
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            }
+          ],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 2,
+          "model": {
+            "model": "gemini-3.8-flash",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": [
+              "serial.child_lookup"
+            ],
+            "created_at": "2026-09-06T05:44:29.5996739Z",
+            "fragments": [
+              {
+                "content": "Call serial.child_lookup exactly once with n 1. Reply with the exact text returned by the tool.",
+                "id": "serial.child.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "9b93cc8cc86d8dfebeeac80f3a94f5bc74da9058a610231b32265302c49450fe",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "gemini-3.8-flash",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.child",
+            "profile_id": "serial.child",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "71272e0051c2184097eb1b507222979d6a23457faebdf0645d05df01cae8baf6",
+        "profile_snapshot_id": "9b93cc8cc86d8dfebeeac80f3a94f5bc74da9058a610231b32265302c49450fe"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 0,
+      "time": "2026-09-06T05:44:29.5996739Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "retrieve the verification marker using your lookup tool"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 1,
+      "time": "2026-09-06T05:44:29.6034369Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 2,
+      "time": "2026-09-06T05:44:29.6039589Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "",
+        "tool_call": {
+          "args": {
+            "n": 1
+          },
+          "id": "call_7562caac672d4ee7b03f501fe1249434",
+          "name": "serial.child_lookup"
+        },
+        "tool_calls": [
+          {
+            "args": {
+              "n": 1
+            },
+            "id": "call_7562caac672d4ee7b03f501fe1249434",
+            "name": "serial.child_lookup"
+          }
+        ]
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 3,
+      "time": "2026-09-06T05:44:32.8851173Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "args": {
+          "n": 1
+        },
+        "call_id": "call_7562caac672d4ee7b03f501fe1249434",
+        "name": "serial.child_lookup"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 4,
+      "time": "2026-09-06T05:44:32.8861621Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "call_id": "call_7562caac672d4ee7b03f501fe1249434",
+        "content": "proof_290da0a7b282bbebf0bd4c2421a2a559",
+        "ok": true
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 5,
+      "time": "2026-09-06T05:44:32.8877265Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 6,
+      "time": "2026-09-06T05:44:32.8882471Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 7,
+      "time": "2026-09-06T05:44:32.888769Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "proof_290da0a7b282bbebf0"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 8,
+      "time": "2026-09-06T05:44:35.3381663Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "bd4c2421a2a559"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 9,
+      "time": "2026-09-06T05:44:35.3429445Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "proof_290da0a7b282bbebf0bd4c2421a2a559"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 10,
+      "time": "2026-09-06T05:44:35.381488Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 11,
+      "time": "2026-09-06T05:44:35.3825977Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "input_tokens": 220,
+        "output_tokens": 396
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 12,
+      "time": "2026-09-06T05:44:35.383635Z",
+      "type": "run/usage"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+      "seq": 13,
+      "time": "2026-09-06T05:44:35.3842308Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+  "session_id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf",
+  "spans": [
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "551",
+        "model.context.input_tokens": "453",
+        "model.finish": "tool-calls",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.child",
+        "run.id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "run.step": "0",
+        "session.id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf"
+      },
+      "duration_ms": 3280,
+      "name": "harness.model.call",
+      "parent_id": "57ecf9bf8e4f8267",
+      "span_id": "950c33e902460b07",
+      "status": "Unset",
+      "trace_id": "fb234f41f5e210e3f26275bcdefcb820"
+    },
+    {
+      "attributes": {
+        "call.id": "call_7562caac672d4ee7b03f501fe1249434",
+        "capability.id": "serial.child_lookup",
+        "run.id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "session.id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "ok"
+      },
+      "duration_ms": 0,
+      "name": "harness.tool.call",
+      "parent_id": "57ecf9bf8e4f8267",
+      "span_id": "b8d7813a556916a1",
+      "status": "Unset",
+      "trace_id": "fb234f41f5e210e3f26275bcdefcb820"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "933",
+        "model.context.input_tokens": "609",
+        "model.finish": "stop",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.child",
+        "run.id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "run.step": "1",
+        "session.id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf"
+      },
+      "duration_ms": 2491,
+      "name": "harness.model.call",
+      "parent_id": "57ecf9bf8e4f8267",
+      "span_id": "3cd0e4dc52804d0a",
+      "status": "Unset",
+      "trace_id": "fb234f41f5e210e3f26275bcdefcb820"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.child",
+        "run.id": "run_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_f96aba84d01c1a0b1e0e78c34ca451cf",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 5785,
+      "name": "harness.run.segment",
+      "parent_id": "dd6e0ee116a3370a",
+      "span_id": "57ecf9bf8e4f8267",
+      "status": "Unset",
+      "trace_id": "fb234f41f5e210e3f26275bcdefcb820"
+    }
+  ]
+}

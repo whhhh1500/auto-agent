@@ -206,7 +206,7 @@ func TestUTF8ByteUpperBoundAllowsMultilineAndCountsToolArguments(t *testing.T) {
 		t.Fatalf("NUL accepted: %v", err)
 	}
 	message := core.ChatMessage{Role: core.RoleAssistant, Content: "x", ToolCalls: []core.ToolCall{{ID: "call-cjk", Name: "工具", Args: map[string]any{"参数": strings.Repeat("界", 128)}}}}
-	cost, err := (utf8ByteUpperBoundEstimator{}).Estimate(message)
+	cost, err := (ConservativeEstimator{}).Estimate(message)
 	if err != nil || cost.Tokens <= 100 {
 		t.Fatalf("tool args missing from estimate: cost=%+v err=%v", cost, err)
 	}

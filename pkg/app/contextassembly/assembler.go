@@ -25,11 +25,29 @@ const (
 
 // Config has fixed local safeguards; policy persistence is deliberately left
 // to a later control-plane slice. Zero values select conservative defaults.
-type Config struct{ SafetyMarginTokens, MaxToolResultBytes int }
+type Config struct {
+	SafetyMarginTokens, MaxToolResultBytes int
+	// Estimator may account for a host's tokenizer/protocol without importing
+	// vendor code into core. Nil uses ConservativeEstimator. It must be safe
+	// for concurrent calls when an Assembler is shared between runs.
+	Estimator ContextEstimator
+}
+
+// ContextEstimator uses one cost model for messages, fragments and tools.
+// Implementations can embed ConservativeEstimator and override specific costs.
+// Report nonnegative, bounded costs; nonempty tool sets require positive costs.
+// An estimator does not select tools or confer execution authority.
+type ContextEstimator interface {
+	BudgetEstimator
+	EstimateTools([]core.ToolSchema) (Cost, error)
+}
 
 // Assembler makes an ephemeral bounded model context. It does not summarize,
 // write artifacts, start goroutines, or mutate the durable event projection.
-type Assembler struct{ safetyMargin, maxToolResultBytes int }
+type Assembler struct {
+	safetyMargin, maxToolResultBytes int
+	estimator                        ContextEstimator
+}
 
 func NewAssembler(config Config) (*Assembler, error) {
 	if config.SafetyMarginTokens == 0 {
@@ -41,7 +59,10 @@ func NewAssembler(config Config) (*Assembler, error) {
 	if config.SafetyMarginTokens <= 0 || config.MaxToolResultBytes <= 0 || config.MaxToolResultBytes > MaxBytes {
 		return nil, fmt.Errorf("%w: assembler configuration", ErrInvalid)
 	}
-	return &Assembler{safetyMargin: config.SafetyMarginTokens, maxToolResultBytes: config.MaxToolResultBytes}, nil
+	if config.Estimator == nil {
+		config.Estimator = ConservativeEstimator{}
+	}
+	return &Assembler{safetyMargin: config.SafetyMarginTokens, maxToolResultBytes: config.MaxToolResultBytes, estimator: config.Estimator}, nil
 }
 
 func (a *Assembler) AssembleModelContext(ctx context.Context, request core.ModelContext) (core.ModelContext, error) {
@@ -52,11 +73,18 @@ func (a *Assembler) AssembleModelContext(ctx context.Context, request core.Model
 		return core.ModelContext{}, ErrBudgetExceeded
 	}
 	inputTokens := request.ContextWindowTokens - request.MaxOutputTokens - a.safetyMargin
+	if err := ctx.Err(); err != nil {
+		return core.ModelContext{}, err
+	}
+	tools, err := safeEstimateTools(a.estimator, request.Tools)
+	if err != nil {
+		return core.ModelContext{}, err
+	}
 	items, err := a.items(ctx, request.Messages)
 	if err != nil {
 		return core.ModelContext{}, err
 	}
-	result, err := Assemble(ctx, Request{Budget: Budget{TotalBytes: MaxBytes, TotalTokens: int64(inputTokens)}, Estimator: utf8ByteUpperBoundEstimator{}, RequiredSystem: request.System, Items: items, LightweightEvidence: true})
+	result, err := Assemble(ctx, Request{Budget: Budget{TotalBytes: MaxBytes, TotalTokens: int64(inputTokens)}, Estimator: a.estimator, RequiredSystem: request.System, RequiredTools: tools, Items: items, LightweightEvidence: true})
 	if err != nil {
 		return core.ModelContext{}, err
 	}
@@ -168,16 +196,23 @@ func droppedGroups(e Evidence) int {
 	return len(seen)
 }
 
-// utf8ByteUpperBoundEstimator budgets every UTF-8 byte as one token plus a
+// ConservativeEstimator budgets every UTF-8 byte as one token plus a
 // small structural allowance. This intentionally underuses modern BPE context
-// windows, but remains safe when no provider-specific TokenEstimator is bound:
+// windows when no protocol-specific ContextEstimator is bound:
 // a byte-oriented tokenizer cannot require more than one input token per byte.
-// A future protocol adapter may inject an exact TokenEstimator to recover that
-// capacity; this default must not pretend an ASCII heuristic is a hard limit.
-type utf8ByteUpperBoundEstimator struct{}
+// A host can inject its protocol/tokenizer costs to recover capacity. Framing
+// allowances are portable estimates, not an arbitrary protocol's exact limit.
+type ConservativeEstimator struct{}
 
-func (utf8ByteUpperBoundEstimator) Estimate(message core.ChatMessage) (Cost, error) {
-	bytes, err := (ByteEstimator{}).Estimate(message)
+func (e ConservativeEstimator) Estimate(message core.ChatMessage) (Cost, error) {
+	if err := validateMessage(message); err != nil {
+		return Cost{}, err
+	}
+	return e.estimateValidated(message)
+}
+
+func (ConservativeEstimator) estimateValidated(message core.ChatMessage) (Cost, error) {
+	bytes, err := (ByteEstimator{}).estimateValidated(message)
 	if err != nil {
 		return Cost{}, err
 	}
@@ -235,7 +270,7 @@ func toolCallTokens(call core.ToolCall) (int64, error) {
 	}
 	return id + name + args + continuation + 8, nil
 }
-func (utf8ByteUpperBoundEstimator) EstimateFragment(layer Layer, text string) (Cost, error) {
+func (ConservativeEstimator) EstimateFragment(layer Layer, text string) (Cost, error) {
 	bytes, err := (ByteEstimator{}).EstimateFragment(layer, text)
 	if err != nil {
 		return Cost{}, err

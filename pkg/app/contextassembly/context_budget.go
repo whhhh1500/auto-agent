@@ -24,6 +24,7 @@ const (
 	LayerSummary     Layer = "summary"
 	LayerRecent      Layer = "recent"
 	LayerToolResults Layer = "tool_results"
+	LayerTools       Layer = "tools"
 	MaxItems               = 4096
 	MaxBytes               = 16 << 20
 	MaxTokens              = 16 << 20
@@ -55,10 +56,15 @@ func (ByteEstimator) EstimateFragment(_ Layer, text string) (Cost, error) {
 	return Cost{Bytes: int64(len(text)) + 32}, nil
 }
 
-func (ByteEstimator) Estimate(m core.ChatMessage) (Cost, error) {
+func (e ByteEstimator) Estimate(m core.ChatMessage) (Cost, error) {
 	if err := validateMessage(m); err != nil {
 		return Cost{}, err
 	}
+	return e.estimateValidated(m)
+}
+
+// Only the assembly path, after Request.Validate, may skip repeated validation.
+func (ByteEstimator) estimateValidated(m core.ChatMessage) (Cost, error) {
 	a, err := jsonStringUpperBound(string(m.Role))
 	if err != nil {
 		return Cost{}, err
@@ -179,7 +185,10 @@ type Request struct {
 	Estimator       BudgetEstimator
 	RequiredSystem  string
 	RequiredProfile string
-	Items           []Item
+	// RequiredTools reserves the cost of the final exposed tool declarations.
+	// These cannot be dropped while selecting optional history groups.
+	RequiredTools Cost
+	Items         []Item
 	// LightweightEvidence keeps only aggregate counts and costs. Runtime model
 	// calls use it to avoid retaining a per-message diagnostic projection.
 	LightweightEvidence bool
@@ -225,6 +234,9 @@ func (r Request) Validate() error {
 	if err := r.Budget.Validate(); err != nil || r.Estimator == nil || len(r.Items) > MaxItems {
 		return ErrInvalid
 	}
+	if !validCost(r.RequiredTools) {
+		return ErrInvalid
+	}
 	for _, text := range []string{r.RequiredSystem, r.RequiredProfile} {
 		if err := validatePromptText(text); err != nil {
 			return err
@@ -234,7 +246,7 @@ func (r Request) Validate() error {
 		if err := validateMessage(it.Message); err != nil {
 			return err
 		}
-		if !validLayer(it.Layer) || it.Layer == LayerSystem || it.Layer == LayerProfile || it.SourceID == "" || it.Revision == "" || len(it.Lineage) > MaxLineageRefs || it.Priority < 0 || it.Priority > 10000 {
+		if !validLayer(it.Layer) || it.Layer == LayerSystem || it.Layer == LayerProfile || it.Layer == LayerTools || it.SourceID == "" || it.Revision == "" || len(it.Lineage) > MaxLineageRefs || it.Priority < 0 || it.Priority > 10000 {
 			return ErrInvalid
 		}
 		for _, s := range []string{it.SourceID, it.Revision, it.GroupID} {
@@ -382,6 +394,13 @@ func Assemble(ctx context.Context, r Request) (Result, error) {
 	if err := add(LayerProfile, r.RequiredProfile); err != nil {
 		return Result{}, err
 	}
+	if !fits(r.Budget, LayerTools, r.RequiredTools, used, res.Evidence.ByLayer) {
+		return Result{}, fmt.Errorf("%w: required tools", ErrBudgetExceeded)
+	}
+	used = addCost(used, r.RequiredTools)
+	if r.RequiredTools != (Cost{}) {
+		res.Evidence.ByLayer[LayerTools] = r.RequiredTools
+	}
 	groups := map[string][]int{}
 	for i, it := range r.Items {
 		if it.GroupID != "" {
@@ -528,6 +547,14 @@ func safeEstimate(e BudgetEstimator, m core.ChatMessage) (c Cost, err error) {
 			err = ErrInvalid
 		}
 	}()
+	// Match exact built-in types, not a private interface: a user may embed a
+	// built-in and override Estimate, and that override must still be called.
+	switch estimator := e.(type) {
+	case ByteEstimator:
+		return estimator.estimateValidated(m)
+	case ConservativeEstimator:
+		return estimator.estimateValidated(m)
+	}
 	return e.Estimate(m)
 }
 func safeFragmentEstimate(e BudgetEstimator, l Layer, text string) (c Cost, err error) {
@@ -570,7 +597,7 @@ func fitsGroup(b Budget, total, used Cost, by map[Layer]Cost, group map[Layer]Co
 }
 func validLayer(l Layer) bool {
 	switch l {
-	case LayerSystem, LayerProfile, LayerSummary, LayerRecent, LayerToolResults:
+	case LayerSystem, LayerProfile, LayerSummary, LayerRecent, LayerToolResults, LayerTools:
 		return true
 	}
 	return false

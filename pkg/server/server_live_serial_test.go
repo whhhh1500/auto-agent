@@ -50,6 +50,7 @@ func TestLiveModelSerialModuleAcceptance(t *testing.T) {
 		{"durable_subagent", serialDurableSubagent},
 		{"tool_hook_denial", serialToolHookDenial},
 		{"trace_history_restore", serialTraceHistoryRestore},
+		{"tool_budget_history", serialToolBudgetHistory},
 	} {
 		if !t.Run(tc.name, func(t *testing.T) {
 			model.test = t
@@ -70,14 +71,31 @@ func TestLiveModelSerialModuleAcceptance(t *testing.T) {
 }
 
 type serialAcceptanceModel struct {
-	inner         core.LlmAdapter
-	test          *testing.T
-	mu            sync.Mutex
-	last          time.Time
-	calls         int
-	peak          int
-	inflight      int
-	input, output int64
+	inner                    core.LlmAdapter
+	test                     *testing.T
+	mu                       sync.Mutex
+	last                     time.Time
+	calls                    int
+	peak                     int
+	inflight                 int
+	input, output            int64
+	contextWindow, maxOutput int
+	observations             []serialModelObservation
+}
+
+type serialModelObservation struct {
+	InputTokens, OutputTokens int64
+	Messages, Tools           int
+}
+
+func (m *serialAcceptanceModel) ModelContextLimits() (int, int) {
+	if m.contextWindow > 0 {
+		return m.contextWindow, m.maxOutput
+	}
+	if reporter, ok := m.inner.(interface{ ModelContextLimits() (int, int) }); ok {
+		return reporter.ModelContextLimits()
+	}
+	return 0, 0 // core supplies conservative legacy defaults
 }
 
 func (m *serialAcceptanceModel) Provider() string { return m.inner.Provider() }
@@ -119,6 +137,7 @@ func (m *serialAcceptanceModel) Stream(ctx context.Context, options core.Generat
 	m.last = time.Now()
 	m.input += input
 	m.output += output
+	m.observations = append(m.observations, serialModelObservation{InputTokens: input, OutputTokens: output, Messages: len(options.Messages), Tools: len(options.Tools)})
 	m.test.Logf("serial model_call=%d elapsed_ms=%d input_tokens=%d output_tokens=%d failed=%t", m.calls, time.Since(started).Milliseconds(), input, output, err != nil)
 	if err != nil {
 		// Do not leak URL credentials or upstream response bodies into a log.

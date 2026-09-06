@@ -31,7 +31,7 @@ func TestContinuationIncludedInContextBudget(t *testing.T) {
 	base := core.ChatMessage{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "call-a", Name: "test.lookup"}}}
 	withContinuation := cloneMessage(base)
 	withContinuation.ToolCalls[0].Continuation = strings.Repeat("x", 4096)
-	for _, estimator := range []BudgetEstimator{ByteEstimator{}, utf8ByteUpperBoundEstimator{}} {
+	for _, estimator := range []BudgetEstimator{ByteEstimator{}, ConservativeEstimator{}} {
 		before, err := estimator.Estimate(base)
 		if err != nil {
 			t.Fatal(err)

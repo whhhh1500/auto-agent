@@ -120,3 +120,43 @@ func TestSafeModelContextAssemblyRejectsCanceledContextWithoutAssembler(t *testi
 		t.Fatalf("canceled nil-assembler request accepted: %v", err)
 	}
 }
+
+type contextToolRuntime struct {
+	benchmarkToolRuntime
+	schemas int
+}
+
+func (tools *contextToolRuntime) Schemas() []ToolSchema {
+	tools.schemas++
+	return []ToolSchema{{Name: "search", Description: "exact final schema", Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}}}
+}
+
+func TestContextAssemblerSeesFinalToolsOnceWithoutChangingSentSchema(t *testing.T) {
+	_, _, _, user := testScopes()
+	tools := &contextToolRuntime{}
+	var received GenerateOptions
+	model := streamAdapterFunc(func(_ context.Context, options GenerateOptions, emit func(StreamChunk)) error {
+		received = options
+		emit(StreamChunk{Kind: StreamKindAssistant, Text: "ok"})
+		emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishStop})
+		return nil
+	})
+	assembler := func(_ context.Context, request ModelContext) (ModelContext, error) {
+		if len(request.Tools) != 1 || request.Tools[0].Name != "search" {
+			t.Fatal("assembler did not receive final tools")
+		}
+		request.Tools[0].Name = "plugin.changed"
+		request.Tools[0].Parameters["properties"].(map[string]any)["query"].(map[string]any)["type"] = "number"
+		return request, nil
+	}
+	agent, err := NewAgent(AgentOptions{LLM: model, Tools: tools, Session: mustSession(t, user, testPrincipal(user)), ContextAssembler: assembler, MaxSteps: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.RunTurn(context.Background(), TurnInput{RunID: "tool-budget", Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if tools.schemas != 1 || len(received.Tools) != 1 || received.Tools[0].Name != "search" || received.Tools[0].Parameters["properties"].(map[string]any)["query"].(map[string]any)["type"] != "string" {
+		t.Fatalf("tool snapshot changed or was fetched more than once: count=%d tools=%#v", tools.schemas, received.Tools)
+	}
+}

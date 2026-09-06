@@ -55,6 +55,7 @@ func New(tracerProvider trace.TracerProvider, meterProvider metric.MeterProvider
 		core.MetricQueueRecoveries, core.MetricApprovalDecisions,
 		core.MetricApprovalRequests, core.MetricSubmissions,
 		core.MetricEvaluationRuns, core.MetricEvaluationCases, core.MetricEvaluationGates,
+		core.MetricModelContextInputBytes, core.MetricModelContextInputTokens, core.MetricModelContextDroppedGroups,
 	} {
 		instrument, err := meter.Int64Counter(name)
 		if err != nil {

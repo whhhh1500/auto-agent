@@ -12,6 +12,9 @@ separate measured local costs from historical integration evidence and unmeasure
 The [serial live-model acceptance](verification/2026-09-06-serial-live-agent-acceptance.md)
 records actual Gemini requests, failures and fixes, and the HTTP history / SQL /
 OpenTelemetry audit standard with sanitized evidence.
+The follow-up [context budget optimization](performance/2026-09-06-context-budget-optimization.md)
+includes final tool declarations in the budget, exposes an application-layer
+`ContextEstimator`, and measures allocation/time and live input-token changes.
 
 ```text
                          +------------------+
@@ -49,6 +52,10 @@ implementation.
 
 - `pkg/app/contextassembly` owns bounded context assembly plus deterministic
   extractive/optional LLM summarization policies behind a small core seam.
+  Each model step obtains one final tool-schema snapshot before assembly.
+  The assembler budgets its private copy as required input; it cannot rewrite
+  tool authority. Hosts can supply one estimator for messages, fragments and
+  tool schemas without adding tokenizer dependencies to the kernel.
   Its adapter normalizes matching legacy tool-call aliases and omits completed
   workflow child audit results from model input, while durable events retain
   every protected step. Conflicting aliases or missing outer results fail closed.
@@ -111,7 +118,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | E2B sandbox | No bundled provider, E2B API client, or E2B-compatible server endpoint | A separate adapter can implement `sandbox.Provider` / `Session` and register exact provider/version metadata |
 | MCP | Outbound stdio tool integration | No inbound MCP server endpoint |
 | WASM execution | Module/argument/output bounds exist; current adapter does not configure a tighter linear-memory limit or opt into context-driven execution termination | [Detailed WASM assessment](agent-module-assessment.md#m27); resource/termination acceptance remains to be added |
-| Default model context budget | Bounds System and message history with conservative estimates; tool schemas are attached after this assembly step | [Context budget boundary](agent-module-assessment.md#m14); not a complete provider-token accounting guarantee |
+| Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking

@@ -17,8 +17,12 @@ var errModelContextAssembly = errors.New("model context assembly failed")
 // The app layer owns richer budgeting policies and DTOs. Before assembly it
 // carries the input and limits; after assembly it also carries telemetry.
 type ModelContext struct {
-	System              string
-	Messages            []ChatMessage
+	System   string
+	Messages []ChatMessage
+	// Tools is the final exposed schema snapshot, supplied for budgeting only.
+	// An assembler may inspect its private copy; it cannot change the tools
+	// sent to the model by changing this field in its result.
+	Tools               []ToolSchema
 	ContextWindowTokens int
 	MaxOutputTokens     int
 	InputBytes          int64
@@ -65,6 +69,7 @@ func safeAssembleModelContext(assembler ModelContextAssembler, ctx context.Conte
 	}()
 	result, err = assembler(ctx, ModelContext{
 		System: request.System, Messages: cloneChatMessages(request.Messages),
+		Tools:               cloneToolSchemas(request.Tools),
 		ContextWindowTokens: request.ContextWindowTokens, MaxOutputTokens: request.MaxOutputTokens,
 	})
 	if err != nil {
@@ -74,5 +79,6 @@ func safeAssembleModelContext(assembler ModelContextAssembler, ctx context.Conte
 		return ModelContext{}, fmt.Errorf("%w: invalid result", errModelContextAssembly)
 	}
 	result.Messages = cloneChatMessages(result.Messages)
+	result.Tools = nil // input-only; tool authority remains with the caller
 	return result, nil
 }

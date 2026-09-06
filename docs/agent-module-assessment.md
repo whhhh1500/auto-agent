@@ -6,7 +6,7 @@
 
 ## 本轮真实验证覆盖：逐模块回答“跑过什么”
 
-2026-09-06 补做了真实串行验收。**当前端点和 Key 可用，指定模型为 `gemini-3.8-flash`。八类场景最终均取得通过结果，过程中发现并修复两处上下文集成问题。** 本轮累计 29 次真实模型请求，包含失败场景与新增 trace 验收；最多 1 个请求在途，未启用自动重试。精确时间、token、Run ID、失败过程和可复跑命令见[串行真实验收记录](verification/2026-09-06-serial-live-agent-acceptance.md)。
+2026-09-06 补做了真实串行验收。**当前端点和 Key 可用，指定模型为 `gemini-3.8-flash`。首轮八类场景最终均取得通过结果，过程中发现并修复两处上下文集成问题。** 首轮累计 29 次真实模型请求，包含失败场景与新增 trace 验收；最多 1 个请求在途，未启用自动重试。精确时间、token、Run ID、失败过程和可复跑命令见[串行真实验收记录](verification/2026-09-06-serial-live-agent-acceptance.md)。后续[上下文工具预算与资源优化](performance/2026-09-06-context-budget-optimization.md)另做 8 次顺序请求，固定 A/B 任务输入 token 从 3,910 降到 2,501，工具历史局部耗时降低 12.87%；这不是所有任务或跨框架的平均收益。
 
 下表的“已验证路径”只承诺右侧具体路径，不表示整个模块的全部功能均已验收。没有执行的模块直接写明没有执行。源码实现、单元测试通过和真实模型验收是三种不同证据。
 
@@ -25,7 +25,7 @@
 | [M11](#m11) | Gate / Retry | 未作为生产能力验证 | 串行由验收包装器的互斥锁和间隔保证；未安装生产 Gate，自动重试为 0。 |
 | [M12](#m12) | FastRouter | 本轮未验 | 未安装 FastRouter，所有场景均进入模型循环。 |
 | [M13](#m13) | Session / 事件 | 已验证路径 | 会话重建后记住随机值；HTTP 历史分页与 SQL 原始事件逐项相等，保留终态。 |
-| [M14](#m14) | 上下文组装 | 发现问题后验证 | 修复 ToolCall / ToolCalls 兼容别名冲突，以及 Workflow 内部结果进入模型上下文；短上下文通过。工具 Schema 预算缺口仍存在。 |
+| [M14](#m14) | 上下文组装 | 发现问题后验证并优化 | 修复兼容别名、Workflow 内部结果和工具 Schema 漏算；最终工具预算先于旧历史选择，自定义 ContextEstimator 已接入；预算超限上游调用为 0。 |
 | [M15](#m15) | 摘要 / 压缩 | 部分接入，未触发阈值 | 安装 RecentTurnsCompactor；本轮短历史未触发长上下文摘要，不能称摘要已真实验收。 |
 | [M16](#m16) | 工具保护 / Hook | 已验证路径 | OnBeforeTool 拒绝后模型回答 BLOCKED，工具副作用为 0；未穷举全部策略。 |
 | [M17](#m17) | 人工审批 | 已验证路径 | 真实模型请求工具→持久暂停→替换服务实例→同 Run 恢复；副作用和终态各 1 次。该既有夹具未装 ContextAssembler。 |
@@ -54,7 +54,7 @@
 | [M40](#m40) | 发布 / Canary | 本轮未验 | 没有真实模型驱动的发布、灰度或回滚操作。 |
 | [M41](#m41) | HTTP / SSE | 部分验证 | 真实 HTTP 创建 Session、async Run、历史分页和重建后读取；流式 chunk 已入库，未使用真实 SSE 断线客户端。 |
 | [M42](#m42) | Console | 本轮未验 UI | 已查其历史所依赖的事件 API；没有浏览器操作或页面渲染验收。 |
-| [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；metrics 使用 noop，未连接 OTLP / Grafana。 |
+| [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；后续已补齐上下文成本指标并用 SDK reader 真实验证，未连接远端 OTLP / Grafana。 |
 | [M44](#m44) | 质量与验证 | 已有可执行标准 | 新增显式启用的串行真实模型测试和离线 HTTP/SQL 回归；验收包含 trace、聊天历史及失败记录。 |
 
 **统一审核标准已加入测试：** 同时核对业务结果、HTTP 聊天历史与 SQL 事件、工具调用/结果配对、OTel Run/Model/Tool 关联和唯一终态；子 Agent 还核对 SQL 父子关联与 span 父子关系。新增标准的真实样本为子 Agent 和 Workflow 历史恢复，不能追溯声称早先未采集的场景也有完整 OTel 证据。审计原始样本与边界见验收记录。
@@ -65,7 +65,7 @@
 
 复杂图编排、现成模型与数据连接器、跨 Agent 标准协议、多模态、云沙箱接入，是与成熟生态对比时最需要补齐的部分。Graph 已有实现与持久化，但默认服务中的 Graph 适配器只包裹一个 `core-turn` 节点。Windows 沙箱只提供 Basic；**没有内置 E2B 客户端，也不提供 E2B 兼容服务端 API**。
 
-本次源码复核还确认两个具体边界：默认上下文估算未直接接收后续附加的工具 Schema（M14）；WASM 执行器未显式收紧线性内存或开启运行中 context 终止检查（M27）。因此“有上下文预算”“有 WASM 执行”不能直接推导完整请求 token 保证或充分的运行资源治理。
+后续优化已修复默认上下文估算漏掉工具 Schema 的问题（M14），但默认值仍是可替换的保守成本模型，不能声称等于任意厂商的精确 tokenizer。WASM 执行器未显式收紧线性内存或开启运行中 context 终止检查（M27）的边界仍在，不能由“有 WASM 执行”推导充分的资源治理。
 
 “可自行扩展”有四种不同含义：
 
@@ -281,9 +281,9 @@ flowchart TD
 
 **真实验收补充：** 本轮先实际失败，再修复了匹配的 `ToolCall` / `ToolCalls` 别名被拒绝和 Workflow 内部结果混入模型消息两个问题。原始 SQL 事件与 trace 保留内部步骤，模型上下文只保留与外层请求对应的结果；参见[失败过程和回归](verification/2026-09-06-serial-live-agent-acceptance.md#失败记录与修复)。下列微基准是修复前的原源码基线，不是这次补丁的性能保证。
 
-**实现 / 状态：** [context.go](../pkg/core/context.go)、[contextassembly/assembler.go](../pkg/app/contextassembly/assembler.go)处理 System、历史消息及其中工具结果，保留输出预算；默认近期压缩可走融合投影路径。默认 token 估算按 UTF-8 字节保守计数，可能较早裁剪，并非厂商精确 tokenizer。`ModelContext` 当前不含独立工具 Schema；[callModel](../pkg/core/agent_model_call.go)在组装后才将 `Tools` 放进 GenerateOptions，因此不能声称该估算完整覆盖工具声明。外层请求字节上限与完整模型 token 窗口是两种不同限制。
+**实现 / 状态：** [context.go](../pkg/core/context.go)、[contextassembly/assembler.go](../pkg/app/contextassembly/assembler.go)处理 System、历史消息及其中工具结果，保留输出预算；默认近期压缩可走融合投影路径。[callModel](../pkg/core/agent_model_call.go)每步读取一次最终工具集合，`ModelContext.Tools` 将其私有副本交给预算器；工具成本进入必需层，再选择可选旧历史。默认 token 按 UTF-8 字节与工具 framing 余量保守计数，不是厂商精确 tokenizer；实际输出工具集合不受预算插件改写。
 
-**扩展：** E1：提供 `ModelContextAssembler` 函数，实现 `ContextCompactor` 或应用层 `BudgetEstimator` / `TokenEstimator`，注入对应字段；保持工具调用—结果配对、continuation 与预算约束。新增资料源要分配预算；完整工具 Schema token 预留需在知道最终工具集合的边界补齐，不能只替换消息估算器便宣称解决。
+**扩展：** E1：提供 `ModelContextAssembler` 函数、`ContextCompactor`，或在默认 Assembler 的 `Config.Estimator` 安装 `ContextEstimator`，同时估算消息、提示片段和工具。可嵌入公开 `ConservativeEstimator` 覆盖特定成本方法；原低层 `BudgetEstimator` / `TokenEstimator` 保持可用。保持调用—结果配对、continuation 与预算约束，新增资料源须定义成本；接口和替换边界见[优化记录](performance/2026-09-06-context-budget-optimization.md)。
 
 **性能：** 8,192 事件夹具中，先全量投影再压缩中位 **410.453 µs / 约 1.017 MB**，融合路径 **23.376 µs / 16,960 B**；局部时间约缩短 **17.56 倍**。默认 120 消息 assembler 中位 **152.197 µs**。这些不是一次 Agent 请求的总耗时，也不证明融合路径对任意历史形态都是常数时间。
 
@@ -639,7 +639,7 @@ flowchart TD
 
 ### M43 — Telemetry、日志与构建信息
 
-**真实验收补充：** 已采集真实 Gemini 运行的本地 OTel SDK span，与 HTTP/SQL 聊天事件及父子 delegation link 对照。子 Run 的 parent span 精确指向父 delegate 工具，Workflow 的 2 次模型调用和 3 个工具执行也有完整关联。已提交[三份脱敏记录](verification/2026-09-06-serial-live-agent-acceptance.md#可直接审核的真实样本)；未验远端 OTLP、Console 可视化和 metrics 后端。
+**真实验收补充：** 已采集真实 Gemini 运行的本地 OTel SDK span，与 HTTP/SQL 聊天事件及父子 delegation link 对照。子 Run 的 parent span 精确指向父 delegate 工具，Workflow 的 2 次模型调用和 3 个工具执行也有完整关联。首轮有[三份脱敏记录](verification/2026-09-06-serial-live-agent-acceptance.md#可直接审核的真实样本)，后续[五份记录](performance/2026-09-06-context-budget-optimization.md)增加了实际 SDK reader 收集的上下文成本指标；尚未验证远端 OTLP、Console 可视化和远端 metrics 平台。
 
 **实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。
 
@@ -653,7 +653,7 @@ flowchart TD
 
 ### M44 — 测试、架构边界与性能工具
 
-**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收记录包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium。内核预算约束依赖和公共表面；当前记录为 34 个生产文件、8,624 非空物理行、公共表面计数 903，**不是 903 个接口**。
+**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收记录包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium。内核预算约束依赖和公共表面；工具预算优化后实测为 34 个生产文件、8,631 非空物理行、公共表面计数 904，**不是 904 个接口**；相比原评估公共表面只增加 `ModelContext.Tools` 一个字段。
 
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 
@@ -675,13 +675,13 @@ flowchart TD
 | A2A 与正式多语言 SDK | 未内置完整能力 | M41 adapter / 外部 SDK | 出现稳定外部消费者后 |
 | 完整语义 RAG 生产管道 | 有 Index 合同与关键词实现 | M33 接成熟检索服务/组件 | 知识问答质量成为主要瓶颈时 |
 | Windows 强网络隔离 | Basic 明确不提供 | 新 provider，保持 Basic 合同 | 需要满足更高保障等级时 |
-| 完整请求 token 预算 | 默认 assembler 不接收随后附加的工具 Schema | M14 与最终模型请求组装边界 | 大工具目录/长 Schema 进入生产前 |
+| 厂商精确请求 token 预算 | 默认已计入工具声明，但仍是保守估算，非厂商精确 tokenizer | M14 的 ContextEstimator 扩展点 | 需要利用更多模型上下文容量或支持特殊协议包装时 |
 | WASM 显式运行内存与计算中断 | 当前未配置相关 runtime 选项 | M27 外层执行器 | 接受不可信或耗时 WASM 模块前 |
 | 跨框架速度/质量领先 | 没有对等实测 | M39/M44 对照评测 | 决定自研投入或迁移之前 |
 
 ## 扩展的建议顺序
 
-1. **先补已确认的边界缺口。** 工具 Schema 的完整请求预算与 WASM 运行资源/中断选项已有具体源码依据，应先设计有界回归验收。当前文档没有修改这些实现。
+1. **继续补已确认的边界缺口。** 工具 Schema 预算漏算与上下文指标丢失已修复并真实验收；下一步仍需处理 WASM 资源/中断选项，以及厂商协议成本模型的更精确接入。不能将本次局部性能收益当作整体优化完成。
 2. **沿用现有治理主线。** 业务工具优先 E2；新模型、检索和云沙箱优先 E1 adapters。产品领域行为留在应用或 examples，避免扩大 `pkg/core`。
 3. **按实际需求补连接器。** 若首要需求是 E2B，先定义要“调用云端”还是“兼容其服务端 API”；若首要需求是 RAG，接成熟检索组件通常比自建全套 ingestion/embedding/ANN 更直接。
 4. **图能力先做选型试验。** 用一个包含分支、人工审批、重启恢复和外部副作用的真实业务，同时评估现有 Graph 与 LangGraph/Eino/ADK。没有需求驱动时不必把 ModuleHost、Workflow、Graph 再合并成更大的总抽象。
