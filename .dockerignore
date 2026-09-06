@@ -1,0 +1,10 @@
+.git
+.credentials
+.env
+.env.*
+!.env.example
+bin
+data
+coverage*
+*.log
+*.tmp

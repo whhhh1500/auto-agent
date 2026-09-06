@@ -1,0 +1,149 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.13"
+  GOTOOLCHAIN: "go1.25.13"
+  STATICCHECK_VERSION: "v0.7.0"
+  # v1.7.0 is the first pinned release whose analyzer is built with Go 1.25;
+  # older v1.1.x binaries cannot load this module's go 1.25 packages.
+  GOVULNCHECK_VERSION: "v1.7.0"
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: format
+        run: bash scripts/verify-gofmt.sh
+      - name: build
+        run: go build ./...
+      - name: vet
+        run: go vet ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION} ./...
+      - name: test
+        run: go test -count=1 -timeout 600s ./...
+      - name: coverage profile
+        run: |
+          set -euo pipefail
+          # Go 1.25 attempts to invoke covdata for packages with no test
+          # files. Restrict the profile invocation to test-bearing packages;
+          # the ordinary test gate above still covers every package.
+          packages=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... | sed '/^$/d')
+          test -n "$packages"
+          go test -count=1 -timeout 600s -covermode=atomic -coverprofile=coverage.out $packages
+      - name: coverage thresholds
+        run: go run ./scripts/verify-coverage.go coverage.out
+      - name: vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+      - name: OpenAPI contract
+        run: go run ./scripts/verify-openapi openapi/harness-core-v1.yaml pkg/server pkg/console/static/index.html
+      - name: secret scan (worktree)
+        run: >-
+          docker run --rm --volume "${{ github.workspace }}:/repo:ro"
+          zricethezav/gitleaks:v8.28.0 detect --source=/repo --no-git --no-banner
+          --redact --exit-code 1
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: race test
+        run: go test -race -count=1 -timeout 600s ./...
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: format
+        shell: pwsh
+        run: ./scripts/verify-gofmt.ps1
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test -count=1 -timeout 600s ./...
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: harness_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d harness_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: PostgreSQL integration
+        env:
+          HARNESS_TEST_PG_DSN: postgres://postgres:test@127.0.0.1:5432/harness_test?sslmode=disable
+        run: |
+          set -o pipefail
+          go test -count=1 -timeout 180s ./pkg/storage -run '^TestPostgres' -v 2>&1 | tee postgres-test.log
+          grep -Eq -- '--- PASS: TestPostgres' postgres-test.log
+          if grep -Eq -- '--- SKIP: TestPostgres' postgres-test.log; then
+            echo 'PostgreSQL integration tests must not be skipped in CI.' >&2
+            exit 1
+          fi
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: docker/setup-buildx-action@v3.10.0
+      - name: build container
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: harness-core:ci
+          build-args: |
+            VERSION=ci
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GOPROXY=${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+            GOSUMDB=${{ vars.GOSUMDB || 'sum.golang.org' }}
+      - name: verify production default
+        run: bash scripts/verify-container-default.sh
+      - name: HTTP and SSE smoke
+        run: bash scripts/container-smoke.sh harness-core:ci
+      - name: secret scan (image export)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/harness-image"
+          container_id="$(docker create harness-core:ci)"
+          trap 'docker rm "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/harness-image"
+          docker run --rm --volume "$RUNNER_TEMP/harness-image:/scan:ro" \
+            zricethezav/gitleaks:v8.28.0 detect --source=/scan --no-git --no-banner --redact --exit-code 1

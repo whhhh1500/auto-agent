@@ -1,0 +1,66 @@
+package openai
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
+	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+)
+
+// NewResponsesProtocolRegistration returns an explicit exact protocol binding.
+// Callers must register it with a modelcontrol plan that carries this same
+// reference and implementation revision; it performs no global registration.
+func NewResponsesProtocolRegistration(binding modelcontrol.ImplementationBinding, maxOutputTokens int) (modelexecution.ProtocolRegistration, error) {
+	if binding.Ref.ID == "" || binding.Ref.Version == "" || binding.ImplementationRevision == "" || maxOutputTokens < 0 {
+		return modelexecution.ProtocolRegistration{}, fmt.Errorf("openai responses protocol registration is invalid")
+	}
+	protocol := ResponsesProtocol{MaxOutputTokens: maxOutputTokens}
+	return modelexecution.ProtocolRegistration{Binding: binding, Factory: func() (modelexecution.Protocol, error) { return protocol, nil }}, nil
+}
+
+func marshalResponsesRequest(request modelexecution.Request, maxOutputTokens int) ([]byte, error) {
+	input := make([]any, 0, len(request.Messages))
+	for _, message := range request.Messages {
+		switch message.Role {
+		case "user", "assistant":
+			if len(message.ToolCalls) == 0 {
+				input = append(input, map[string]any{"role": message.Role, "content": message.Content})
+				continue
+			}
+			if message.Content != "" {
+				input = append(input, map[string]any{"role": message.Role, "content": message.Content})
+			}
+			for _, call := range message.ToolCalls {
+				input = append(input, map[string]any{"type": "function_call", "call_id": call.ID, "name": call.Name, "arguments": string(call.Arguments)})
+			}
+		case "tool":
+			input = append(input, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": message.Content})
+		default:
+			return nil, fmt.Errorf("openai responses message role is unsupported")
+		}
+	}
+	// We send complete local history and never resume with previous_response_id,
+	// so retaining upstream response state is neither needed nor desirable.
+	payload := map[string]any{"model": request.Plan.Catalog.WireModel, "stream": true, "store": false, "input": input}
+	if request.System != "" {
+		payload["instructions"] = request.System
+	}
+	if maxOutputTokens > 0 {
+		payload["max_output_tokens"] = maxOutputTokens
+	}
+	if len(request.Tools) > 0 {
+		tools := make([]map[string]any, 0, len(request.Tools))
+		for _, tool := range request.Tools {
+			var parameters any
+			if len(tool.Parameters) == 0 {
+				parameters = map[string]any{"type": "object", "properties": map[string]any{}}
+			} else if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
+				return nil, fmt.Errorf("openai responses tool parameters: %w", err)
+			}
+			tools = append(tools, map[string]any{"type": "function", "name": tool.Name, "description": tool.Description, "parameters": parameters})
+		}
+		payload["tools"] = tools
+	}
+	return json.Marshal(payload)
+}

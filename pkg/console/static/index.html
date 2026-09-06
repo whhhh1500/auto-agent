@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Console</title>
+<script defer src="/console/assets/alpine.min.js"></script>
+<style>
+:root{--bg:#0e1116;--panel:#161b23;--line:#232a35;--text:#dbe2ec;--dim:#8b96a5;--acc:#4f8ef7;--ok:#3ecf8e;--err:#f0705a;--warn:#e8b64c}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI",system-ui,sans-serif;display:flex;min-height:100vh}
+aside{width:200px;background:var(--panel);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.brand{font-weight:700;letter-spacing:.5px;padding:4px 10px 12px;color:var(--acc)}
+.nav{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:8px;cursor:pointer;color:var(--dim)}
+.nav:hover{background:var(--bg);color:var(--text)}
+.nav.on{background:var(--acc);color:#fff}
+.who{margin-top:auto;padding:8px;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line)}
+main{flex:1;padding:20px 26px;max-width:1100px}
+h2{font-size:17px;margin-bottom:3px}
+.sub{color:var(--dim);font-size:12.5px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px}
+th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:11.5px}
+code,.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--acc);word-break:break-all}
+input,select,button,textarea{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:6px 9px;font:inherit;font-size:13px}
+input:focus,select:focus,textarea:focus{outline:1px solid var(--acc)}
+button{cursor:pointer}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+button.mini{padding:2px 8px;font-size:11.5px}
+button.danger{border-color:var(--err);color:var(--err)}
+button:disabled{opacity:.45;cursor:default}
+form.card,div.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:9px;align-items:flex-end}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-size:11px;color:var(--dim)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--panel);border:1px solid var(--ok);border-radius:9px;padding:9px 15px;display:none;max-width:460px;z-index:60}
+.toast.show{display:block}
+.toast.err{border-color:var(--err)}
+.pill{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11px;border:1px solid var(--line);color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:var(--ok)}
+.pill.err{color:var(--err);border-color:var(--err)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px}
+.stat b{font-size:21px;display:block}
+.stat span{color:var(--dim);font-size:11.5px}
+.login{max-width:360px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px}
+.chat{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;min-height:200px}
+.bubble{max-width:78%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-break:break-word;font-size:13.5px}
+.bubble.user{align-self:flex-end;background:var(--acc);color:#fff}
+.bubble.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.bubble.tool{align-self:flex-start;background:var(--bg);border:1px dashed var(--line);color:var(--dim);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+.chatbar{display:flex;gap:8px}
+.chatbar input{flex:1}
+</style>
+</head>
+<body>
+<div x-data="console" x-init="boot()" style="display:flex;flex:1">
+
+<!-- 登录 -->
+<template x-if="!token">
+  <div class="login">
+    <h2 style="color:var(--acc)">⬡ Harness Console</h2>
+    <p class="sub">使用平台账号登录；首次部署的管理员账号见服务启动日志。</p>
+    <div class="f" style="margin-bottom:8px"><label>账号</label><input x-model="login.account" @keydown.enter="doLogin()"></div>
+    <div class="f" style="margin-bottom:12px"><label>密码</label><input type="password" x-model="login.password" @keydown.enter="doLogin()"></div>
+    <button class="pri" style="width:100%" @click="doLogin()">登录</button>
+    <p class="sub" style="margin-top:10px" x-text="login.error"></p>
+  </div>
+</template>
+
+<!-- 首次激活 -->
+<template x-if="token && mustChangePassword">
+  <div class="login">
+    <h2 style="color:var(--acc)">首次激活</h2>
+    <p class="sub">账号 <span class="mono" x-text="identity.account"></span> 必须修改一次性初始密码后才能使用控制台。</p>
+    <div class="f" style="margin-bottom:8px"><label>新密码（至少 12 位）</label><input type="password" x-model="activation.password"></div>
+    <div class="f" style="margin-bottom:12px"><label>确认新密码</label><input type="password" x-model="activation.confirm" @keydown.enter="activateAccount()"></div>
+    <button class="pri" style="width:100%" @click="activateAccount()">修改密码并激活</button>
+    <button class="mini" style="width:100%;margin-top:8px" @click="logout()">退出登录</button>
+    <p class="sub" style="margin-top:10px" x-text="activation.error"></p>
+  </div>
+</template>
+
+<!-- 主界面 -->
+<template x-if="token && !mustChangePassword">
+<div style="display:flex;flex:1">
+<aside>
+  <div class="brand">⬡ Harness</div>
+  <template x-for="item in visibleNav.filter(item => !item.advancedOnly)" :key="item.id">
+    <div class="nav" :class="{on: view===item.id}" @click="go(item.id)">
+      <span x-text="item.icon"></span><span x-text="item.label"></span>
+    </div>
+  </template>
+  <button type="button" class="nav" @click="toggleAdvancedNav()" :aria-expanded="advancedOpen ? 'true' : 'false'" aria-controls="advanced-navigation">
+    <span aria-hidden="true">⚙</span><span x-text="advancedOpen ? '收起高级管理' : '高级管理'"></span>
+  </button>
+  <div id="advanced-navigation" x-show="advancedOpen" :aria-hidden="advancedOpen ? 'false' : 'true'">
+    <template x-for="item in visibleNav.filter(item => item.advancedOnly)" :key="item.id">
+      <div class="nav" :class="{on: view===item.id}" @click="go(item.id)">
+        <span x-text="item.icon"></span><span x-text="item.label"></span>
+      </div>
+    </template>
+  </div>
+  <div class="who">
+    <div x-text="identity.account"></div>
+    <div><span class="pill" x-text="identity.role"></span> <span class="pill" x-text="identity.tenant"></span></div>
+    <button class="mini" style="margin-top:6px" @click="logout()">退出</button>
+  </div>
+</aside>
+
+<main>
+  <!-- 概览 -->
+  <template x-if="view==='overview'">
+    <section>
+      <h2>部署概览</h2>
+      <h2 style="margin-top:8px">模型连接</h2>
+      <div class="card">
+        <div class="f"><label>Provider</label><select x-model="modelSettings.provider" @change="modelProviderChanged()"><template x-for="provider in modelProviderOptions()" :key="provider.value"><option :value="provider.value" x-text="provider.label"></option></template></select></div>
+        <div class="f"><label>Protocol</label><select x-model="modelSettings.protocol"><template x-for="protocol in modelProtocolOptions()" :key="protocol.value"><option :value="protocol.value" x-text="protocol.label"></option></template></select></div>
+        <div class="f"><label>模型</label><input x-model="modelSettings.model" size="18" placeholder="gpt-4o-mini"></div>
+        <div class="f"><label>API Key（写入后不回显）</label><input type="password" x-model="modelSettings.apiKey" size="24"></div>
+        <div class="f"><label>密钥状态</label><span x-text="modelSettings.hasAPIKey ? '已配置（' + modelSettings.apiKeyPreview + '）' : '未配置' "></span></div>
+        <label><input type="checkbox" x-model="modelSettings.clearAPIKey"> 清除已保存 API Key</label>
+        <div class="sub" x-show="modelCatalog.error" x-text="modelCatalog.error"></div>
+        <div class="sub" x-show="modelSettings.executionStatus">执行状态：<span x-text="modelSettings.executable ? '可执行' : '不可执行'"></span> · <span x-text="modelSettings.executionReason || modelSettings.executionStatus"></span></div>
+        <details style="width:100%">
+          <summary>更多连接选项</summary>
+          <div class="f"><label>Base URL</label><input x-model="modelSettings.baseURL" size="34" placeholder="https://api.openai.com/v1"></div>
+          <div class="f"><label>允许模型（逗号分隔，留空不限制）</label><input x-model="modelSettings.allowedModels" size="34"></div>
+        </details>
+        <button class="pri" @click="saveModelSettings()">保存（立即生效）</button>
+      </div>
+      <h2 style="margin-top:8px">存储状态</h2>
+      <div class="sub mono" x-text="'资源后端: ' + (storage.resActiveType||storage.resourcesActive||'embedded') + ' · 会话后端: ' + (storage.sessActiveType||storage.sessionsActive||'embedded')"></div>
+      <div class="sub" x-show="storage.resRestartPending || storage.sessRestartPending || storage.resConfigStatus === 'apply_failed' || storage.sessConfigStatus === 'apply_failed' || storage.resErrorCode || storage.sessErrorCode">
+        <span x-show="storage.resRestartPending || storage.sessRestartPending" class="pill" :class="'err'">有配置等待重启生效</span>
+        <span x-show="storage.resConfigStatus === 'apply_failed' || storage.sessConfigStatus === 'apply_failed'" class="pill err">存储应用失败，仍保留旧生效配置</span>
+        <span x-show="storage.resErrorCode || storage.sessErrorCode" class="mono" x-text="storage.resErrorCode || storage.sessErrorCode"></span>
+      </div>
+      <details>
+        <summary>存储高级设置</summary>
+      <div class="card">
+        <div class="f"><label>资源存储</label>
+          <select x-model="storage.resType"><option value="embedded">嵌入式文件系统</option><option value="s3">S3 兼容</option></select></div>
+        <template x-if="storage.resType === 's3'"><div style="display:contents">
+          <div class="f"><label>Endpoint</label><input x-model="storage.resEndpoint" size="26" placeholder="http://127.0.0.1:9000"></div>
+          <div class="f"><label>Region</label><input x-model="storage.resRegion" size="14"></div>
+          <div class="f"><label>Bucket</label><input x-model="storage.resBucket" size="14"></div>
+          <div class="f"><label>Access Key</label><input x-model="storage.resAccess" size="14" placeholder="留空保持已保存凭据"><span class="mono" x-text="storage.resAccessPreview ? '当前: ' + storage.resAccessPreview : '未配置'"></span></div>
+          <div class="f"><label>Secret Key</label><input type="password" x-model="storage.resSecret" size="14"></div>
+          <div class="f"><label>密钥状态</label><span x-text="storage.resHasSecret ? '已配置（' + storage.resSecretPreview + '）' : '未配置'"></span></div>
+          <label><input type="checkbox" x-model="storage.resClearSecret"> 清除已保存 Secret</label>
+          <label><input type="checkbox" x-model="storage.resPathStyle"> Path-style</label>
+        </div></template>
+        <div class="sub mono" x-text="'状态: ' + (storage.resConfigStatus || 'active') + (storage.resDesiredRevision ? ' · revision ' + storage.resDesiredRevision : '')"></div>
+        <div class="sub" x-show="storage.resMigration" x-text="'迁移: ' + ({syncing:'迁移中',catching_up:'追赶中',verifying:'已验证',s3_active:'已激活',apply_failed:'失败',cancelled:'已取消'}[storage.resMigration && storage.resMigration.state] || (storage.resMigration && storage.resMigration.state)) + (storage.resMigration && storage.resMigration.copied_objects != null ? ' · 对象 ' + storage.resMigration.copied_objects + ' · 字节 ' + storage.resMigration.copied_bytes : '')"></div>
+        <button class="mini" @click="testStorage('resources')">测试连接</button>
+        <button class="pri" @click="saveStorage('resources')">保存（资源即时生效）</button>
+      </div>
+      <div class="card">
+        <div class="f"><label>会话存储</label>
+          <select x-model="storage.sessType"><option value="embedded">嵌入式 SQLite</option><option value="file">本地文件（重启生效）</option><option value="s3">S3 兼容（重启生效）</option></select></div>
+        <template x-if="storage.sessType === 'file'"><div style="display:contents">
+          <div class="f"><label>会话目录</label><input x-model="storage.sessPath" size="34" placeholder="data/sessions"></div>
+        </div></template>
+        <template x-if="storage.sessType === 's3'"><div style="display:contents">
+          <div class="f"><label>Endpoint</label><input x-model="storage.sessEndpoint" size="26"></div>
+          <div class="f"><label>Region</label><input x-model="storage.sessRegion" size="14"></div>
+          <div class="f"><label>Bucket</label><input x-model="storage.sessBucket" size="14"></div>
+          <div class="f"><label>Access Key</label><input x-model="storage.sessAccess" size="14" placeholder="留空保持已保存凭据"><span class="mono" x-text="storage.sessAccessPreview ? '当前: ' + storage.sessAccessPreview : '未配置'"></span></div>
+          <div class="f"><label>Secret Key</label><input type="password" x-model="storage.sessSecret" size="14"></div>
+          <div class="f"><label>密钥状态</label><span x-text="storage.sessHasSecret ? '已配置（' + storage.sessSecretPreview + '）' : '未配置'"></span></div>
+          <label><input type="checkbox" x-model="storage.sessClearSecret"> 清除已保存 Secret</label>
+          <label><input type="checkbox" x-model="storage.sessPathStyle"> Path-style</label>
+          <label><input type="checkbox" x-model="storage.sessDisableConditionalWrites"> 禁用条件写入（需单写者租约）</label>
+        </div></template>
+        <div class="sub mono" x-text="'状态: ' + (storage.sessConfigStatus || 'active') + (storage.sessDesiredRevision ? ' · revision ' + storage.sessDesiredRevision : '')"></div>
+        <button class="mini" @click="testStorage('sessions')">测试连接</button>
+        <button class="pri" @click="saveStorage('sessions')">保存（重启生效）</button>
+      </div>
+      </details>
+      <details>
+        <summary>运行状态详情</summary>
+        <div class="sub mono" x-text="'scope: '+(ov.principal?ov.principal.scope:'')"></div>
+        <div class="grid">
+          <div class="stat"><b x-text="ov.counts?.capabilities??'-'"></b><span>能力</span></div>
+          <div class="stat"><b x-text="ov.counts?.profiles??'-'"></b><span>智能体</span></div>
+          <div class="stat"><b x-text="ov.counts?.policies??'-'"></b><span>策略层</span></div>
+          <div class="stat"><b x-text="ov.counts?.credentials??'-'"></b><span>凭证引用</span></div>
+        </div>
+        <table>
+          <tr><th>会话存储</th><td class="mono" x-text="ov.store||'-'"></td></tr>
+          <tr><th>租约 / Runner / 发布</th><td>
+            <span class="pill" :class="ov.features?.leases?'ok':'err'" x-text="ov.features?.leases?'租约✓':'租约✗'"></span>
+            <span class="pill" :class="ov.features?.runners?'ok':'err'" x-text="ov.features?.runners?'Runner✓':'Runner✗'"></span>
+            <span class="pill" :class="ov.features?.releases?'ok':'err'" x-text="ov.features?.releases?'发布✓':'发布✗'"></span>
+          </td></tr>
+        </table>
+      </details>
+    </section>
+  </template>
+
+  <!-- Playground -->
+  <template x-if="view==='playground'">
+    <section>
+      <h2>Playground</h2>
+      <div class="sub">开始新对话，或继续已有会话。</div>
+      <div class="card">
+        <template x-if="profiles.length === 1 && profiles[0] === 'general'">
+          <div class="f"><label>智能体配置</label><span class="pill ok">通用智能体</span></div>
+        </template>
+        <template x-if="profiles.length !== 1 || profiles[0] !== 'general'">
+          <div class="f"><label>智能体配置</label>
+            <select x-model="pg.profile">
+              <template x-for="p in profiles" :key="p"><option :value="p" x-text="p === 'general' ? '通用智能体' : p"></option></template>
+            </select>
+          </div>
+        </template>
+        <details style="width:100%">
+          <summary>继续已有会话（可选）</summary>
+          <div class="f"><label>已有会话 ID（填写后可直接继续）</label><input x-model="pg.sessionId" size="34" placeholder="sess_..."></div>
+        </details>
+        <button class="pri" @click="pgNewSession()">新建会话</button>
+        <span class="pill" :class="pg.sessionId?'ok':'err'" x-text="pg.sessionId?'会话已绑定':'未绑定会话'"></span>
+      </div>
+      <div class="chat">
+        <template x-for="(m,i) in pg.messages" :key="i">
+          <div class="bubble" :class="m.role" x-text="m.text"></div>
+        </template>
+        <template x-if="pg.streaming"><div class="bubble assistant" x-text="pg.pendingText + ' ▌'"></div></template>
+      </div>
+      <div class="chatbar">
+        <input x-model="pg.input" placeholder="输入消息…" @keydown.enter="pgSend()" :disabled="!pg.sessionId || pg.streaming">
+        <button class="pri" @click="pgSend()" :disabled="!pg.sessionId || pg.streaming">发送</button>
+      </div>
+    </section>
+  </template>
+
+  <!-- 能力目录 + 新增 -->
+  <template x-if="view==='capabilities'">
+    <section>
+      <h2>能力</h2>
+      <div class="sub">目录可见性按 scope；能力可通过 HTTP、Private Runner 或持久 Subagent 经统一闸门执行。</div>
+      <div class="card">
+        <div class="f"><label>能力 ID</label><input x-model="capNew.id" size="26" placeholder="crm.get_order"></div>
+        <div class="f"><label>版本</label><input x-model="capNew.version" size="8" value="1.0.0"></div>
+        <div class="f"><label>Kind</label>
+          <select x-model="capNew.kind"><option>connector</option><option>tool</option><option>skill</option><option>agent</option></select></div>
+        <div class="f"><label>Runtime</label>
+          <select x-model="capNew.runtime" @focus="loadCapabilityRuntimes()"><template x-for="runtime in runtimes" :key="runtime.id + '@' + runtime.version"><option :value="runtime.id + '@' + runtime.version" x-text="runtime.label || (runtime.id + '@' + runtime.version)"></option></template></select></div>
+         <div class="f"><label>描述</label><input x-model="capNew.description" size="26"></div>
+         <div class="f"><label>Scope</label><input x-model="capNew.scopeText" size="30" placeholder="global:global/product:acme"></div>
+         <div class="f" style="flex:1;min-width:420px"><label>高级 Manifest JSON（保留 schema、权限、审批、预算、超时、幂等与 output/execution 等字段）</label>
+           <textarea x-model="capNew.manifestJSON" rows="7" style="width:100%;font-family:monospace"></textarea>
+           <div class="sub">示例：<code>{&quot;input_schema&quot;:{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;query&quot;:{&quot;type&quot;:&quot;string&quot;}}},&quot;tool&quot;:{&quot;parameters&quot;:{&quot;type&quot;:&quot;object&quot;,&quot;properties&quot;:{&quot;query&quot;:{&quot;type&quot;:&quot;string&quot;}}}}}</code></div>
+           <span class="pill err" x-show="capNew.manifestError" x-text="capNew.manifestError"></span>
+           <span class="pill err" x-show="capNew.serverError" x-text="capNew.serverError"></span>
+         </div>
+        <template x-if="capabilityRuntimeID() === 'http'">
+          <div style="display:contents">
+            <div class="f"><label>HTTP URL</label><input x-model="capNew.url" size="30" placeholder="https://..."></div>
+            <div class="f"><label>Method</label>
+              <select x-model="capNew.method"><option>POST</option><option>GET</option></select></div>
+            <div class="f"><label>凭证头（名: $credential:ref）</label><input x-model="capNew.header" size="26" placeholder="X-Api-Key: $credential:crm.api_key"></div>
+          </div>
+        </template>
+        <template x-if="capabilityRuntimeID() === 'runner'">
+          <div class="sub" style="align-self:center;max-width:300px">Private Runner 会接管执行；URL、HTTP 方法和凭证头不适用于此运行时。</div>
+        </template>
+        <template x-if="capabilityRuntimeID() === 'subagent'">
+          <div style="display:contents">
+            <div class="f"><label>Child Profile ID</label><input x-model="capNew.childProfile" size="26" placeholder="product.specialist"></div>
+            <div class="f"><label>最大深度（可选，1–64）</label><input x-model="capNew.maxDepth" type="number" min="1" max="64" size="8"></div>
+            <div class="f"><label>最大子会话（可选，1–256）</label><input x-model="capNew.maxChildren" type="number" min="1" max="256" size="8"></div>
+            <div class="f"><label>子工具调用上限（可选，1–1024）</label><input x-model="capNew.maxToolCalls" type="number" min="1" max="1024" size="8"></div>
+            <div class="sub" style="align-self:center;max-width:340px">仅 agent Kind 可用。服务端要求 session 与 delegation-link 持久化配置；HTTP、文件与沙箱字段不适用。</div>
+          </div>
+        </template>
+        <template x-if="!['http','runner','subagent'].includes(capabilityRuntimeID())"><label>Execution JSON<input x-model="capNew.runtimeJSON" placeholder='{"entrypoint":"..."}'></label></template>
+        <label style="align-self:center"><input type="checkbox" x-model="capNew.replace"> 替换同 ID 已有版本</label>
+         <button class="pri" @click="createCapability()">新增并挂载</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Kind</th><th>Contract</th><th>来源 scope</th><th></th></tr></thead>
+        <tbody><template x-for="c in caps" :key="c.manifest.id">
+          <tr>
+            <td class="mono" x-text="c.manifest.id"></td>
+            <td x-text="c.manifest.kind"></td>
+            <td class="mono" x-text="c.manifest.contract||'-'"></td>
+            <td class="mono" x-text="scopeText(c.source)"></td>
+            <td><button class="mini danger" @click="disableCapability(c.manifest.id)">禁用</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- Profile / 发布 -->
+  <template x-if="view==='profiles'">
+    <section>
+      <h2>Profile 与发布</h2>
+      <div class="card" style="display:block">
+        <h3>Profile Layer 管理</h3>
+        <div class="sub">读取和保存当前 scope 的可编辑 layer。JSON 中可编辑 name、description、model/provider、capability 白名单及 prompt fragments；仅管理员可操作。</div>
+        <div class="f"><label>Profile ID</label><input x-model="profileEdit.id" size="28" placeholder="assistant.default"></div>
+        <div class="f"><label>Scope</label><input x-model="profileEdit.scopeText" size="36" placeholder="global:global/product:acme"></div>
+        <button class="mini" @click="loadProfileEditor()">读取 Profile</button>
+        <div class="f"><label>复制为新 ID</label><input x-model="profileEdit.copyID" size="24" placeholder="assistant.copy"></div>
+        <button class="mini" @click="copyProfileEditor()" :disabled="!profileEdit.layerJSON || !profileEdit.copyID">复制预填</button>
+        <div class="f"><label>name</label><input x-model="profileEdit.name" size="24"></div>
+        <div class="f"><label>description</label><input x-model="profileEdit.description" size="30"></div>
+        <div class="f"><label>provider</label><input x-model="profileEdit.provider" size="18"></div>
+        <div class="f"><label>model</label><input x-model="profileEdit.model" size="24"></div>
+        <div class="f"><label>执行模式</label><select x-model="profileEdit.executionMode" @change="profileApplyExecutionMode()"><option value="sequential">顺序（推荐/低开销）</option><option value="graph">Graph（可暂停恢复/可观测）</option><option value="custom">自定义（高级 JSON）</option></select></div>
+        <div class="f"><label>add_capabilities（逗号分隔）</label><input x-model="profileEdit.addCapabilities" size="34"></div>
+        <div class="f"><label>remove_capabilities（逗号分隔）</label><input x-model="profileEdit.removeCapabilities" size="34"></div>
+        <div class="f" style="flex:1;min-width:420px"><label>put_fragments JSON</label><textarea x-model="profileEdit.fragmentsJSON" rows="4" style="width:100%;font-family:monospace"></textarea></div>
+        <div class="f" style="flex:1;min-width:420px"><label>Layer JSON（保存以此 JSON 为准）</label><textarea x-model="profileEdit.layerJSON" rows="9" style="width:100%;font-family:monospace"></textarea></div>
+        <button class="mini" @click="profileLayerFromFields()">从字段生成 Layer JSON</button>
+        <button class="pri" @click="saveProfileEditor()" :disabled="!profileEdit.id || !profileEdit.scopeText">保存 Layer</button>
+        <span class="pill err" x-show="profileEdit.error" x-text="profileEdit.error"></span>
+        <template x-if="profileEdit.effective"><div class="sub">Effective：<span x-text="profileEdit.effective.name||'-'"></span> · <span x-text="profileEdit.effective.model?.provider||'-'"></span>/<span x-text="profileEdit.effective.model?.model||'-'"></span> · capabilities <span x-text="(profileEdit.effective.capabilities||[]).length"></span></div></template>
+      </div>
+      <div class="card">
+        <div class="f"><label>Profile</label>
+          <select x-model="pub.profile" @change="loadReleases()">
+            <template x-for="p in profiles" :key="p"><option :value="p" x-text="p"></option></template>
+          </select></div>
+        <div class="f"><label>发布 scope</label><input x-model="pub.scopeText" size="36"></div>
+        <div class="f"><label>Fragment ID</label><input x-model="pub.fragId" size="16"></div>
+        <div class="f"><label>Section</label>
+          <select x-model="pub.section"><option>identity</option><option>traits</option><option>values</option><option>goals</option><option>style</option><option>boundaries</option><option>instructions</option></select></div>
+        <div class="f" style="flex:1"><label>内容</label><input x-model="pub.content" style="width:100%"></div>
+        <button class="pri" @click="publish()">发布</button>
+        <div class="f"><label>回滚到</label><input x-model="pub.rollbackTo" size="5" type="number" min="0"></div>
+        <button class="danger" @click="rollback()">回滚</button>
+      </div>
+      <table>
+        <thead><tr><th>版本</th><th>Scope</th><th>时间</th><th>状态</th></tr></thead>
+        <tbody><template x-for="r in releases" :key="r.version">
+          <tr>
+            <td x-text="'v'+r.version"></td>
+            <td class="mono" x-text="scopeText(r.scope)"></td>
+            <td x-text="(r.created_at||'').replace('T',' ').slice(0,19)"></td>
+            <td><span class="pill" :class="r.rolled_back?'err':'ok'" x-text="r.rolled_back?'已回滚':'生效中'"></span></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- Approval Inbox -->
+  <template x-if="view==='approvals'">
+    <section>
+      <h2>Approval Inbox / 审批收件箱</h2>
+      <div class="sub">仅显示安全元数据与 session/run/capability 关联；不会渲染工具参数或审批请求载荷。</div>
+      <div class="card">
+        <div class="f"><label>状态</label><select x-model="approvalFilter" @change="loadApprovals()">
+          <option value="pending">pending</option><option value="processed">已处理（approved / denied）</option><option value="expired">expired</option>
+        </select></div>
+        <button class="pri" @click="loadApprovals()">刷新</button>
+        <span class="pill" x-text="'共 '+approvals.length+' 条'"></span>
+      </div>
+      <table><thead><tr><th>ID</th><th>状态</th><th>session / run</th><th>capability</th><th>requested / expires</th><th></th></tr></thead>
+        <tbody><template x-for="a in approvals" :key="a.id"><tr>
+          <td><button class="mini mono" @click="viewApproval(a.id)" x-text="a.id"></button></td>
+          <td><span class="pill" :class="a.status==='pending'?'':'ok'" x-text="a.status"></span></td>
+          <td class="mono"><div x-text="a.session_id||'-'"></div><div x-text="a.run_id||'-'"></div></td>
+          <td class="mono" x-text="a.capability_id||'-'"></td>
+          <td class="mono"><div x-text="a.requested_at||'-'"></div><div x-text="a.expires_at||'-'"></div></td>
+          <td><template x-if="a.status==='pending'"><span><button class="mini" @click="decideApproval(a.id,'approved')">批准</button><button class="mini danger" @click="decideApproval(a.id,'denied')">拒绝</button></span></template></td>
+        </tr></template></tbody>
+      </table>
+      <template x-if="!approvals.length"><div class="sub">没有匹配的审批。</div></template>
+      <template x-if="approvalDetail"><div class="card" style="display:block"><b>审批详情</b>
+        <table><tbody>
+          <tr><th>ID / status</th><td class="mono" x-text="approvalDetail.id+' / '+approvalDetail.status"></td></tr>
+          <tr><th>session_id</th><td class="mono" x-text="approvalDetail.session_id||'-'"></td></tr>
+          <tr><th>run_id</th><td class="mono" x-text="approvalDetail.run_id||'-'"></td></tr>
+          <tr><th>capability_id</th><td class="mono" x-text="approvalDetail.capability_id||'-'"></td></tr>
+          <tr><th>安全元数据</th><td class="mono" x-text="'manifest '+(approvalDetail.manifest_digest||'-')+' · subject '+(approvalDetail.subject_id||'-')"></td></tr>
+          <tr><th>decision</th><td x-text="approvalDetail.decided_by ? approvalDetail.decided_by+' @ '+approvalDetail.decided_at : '未决' "></td></tr>
+        </tbody></table>
+        <template x-if="approvalRunMatch!==null"><span class="pill" :class="approvalRunMatch?'ok':'err'" x-text="approvalRunMatch?'批准后仍为同一 run_id':'run_id 校验失败'"></span></template>
+      </div></template>
+    </section>
+  </template>
+
+  <!-- Evaluation / Composition 关联 -->
+  <template x-if="view==='evaluations'">
+    <section>
+      <h2>评测关联</h2>
+      <div class="sub">按 Composition / Assignment Revision 查询评测运行，并查看 Case Artifact。</div>
+      <div class="card">
+        <div class="f"><label>Dataset ID（可选）</label><input x-model="ev.dataset" size="22" placeholder="release.gate"></div>
+        <div class="f" style="flex:1"><label>Composition Revision（64 位 SHA-256）</label><input x-model="ev.composition" size="48"></div>
+        <div class="f" style="flex:1"><label>Assignment Revision（64 位 SHA-256）</label><input x-model="ev.assignment" size="48"></div>
+        <div class="f"><label>Limit</label><input x-model="ev.limit" type="number" min="1" max="500" size="5"></div>
+        <button class="pri" @click="loadEvaluations()">查询</button>
+      </div>
+      <table>
+        <thead><tr><th>Run</th><th>Dataset / Profile</th><th>Tenant / Subject</th><th>状态</th><th>Assignment Revision</th><th></th></tr></thead>
+        <tbody><template x-for="r in evaluationRuns" :key="r.id">
+          <tr>
+            <td class="mono" x-text="r.id"></td>
+            <td><div x-text="r.dataset_id+' v'+r.dataset_version"></div><div class="mono" x-text="r.profile_id"></div></td>
+            <td><div x-text="r.tenant_id"></div><div class="mono" x-text="r.subject_id"></div></td>
+            <td><span class="pill" :class="r.passed?'ok':'err'" x-text="r.status+' / '+(r.passed?'通过':'未通过')"></span></td>
+            <td class="mono" x-text="r.assignment_revision||'-'"></td>
+            <td><button class="mini" @click="viewEvaluation(r.id)">查看 Artifact</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <template x-if="evaluationDetail">
+        <div class="card" style="display:block">
+          <div><b>Run Artifact</b> <span class="mono" x-text="evaluationDetail.id"></span></div>
+          <template x-for="c in (evaluationDetail.cases||[])" :key="c.case_id">
+            <div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+              <div><span x-text="c.case_id"></span> · <span x-text="c.passed?'通过':'未通过'"></span></div>
+              <div class="mono" x-text="'composition: '+(c.artifacts?.composition_revision||'-')"></div>
+              <div class="mono" x-text="'assignment: '+(c.artifacts?.assignment_revision||'-')"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </section>
+  </template>
+
+  <!-- Unified Evidence -->
+  <template x-if="view==='evidence'">
+    <section>
+      <h2>统一 Evidence</h2>
+      <div class="sub">一次查看普通 Run、Backtest、Evaluation、Canary 和 Release 的 Composition / Assignment 关联。</div>
+      <div class="card">
+        <div class="f" style="flex:1"><label>Composition Revision</label><input x-model="evidenceQuery.composition" size="48" placeholder="64 位 SHA-256"></div>
+        <div class="f" style="flex:1"><label>Assignment Revision</label><input x-model="evidenceQuery.assignment" size="48" placeholder="64 位 SHA-256"></div>
+        <div class="f"><label>Profile</label><input x-model="evidenceQuery.profile" size="20"></div>
+        <div class="f"><label>Subject</label><input x-model="evidenceQuery.subject" size="18"></div>
+        <div class="f"><label>类型</label><select x-model="evidenceQuery.kind"><option value="">全部</option><option value="run">Run</option><option value="backtest">Backtest</option><option value="evaluation">Evaluation</option><option value="canary">Canary</option><option value="release">Release</option></select></div>
+        <div class="f"><label>状态（逗号分隔）</label><input x-model="evidenceQuery.status" size="18" placeholder="completed,failed"></div>
+        <div class="f"><label>开始时间</label><input x-model="evidenceQuery.after" type="datetime-local"></div>
+        <div class="f"><label>结束时间</label><input x-model="evidenceQuery.before" type="datetime-local"></div>
+        <div class="f"><label>Limit</label><input x-model="evidenceQuery.limit" type="number" min="1" max="500" size="5"></div>
+        <button class="pri" @click="loadEvidence(true)">查询</button>
+        <button class="mini" :disabled="!evidenceNav.stack.length" @click="previousEvidence()">上一页</button>
+        <button class="mini" :disabled="!evidenceNav.next" @click="nextEvidence()">下一页</button>
+        <span class="sub" style="margin:0" x-text="'本页 '+evidenceRecords.length+' 条'+(evidenceNav.next?' · 还有下一页':'')"></span>
+      </div>
+      <template x-if="evidenceStats">
+        <div class="card">
+          <div class="f"><label>Total</label><b x-text="evidenceStats.total||0"></b></div>
+          <div class="f"><label>Terminal</label><b x-text="evidenceStats.terminal||0"></b></div>
+          <div class="f"><label>Completion Rate</label><b x-text="((evidenceStats.completion_rate||0)*100).toFixed(1)+'%'"></b></div>
+          <div class="f"><label>Candidate</label><b x-text="evidenceStats.by_variant?.candidate?.total||0"></b></div>
+          <div class="f"><label>Live</label><b x-text="evidenceStats.by_variant?.live?.total||0"></b></div>
+          <div class="f"><label>Unassigned</label><b x-text="evidenceStats.by_variant?.unassigned?.total||0"></b></div>
+          <div class="f" style="flex:1"><label>By Status</label><div><template x-for="[status,count] in Object.entries(evidenceStats.by_status||{})" :key="status"><span class="pill" style="margin-right:4px" x-text="status+': '+count"></span></template></div></div>
+        </div>
+      </template>
+      <table>
+        <thead><tr><th>类型</th><th>ID</th><th>Profile</th><th>Tenant / Subject</th><th>状态</th><th>Revision</th><th>关联</th><th></th></tr></thead>
+        <tbody><template x-for="(e,i) in evidenceRecords" :key="e.kind+'|'+e.id+'|'+(e.segment_seq||i)">
+          <tr>
+            <td><span class="pill" :class="e.kind==='release'?'ok':(e.kind==='canary'?'':'')" x-text="e.kind"></span></td>
+            <td class="mono" x-text="e.id"></td>
+            <td class="mono" x-text="e.profile_id||'-'"></td>
+            <td><div x-text="e.tenant_id||'-'"></div><div class="mono" x-text="e.subject_id||'-'"></div></td>
+            <td x-text="e.status|| (e.rolled_back?'rolled_back':'-')"></td>
+            <td class="mono">
+              <div x-text="'C: '+(e.composition_revision||e.artifact_revision||'-')"></div>
+              <div x-text="'A: '+(e.assignment_revision||'-')"></div>
+            </td>
+            <td class="mono"><div x-text="e.related_evaluation_run_id||'-'"></div><div x-text="e.related_canary_id||''"></div></td>
+            <td><button class="mini" :disabled="!e.detail_path" @click="viewEvidence(e)">详情</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <template x-if="!evidenceRecords.length"><div class="sub">没有匹配的 Evidence。</div></template>
+      <template x-if="evidenceDetail">
+        <div class="card" style="display:block">
+          <div><b>对象详情</b> <span class="mono" x-text="evidenceDetailKind+' · '+evidenceDetailID"></span></div>
+          <template x-if="evidenceDetailKind==='run'||evidenceDetailKind==='backtest'">
+            <table><tbody>
+              <tr><th>Session / Run</th><td class="mono" x-text="(evidenceDetail.session?.id||'-')+' / '+(evidenceDetail.run_id||'-')"></td></tr>
+              <tr><th>状态 / Events</th><td x-text="(evidenceDetail.status||'-')+' / '+((evidenceDetail.events||[]).length)"></td></tr>
+              <tr><th>Composition</th><td class="mono" x-text="evidenceDetail.composition_evidence?.composition_revision||'-'"></td></tr>
+              <tr><th>Assignment</th><td class="mono" x-text="evidenceDetail.composition_evidence?.assignment_revision||'-'"></td></tr>
+            </tbody></table>
+          </template>
+          <template x-if="evidenceDetailKind==='evaluation'">
+            <table><tbody>
+              <tr><th>状态</th><td x-text="evidenceDetail.status||'-'"></td></tr>
+              <tr><th>得分 / Cases</th><td x-text="(evidenceDetail.score??'-')+' / '+((evidenceDetail.cases||[]).length)"></td></tr>
+              <tr><th>通过</th><td x-text="evidenceDetail.passed?'是':'否'"></td></tr>
+              <tr><th>Assignment</th><td class="mono" x-text="evidenceDetail.assignment_revision||'-'"></td></tr>
+            </tbody></table>
+          </template>
+          <template x-if="evidenceDetailKind==='canary'">
+            <table><tbody>
+              <tr><th>状态 / 比例</th><td x-text="(evidenceDetail.status||'-')+' / '+(evidenceDetail.basis_points??'-')+' bp'"></td></tr>
+              <tr><th>Candidate Revision</th><td class="mono" x-text="evidenceDetail.revision||'-'"></td></tr>
+              <tr><th>Base Revision</th><td class="mono" x-text="evidenceDetail.base_release_revision||'-'"></td></tr>
+              <tr><th>Evaluation</th><td class="mono" x-text="evidenceDetail.candidate_evaluation_run_id||'-'"></td></tr>
+            </tbody></table>
+          </template>
+          <template x-if="evidenceDetailKind==='release'">
+            <table><tbody>
+              <tr><th>Profile / Version</th><td class="mono" x-text="(evidenceDetail.profile_id||'-')+' / v'+(evidenceDetail.version||'-')"></td></tr>
+              <tr><th>Scope</th><td class="mono" x-text="scopeText(evidenceDetail.scope)"></td></tr>
+              <tr><th>Revision</th><td class="mono" x-text="evidenceDetail.revision||'-'"></td></tr>
+              <tr><th>状态</th><td x-text="evidenceDetail.rolled_back?'已回滚':'生效中'"></td></tr>
+            </tbody></table>
+          </template>
+          <details style="margin-top:8px"><summary>原始 JSON</summary><pre class="mono" style="white-space:pre-wrap;max-height:520px;overflow:auto;margin-top:8px" x-text="JSON.stringify(evidenceDetail,null,2)"></pre></details>
+        </div>
+      </template>
+    </section>
+  </template>
+
+  <!-- Delegation relationships, deliberately metadata-only. -->
+  <template x-if="view==='delegations'">
+    <section>
+      <h2>Delegations / 委派关系</h2>
+      <div class="sub">仅显示 parent → child 的 session/run、深度和状态；不会显示输入、事件、输出或追踪载荷。</div>
+      <div class="card">
+        <div class="f"><label>Parent session</label><input x-model="delegationQuery.parent_session_id" size="22"></div>
+        <div class="f"><label>Parent run</label><input x-model="delegationQuery.parent_run_id" size="22"></div>
+        <div class="f"><label>Child session</label><input x-model="delegationQuery.child_session_id" size="22"></div>
+        <div class="f"><label>Tenant</label><input x-model="delegationQuery.tenant" size="16"></div>
+        <button class="pri" @click="loadDelegations()">查询</button>
+      </div>
+      <table><thead><tr><th>Parent</th><th>Child</th><th>深度 / 状态</th><th>创建时间</th><th></th></tr></thead>
+        <tbody><template x-for="d in delegations" :key="d.parent_session_id+'|'+d.parent_run_id+'|'+d.parent_call_id">
+          <tr>
+            <td class="mono"><div x-text="d.parent_session_id"></div><div x-text="d.parent_run_id"></div></td>
+            <td class="mono"><div x-text="d.child_session_id"></div><div x-text="d.child_run_id"></div></td>
+            <td><div x-text="'depth '+d.depth"></div><span class="pill" x-text="d.child_status||'unknown'"></span></td>
+            <td class="mono" x-text="(d.created_at||'').replace('T',' ').slice(0,19)"></td>
+            <td><button class="mini" @click="openDelegationSession(d.parent_session_id)">父会话</button><button class="mini" @click="openDelegationSession(d.child_session_id)">子会话</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <template x-if="!delegations.length"><div class="sub">没有匹配的委派关系。</div></template>
+    </section>
+  </template>
+
+  <!-- Runner Tasks -->
+  <template x-if="view==='runner-tasks'">
+    <section>
+      <h2>Runner Tasks / 运行器任务</h2>
+      <div class="sub">仅展示 durable runner task 的元数据；不显示任务输入、输出或追踪载荷。</div>
+      <div class="card">
+        <div class="f"><label>Tenant</label><input x-model="runnerTaskQuery.tenant" size="16"></div>
+        <div class="f"><label>Subject</label><input x-model="runnerTaskQuery.subject_id" size="16"></div>
+        <div class="f"><label>Scope</label><input x-model="runnerTaskQuery.scope" size="18"></div>
+        <div class="f"><label>Capability</label><input x-model="runnerTaskQuery.capability" size="20"></div>
+        <div class="f"><label>Worker</label><input x-model="runnerTaskQuery.worker_id" size="16"></div>
+        <div class="f"><label>State</label>
+          <select x-model="runnerTaskQuery.state">
+            <option value="">全部</option><option value="queued">queued</option><option value="claimed">claimed</option>
+            <option value="completed">completed</option><option value="cancelled">cancelled</option><option value="failed">failed</option>
+          </select>
+        </div>
+        <div class="f"><label>Limit</label><input x-model="runnerTaskQuery.limit" type="number" min="1" max="500" size="5"></div>
+        <button class="pri" @click="resetRunnerTasks()">查询</button>
+        <button class="mini" :disabled="runnerTaskPage.offset<=0" @click="paginateRunnerTasks(-1)">上一页</button>
+        <button class="mini" :disabled="runnerTaskPage.offset+runnerTasks.length>=runnerTaskPage.total" @click="paginateRunnerTasks(1)">下一页</button>
+        <template x-if="identity.role==='admin'"><button class="mini danger" @click="recoverRunnerTasks()">Recover expired</button></template>
+        <span class="pill" x-text="'共 '+runnerTaskPage.total+' 条 · 本页 '+runnerTasks.length+' 条 · 偏移 '+runnerTaskPage.offset"></span>
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>capability</th><th>tenant/subject</th><th>scope</th><th>state</th><th>cancel_requested</th>
+          <th>worker</th><th>attempt/max</th><th>generation</th><th>updated_at</th><th>has_result</th><th>has_trace_context</th>
+        </tr></thead>
+        <tbody><template x-for="t in runnerTasks" :key="t.id">
+          <tr>
+            <td><button class="mini mono" @click="viewRunnerTask(t.id)" x-text="t.id"></button></td>
+            <td class="mono" x-text="t.capability||'-'"></td>
+            <td><div x-text="t.tenant_id||'-'"></div><div class="mono" x-text="t.subject_id||'-'"></div></td>
+            <td class="mono" x-text="t.scope||'-'"></td>
+            <td><span class="pill" :class="t.state==='completed'?'ok':(t.state==='failed'?'err':'')" x-text="t.state||'-'"></span></td>
+            <td>
+              <span class="pill" :class="t.cancel_requested?'err':'ok'" x-text="t.cancel_requested?'是':'否'"></span>
+              <template x-if="t.state==='queued'||t.state==='claimed'"><button class="mini danger" :disabled="t.cancel_requested" @click="cancelRunnerTask(t)">Cancel</button></template>
+            </td>
+            <td class="mono" x-text="t.worker_id||'-'"></td>
+            <td x-text="(t.attempt??0)+' / '+(t.max_attempts??'-')"></td>
+            <td x-text="t.generation??'-'"></td>
+            <td class="mono" x-text="(t.updated_at||'').replace('T',' ').slice(0,23)||'-'"></td>
+            <td x-text="t.has_result?'是':'否'"></td>
+            <td x-text="t.has_trace_context?'是':'否'"></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <template x-if="!runnerTasks.length"><div class="sub">没有匹配的运行器任务。</div></template>
+      <template x-if="runnerTaskDetail">
+        <div class="card" style="display:block">
+          <div><b>任务详情</b> <span class="mono" x-text="runnerTaskDetail.id"></span></div>
+          <table><tbody>
+            <tr><th>ID</th><td class="mono" x-text="runnerTaskDetail.id||'-'"></td></tr>
+            <tr><th>capability</th><td class="mono" x-text="runnerTaskDetail.capability||'-'"></td></tr>
+            <tr><th>tenant/subject</th><td class="mono" x-text="(runnerTaskDetail.tenant_id||'-')+' / '+(runnerTaskDetail.subject_id||'-')"></td></tr>
+            <tr><th>scope</th><td class="mono" x-text="runnerTaskDetail.scope||'-'"></td></tr>
+            <tr><th>state</th><td x-text="runnerTaskDetail.state||'-'"></td></tr>
+            <tr><th>cancel_requested</th><td x-text="runnerTaskDetail.cancel_requested?'是':'否'"></td></tr>
+            <tr><th>worker</th><td class="mono" x-text="runnerTaskDetail.worker_id||'-'"></td></tr>
+            <tr><th>attempt/max</th><td x-text="(runnerTaskDetail.attempt??0)+' / '+(runnerTaskDetail.max_attempts??'-')"></td></tr>
+            <tr><th>generation</th><td x-text="runnerTaskDetail.generation??'-'"></td></tr>
+            <tr><th>updated_at</th><td class="mono" x-text="runnerTaskDetail.updated_at||'-'"></td></tr>
+           <tr><th>has_result</th><td x-text="runnerTaskDetail.has_result?'是':'否'"></td></tr>
+           <tr><th>has_trace_context</th><td x-text="runnerTaskDetail.has_trace_context?'是':'否'"></td></tr>
+           </tbody></table>
+           <template x-if="runnerTaskActions?.retry?.allowed"><div class="card" style="display:block;margin-top:10px"><b>安全重试</b>
+             <div class="sub" x-text="runnerTaskActions.retry.description"></div>
+             <div class="f"><label>审计 reason（必填）</label><input x-model="runnerRetry.reason" maxlength="1024" size="54" placeholder="说明为何重试该幂等失败任务"></div>
+             <label><input type="checkbox" x-model="runnerRetry.confirm"> 我确认创建一次显式重试</label>
+             <button class="mini danger" @click="retryRunnerTask()" :disabled="!runnerRetry.reason.trim() || !runnerRetry.confirm">确认重试</button>
+           </div></template>
+           <template x-if="runnerTaskActions && !runnerTaskActions.retry?.allowed"><div class="sub">不可重试：<span x-text="runnerTaskActions.retry?.description||'服务端未授权'"></span></div></template>
+           <template x-if="runnerRetryResult"><div class="sub">重试关联：original <span class="mono" x-text="runnerRetryResult.original_id"></span> → retry <span class="mono" x-text="runnerRetryResult.retry_id"></span> · <span x-text="runnerRetryResult.created?'已创建':'已存在'"></span></div></template>
+         </div>
+       </template>
+    </section>
+  </template>
+
+  <!-- RAG Projection -->
+  <template x-if="view==='rag-projection' && identity.role==='admin'">
+    <section>
+      <h2>RAG Projection / RAG 投影</h2>
+      <div class="sub">仅展示全局倒排投影计数；不读取或显示文档、Token 或 Tag 的实际内容。</div>
+      <div class="grid">
+        <div class="stat"><b x-text="ragProjection?.canonical_documents??'-'"></b><span>Canonical Documents</span></div>
+        <div class="stat"><b x-text="ragProjection?.token_rows??'-'"></b><span>Token Rows</span></div>
+        <div class="stat"><b x-text="ragProjection?.tag_rows??'-'"></b><span>Tag Rows</span></div>
+        <div class="stat"><b x-text="ragProjection?.token_documents??'-'"></b><span>Token Documents</span></div>
+        <div class="stat"><b x-text="ragProjection?.tag_documents??'-'"></b><span>Tag Documents</span></div>
+        <div class="stat"><b x-text="ragProjection?.orphan_token_rows??'-'"></b><span>Orphan Token Rows</span></div>
+        <div class="stat"><b x-text="ragProjection?.orphan_tag_rows??'-'"></b><span>Orphan Tag Rows</span></div>
+      </div>
+      <div class="card">
+        <div class="sub" style="margin:0;flex:1">Rebuild 会从 canonical RAG documents 原子重建派生投影；canonical 数据保持不变。</div>
+        <button class="danger" :disabled="ragProjectionRebuilding" @click="rebuildRagProjection()" x-text="ragProjectionRebuilding?'Rebuilding…':'Rebuild Projection'"></button>
+        <button class="mini" :disabled="ragProjectionRebuilding" @click="loadRagProjection()">Refresh</button>
+      </div>
+    </section>
+  </template>
+
+  <!-- Memory Projection -->
+  <template x-if="view==='memory-projection' && identity.role==='admin'">
+    <section>
+      <h2>Memory Projection / Memory 投影</h2>
+      <div class="sub">仅展示全局 Memory 派生投影计数；不读取或显示 key、content、tag 的实际值或 entry ID。</div>
+      <div class="grid">
+        <div class="stat"><b x-text="memoryProjection?.canonical_entries??'-'"></b><span>Canonical Entries</span></div>
+        <div class="stat"><b x-text="memoryProjection?.tag_rows??'-'"></b><span>Tag Rows</span></div>
+        <div class="stat"><b x-text="memoryProjection?.tagged_keys??'-'"></b><span>Tagged Keys</span></div>
+        <div class="stat"><b x-text="memoryProjection?.orphan_tag_rows??'-'"></b><span>Orphan Tag Rows</span></div>
+        <div class="stat"><b x-text="memoryProjection?.key_search_missing??'-'"></b><span>Key Search Missing</span></div>
+        <div class="stat"><b x-text="memoryProjection?.content_search_missing??'-'"></b><span>Content Search Missing</span></div>
+        <div class="stat"><b x-text="memoryProjection?.search_projected_entries??'-'"></b><span>Search Projected Entries</span></div>
+      </div>
+      <div class="card">
+        <div class="sub" style="margin:0;flex:1">Search Projected Entries 是 coverage：仅表示 key_search 与 content_search 两个派生字段均非空，并不证明完整内容一致性。</div>
+        <button class="danger" :disabled="memoryProjectionRebuilding" @click="rebuildMemoryProjection()" x-text="memoryProjectionRebuilding?'Rebuilding…':'Rebuild Projection'"></button>
+        <button class="mini" :disabled="memoryProjectionRebuilding" @click="loadMemoryProjection()">Refresh</button>
+      </div>
+    </section>
+  </template>
+
+  <!-- 策略 -->
+  <template x-if="view==='policies'">
+    <section>
+      <h2>策略层</h2>
+      <div class="card">
+        <div class="f"><label>Scope</label><input x-model="pol.scopeText" size="34"></div>
+        <div class="f"><label>Allow</label><input x-model="pol.allow" size="20"></div>
+        <div class="f"><label>Deny</label><input x-model="pol.deny" size="16"></div>
+        <div class="f"><label>MaxSteps</label><input x-model="pol.maxSteps" size="5"></div>
+        <div class="f"><label>MaxToolCalls</label><input x-model="pol.maxToolCalls" size="6"></div>
+        <button class="pri" @click="bindPolicy()">绑定</button>
+      </div>
+      <table>
+        <thead><tr><th>Scope</th><th>Allow</th><th>Deny</th><th>上限</th></tr></thead>
+        <tbody><template x-for="(p,i) in policies" :key="i">
+          <tr>
+            <td class="mono" x-text="scopeText(p.scope)"></td>
+            <td class="mono" x-text="(p.allow_permissions||[]).join(',')||'-'"></td>
+            <td class="mono" x-text="(p.deny_permissions||[]).join(',')||'-'"></td>
+            <td x-text="[p.max_steps?('steps:'+p.max_steps):null,p.max_tool_calls?('tools:'+p.max_tool_calls):null].filter(Boolean).join(' ')||'-'"></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 凭证 -->
+  <template x-if="view==='credentials'">
+    <section>
+      <h2>凭证引用</h2>
+      <div class="sub">值单向写入，任何接口永不回显。</div>
+      <div class="card">
+        <div class="f"><label>Scope</label><input x-model="cred.scopeText" size="32"></div>
+        <div class="f"><label>Ref</label><input x-model="cred.ref" size="22" placeholder="crm.api_key"></div>
+        <div class="f"><label>方式</label><select x-model="cred.kind"><option value="static">static</option><option value="env">env</option></select></div>
+        <div class="f"><label x-text="cred.kind==='env'?'环境变量名':'值'"></label><input :type="cred.kind==='env'?'text':'password'" x-model="cred.value" size="18"></div>
+        <button class="pri" @click="bindCredential()">绑定</button>
+      </div>
+      <table>
+        <thead><tr><th>Ref</th><th>Scope</th><th>Mode</th><th>值</th></tr></thead>
+        <tbody><template x-for="(c,i) in credentials" :key="i">
+          <tr>
+            <td class="mono" x-text="c.ref"></td>
+            <td class="mono" x-text="scopeText(c.scope)"></td>
+            <td x-text="c.mode"></td>
+            <td><span class="pill">永不回显</span></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 通知目标 -->
+  <template x-if="view==='notification-targets'">
+    <section>
+      <h2>通知目标</h2>
+      <div class="sub">目标配置仅可写入，读取列表绝不返回 URL、密钥或配置内容。创建或切换频道时必须重新输入完整配置；编辑同一频道时留空将保留已有配置。</div>
+      <div class="card">
+        <div class="f"><label>租户（平台管理员必填；租户管理员可留空）</label><input x-model="notificationTargets.tenantID" size="18" placeholder="tenant-a"></div>
+        <button class="mini" :disabled="notificationTargets.loading" @click="loadNotificationTargets()">刷新</button>
+      </div>
+      <div class="card">
+        <div class="f"><label>Target Ref</label><input x-model="notificationTargets.targetRef" :readonly="notificationTargets.editing" size="20" placeholder="ops-webhook"></div>
+        <div class="f"><label>频道 ID</label><input x-model="notificationTargets.channelID" size="16" placeholder="webhook"></div>
+        <div class="f"><label>频道版本</label><input x-model="notificationTargets.channelVersion" size="6" placeholder="1"></div>
+        <div class="f"><label>标签</label><input x-model="notificationTargets.label" size="18" placeholder="Operations"></div>
+        <div class="f"><label>格式（逗号分隔）</label><input x-model="notificationTargets.formatsText" size="20" placeholder="text, markdown"></div>
+        <div class="f"><label>启用</label><input type="checkbox" x-model="notificationTargets.enabled"></div>
+        <div class="f" style="flex-basis:100%"><label x-text="notificationTargetConfigRequired()?'完整配置（必填）':'新配置（留空保留）'"></label><textarea x-model="notificationTargets.configText" autocomplete="off" rows="4" style="width:100%;font-family:var(--mono,monospace)" placeholder='{"url":"https://example.test/hook","secret":"write-only"}'></textarea></div>
+        <button class="pri" @click="saveNotificationTarget()" x-text="notificationTargets.editing?'保存更新':'创建目标'"></button>
+        <button class="mini" x-show="notificationTargets.editing" @click="resetNotificationTargetForm()">取消编辑</button>
+      </div>
+      <p class="sub" x-text="notificationTargets.status"></p>
+      <table>
+        <thead><tr><th>Target Ref</th><th>频道</th><th>标签</th><th>格式</th><th>状态</th><th>Revision</th><th></th></tr></thead>
+        <tbody><template x-for="target in notificationTargets.targets" :key="target.target_ref">
+          <tr>
+            <td class="mono" x-text="target.target_ref"></td>
+            <td class="mono" x-text="target.channel_id + '@' + target.channel_version"></td>
+            <td x-text="target.label||'-'"></td>
+            <td class="mono" x-text="(target.formats||[]).join(', ')||'-'"></td>
+            <td><span class="pill" :class="target.enabled?'ok':'err'" x-text="target.enabled?'enabled':'disabled'"></span></td>
+            <td class="mono" x-text="target.revision"></td>
+            <td><button class="mini" @click="editNotificationTarget(target)">编辑</button> <button class="mini danger" @click="deleteNotificationTarget(target)">删除</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- Sandbox provider discovery -->
+  <template x-if="view==='sandbox' && identity.role==='admin'">
+    <section>
+      <h2>Sandbox 状态</h2>
+      <div class="sub">这里只显示已注册 provider 的实际 Probe 结果，不会启动命令、创建会话或把普通进程当作 sandbox。Windows 或缺少隔离依赖时显示不可用是预期安全状态。</div>
+      <div class="card">
+        <button class="mini" :disabled="sandbox.loading" @click="loadSandboxProviders()" x-text="sandbox.loading?'刷新中…':'刷新状态'"></button>
+        <span class="sub" x-text="sandbox.status"></span>
+      </div>
+      <table>
+        <thead><tr><th>Provider</th><th>实现版本</th><th>可用性</th><th>Assurance</th><th>网络</th><th>限制 / Mount</th><th>说明</th></tr></thead>
+        <tbody><template x-for="provider in sandbox.providers" :key="provider.id + '@' + provider.version">
+          <tr>
+            <td class="mono" x-text="provider.id + '@' + provider.version"></td>
+            <td class="mono" x-text="provider.implementation_revision"></td>
+            <td><span class="pill" :class="provider.probe.available?'ok':'err'" x-text="provider.probe.available?'available':'unavailable'"></span></td>
+            <td x-text="sandboxAssurance(provider.probe.assurance)"></td>
+            <td class="mono" x-text="provider.probe.available ? ((provider.probe.supported_networks||[]).join(', ') || provider.probe.network || '-') : '-'"></td>
+            <td x-text="(provider.probe.limits_enforced?'limits enforced':'limits unavailable') + ' / ' + (provider.probe.mounts_enforced?'mounts enforced':'mounts unavailable')"></td>
+            <td x-text="provider.probe.unavailable_cause||'-'"></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 资源 -->
+  <template x-if="view==='resources'">
+    <section>
+      <h2>资源管理</h2>
+      <div class="sub mono" x-text="'prefix: ' + res.prefix + '（S3 路径语义；底层 ' + (ov.store||'') + '）'"></div>
+      <div class="card">
+        <div class="f"><label>进入前缀</label><input x-model="res.prefixInput" size="40" placeholder="docs/"></div>
+        <button class="mini" @click="res.prefix=res.prefixInput;loadResources()">跳转</button>
+        <div class="f"><label>上传文件</label><input type="file" @change="uploadResource($event)"></div>
+        <div class="f"><label>新路径</label><input x-model="res.uploadKey" size="20" placeholder="docs/readme.md"></div>
+      </div>
+      <table>
+        <thead><tr><th>Key</th><th>大小</th><th></th></tr></thead>
+        <tbody><template x-for="r in resources" :key="r.key">
+          <tr>
+            <td class="mono" x-text="r.key"></td>
+            <td x-text="r.size + ' B'"></td>
+            <td>
+              <button class="mini" @click="downloadResource(r.key)">下载</button>
+              <button class="mini danger" @click="deleteResource(r.key)">删除</button>
+            </td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 会话 -->
+  <template x-if="view==='sessions'">
+    <section>
+      <h2>会话</h2>
+      <div class="card">
+        <div class="f"><label>Profile</label><input x-model="sess.profile" size="18"></div>
+        <div class="f"><label>ID 前缀</label><input x-model="sess.prefix" size="14"></div>
+        <div class="f"><label>排序</label>
+          <select x-model="sess.sort"><option value="desc">最新</option><option value="asc">最早</option></select></div>
+        <div class="f"><label>每页</label><input x-model="sess.limit" size="4"></div>
+        <button class="mini" @click="loadSessions()">查询</button>
+        <button class="mini" @click="sess.offset=Math.max(0,sess.offset-sess.limit);loadSessions()">上一页</button>
+        <button class="mini" @click="sess.offset+=Number(sess.limit);loadSessions()">下一页</button>
+        <span class="pill" x-text="'共 ' + sess.total + ' 条'"></span>
+      </div>
+      <table>
+        <thead><tr><th>会话</th><th>Profile</th><th>事件</th><th>更新</th><th></th></tr></thead>
+        <tbody><template x-for="s in sessions" :key="s.id">
+          <tr>
+            <td class="mono" x-text="s.id"></td>
+            <td class="mono" x-text="s.profile_id"></td>
+            <td x-text="s.event_count"></td>
+            <td x-text="(s.updated_at||'').replace('T',' ').slice(0,19)"></td>
+            <td><button class="mini" @click="viewSession(s.id)">事件</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <template x-if="sessionEvents.length">
+        <table>
+          <thead><tr><th>Seq</th><th>类型</th><th>时间</th><th>Run</th></tr></thead>
+          <tbody><template x-for="e in sessionEvents" :key="e.seq">
+            <tr>
+              <td x-text="e.seq"></td>
+              <td class="mono" x-text="e.type"></td>
+              <td x-text="(e.time||'').replace('T',' ').slice(0,23)"></td>
+              <td class="mono" x-text="(e.run_id||'').slice(0,18)"></td>
+            </tr>
+          </template></tbody>
+        </table>
+      </template>
+    </section>
+  </template>
+
+  <!-- 用户 / 租户 -->
+  <template x-if="view==='accounts'">
+    <section>
+      <h2>用户与租户</h2>
+      <div class="card">
+        <div class="f"><label>账号</label><input x-model="acct.account" size="18"></div>
+        <div class="f"><label>Email（可选）</label><input x-model="acct.email" size="24"></div>
+        <div class="f"><label>初始密码</label><input x-model="acct.password" size="14" type="password"></div>
+        <div class="f"><label>角色</label>
+          <select x-model="acct.role"><option value="user">user</option><option value="tenant_admin">tenant_admin</option><option value="admin">admin</option></select></div>
+        <div class="f"><label>租户</label><input x-model="acct.tenant" size="12"></div>
+        <button class="pri" @click="createAccount()">创建</button>
+      </div>
+      <table>
+        <thead><tr><th>账号</th><th>Email</th><th>角色</th><th>租户</th><th>状态</th><th></th></tr></thead>
+        <tbody><template x-for="a in accounts" :key="a.account">
+          <tr>
+            <td class="mono" x-text="a.account"></td>
+            <td class="mono" x-text="a.email||'-'"></td>
+            <td x-text="a.role"></td>
+            <td x-text="a.tenant_id"></td>
+            <td><span class="pill" :class="a.status==='active'?'ok':'err'" x-text="a.status"></span></td>
+            <td>
+              <template x-if="a.status!=='pending_activation'"><button class="mini" @click="toggleAccount(a)" x-text="a.status==='active'?'停用':'启用'"></button></template>
+              <button class="mini" @click="resetPassword(a)">改密</button>
+            </td>
+          </tr>
+        </template></tbody>
+      </table>
+      <h2 style="margin-top:10px">租户</h2>
+      <div class="card">
+        <div class="f"><label>ID</label><input x-model="tn.id" size="12"></div>
+        <div class="f"><label>名称</label><input x-model="tn.name" size="16"></div>
+        <button class="pri" @click="createTenant()">创建租户</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>名称</th><th>创建时间</th></tr></thead>
+        <tbody><template x-for="t in tenants" :key="t.id">
+          <tr>
+            <td class="mono" x-text="t.id"></td>
+            <td x-text="t.name"></td>
+            <td x-text="(t.created_at||'').replace('T',' ').slice(0,19)"></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 观测监控 -->
+  <template x-if="view==='observability'">
+    <section>
+      <h2>观测监控</h2>
+      <div class="sub">命中规则即记录会话 ID 与运行 ID，可从命中直接跳转会话或发起回测。</div>
+      <div class="card">
+        <div class="f"><label>规则名</label><input x-model="obs.form.name" size="18" placeholder="大额转账关注"></div>
+        <div class="f"><label>类型</label>
+          <select x-model="obs.form.kind"><option value="keyword">关键词（消息文本）</option><option value="tool">工具（能力 ID）</option></select></div>
+        <div class="f"><label>匹配内容</label><input x-model="obs.form.pattern" size="26" placeholder="转账 / crm.transfer"></div>
+        <button class="pri" @click="createObsRule()">添加规则</button>
+      </div>
+      <table>
+        <thead><tr><th>规则</th><th>类型</th><th>匹配</th><th>状态</th><th></th></tr></thead>
+        <tbody><template x-for="r in obs.rules" :key="r.id">
+          <tr>
+            <td x-text="r.name"></td>
+            <td x-text="r.kind"></td>
+            <td class="mono" x-text="r.pattern"></td>
+            <td><span class="pill" :class="r.enabled?'ok':'err'" x-text="r.enabled?'启用':'停用'"></span></td>
+            <td>
+              <button class="mini" @click="toggleObsRule(r)" x-text="r.enabled?'停用':'启用'"></button>
+              <button class="mini" @click="obs.hitRule=r.id;loadHits()">看命中</button>
+              <button class="mini danger" @click="deleteObsRule(r)">删除</button>
+            </td>
+          </tr>
+        </template></tbody>
+      </table>
+      <h2 style="margin-top:10px">命中记录 <span class="pill" x-text="obs.total"></span></h2>
+      <table>
+        <thead><tr><th>时间</th><th>规则</th><th>类型</th><th>会话</th><th>片段</th><th></th></tr></thead>
+        <tbody><template x-for="h in obs.hits" :key="h.id">
+          <tr>
+            <td x-text="(h.time||'').replace('T',' ').slice(0,19)"></td>
+            <td x-text="h.rule_name"></td>
+            <td x-text="h.kind"></td>
+            <td class="mono" x-text="h.session_id"></td>
+            <td class="mono" x-text="(h.snippet||'').slice(0,60)"></td>
+            <td><button class="mini" @click="bt.source=h.session_id;view=h.id===''?view:view;go('sessions');viewSession(h.session_id)">查看会话</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+      <h2 style="margin-top:10px">回测</h2>
+      <div class="sub">复制源会话上下文（可截断），用指定 Profile 重放一条探针消息，结果落在新会话并可对比。</div>
+      <div class="card">
+        <div class="f"><label>源会话 ID</label><input x-model="bt.source" size="30" placeholder="sess_..."></div>
+        <div class="f"><label>Profile</label>
+          <select x-model="bt.profile"><template x-for="p in profiles" :key="p"><option :value="p" x-text="p"></option></template></select></div>
+        <div class="f"><label>探针消息（空=重放最后一条用户消息）</label><input x-model="bt.message" size="30"></div>
+        <div class="f"><label>上下文截断 seq（可选）</label><input x-model="bt.cutoff" size="8"></div>
+        <button class="pri" @click="runBacktest()">执行回测</button>
+      </div>
+      <template x-if="bt.result">
+        <table>
+          <tr><th>回测会话</th><td class="mono" x-text="bt.result.backtest_session_id"></td></tr>
+          <tr><th>状态</th><td><span class="pill" :class="bt.result.status==='completed'?'ok':'err'" x-text="bt.result.status"></span></td></tr>
+          <tr><th>上下文事件</th><td x-text="bt.result.context_events"></td></tr>
+          <tr><th>探针</th><td class="mono" x-text="bt.result.probe"></td></tr>
+          <tr><th>回答</th><td x-text="bt.result.answer || bt.result.error || '-'"></td></tr>
+        </table>
+      </template>
+    </section>
+  </template>
+
+  <!-- 操作日志 -->
+  <template x-if="view==='audit'">
+    <section>
+      <h2>操作日志</h2>
+      <div class="sub">管理面全部变更操作（含登录成功/失败）；secret 值不落审计。</div>
+      <div class="card">
+        <div class="f"><label>操作者</label><input x-model="au.actor" size="22"></div>
+        <div class="f"><label>动作</label><input x-model="au.action" size="22" placeholder="policy.bind"></div>
+        <div class="f"><label>每页</label><input x-model="au.limit" size="4"></div>
+        <button class="mini" @click="au.offset=0;loadAudit()">查询</button>
+        <button class="mini" @click="au.offset=Math.max(0,au.offset-au.limit);loadAudit()">上一页</button>
+        <button class="mini" @click="au.offset+=Number(au.limit);loadAudit()">下一页</button>
+        <span class="pill" x-text="'共 ' + au.total + ' 条'"></span>
+      </div>
+      <table>
+        <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>目标</th><th>明细</th><th>来源</th></tr></thead>
+        <tbody><template x-for="e in auditEvents" :key="e.id">
+          <tr>
+            <td x-text="(e.time||'').replace('T',' ').slice(0,23)"></td>
+            <td class="mono" x-text="e.actor"></td>
+            <td><span class="pill" x-text="e.action"></span></td>
+            <td class="mono" x-text="e.target"></td>
+            <td class="mono" x-text="e.detail ? JSON.stringify(e.detail) : '-'"></td>
+            <td class="mono" x-text="e.remote_ip"></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+
+  <!-- 动态绑定 -->
+  <template x-if="view==='bindings'">
+    <section>
+      <h2>动态绑定</h2>
+      <table>
+        <thead><tr><th>Binding</th><th>类型</th><th>内容</th><th></th></tr></thead>
+        <tbody><template x-for="b in bindings" :key="b.binding_id">
+          <tr>
+            <td class="mono" x-text="b.binding_id"></td>
+            <td x-text="b.kind"></td>
+            <td class="mono" x-text="JSON.stringify(b.summary)"></td>
+            <td><button class="mini danger" @click="unbind(b.binding_id)">解除</button></td>
+          </tr>
+        </template></tbody>
+      </table>
+    </section>
+  </template>
+</main>
+</div>
+</template>
+
+<div class="toast" :class="{show:toast.show, err:toast.err}" x-text="toast.text"></div>
+</div>
+
+<script src="/console/js/api.js"></script>
+<script src="/console/js/lib.js"></script>
+<script src="/console/js/auth.js"></script>
+<script src="/console/js/accounts.js"></script>
+<script src="/console/js/audit.js"></script>
+<script src="/console/js/observability.js"></script>
+<script src="/console/js/policies.js"></script>
+<script src="/console/js/credentials.js"></script>
+<script src="/console/js/resources.js"></script>
+<script src="/console/js/sessions.js"></script>
+<script src="/console/js/playground.js"></script>
+<script src="/console/js/bindings.js"></script>
+<script src="/console/js/storage-settings.js"></script>
+<script src="/console/js/model-settings.js"></script>
+<script src="/console/js/notification-targets.js"></script>
+<script src="/console/js/sandbox.js"></script>
+<script src="/console/js/shell.js"></script>
+<script src="/console/js/capabilities.js"></script>
+<script src="/console/js/profiles.js"></script>
+<script src="/console/js/approvals.js"></script>
+<script src="/console/js/evaluations.js"></script>
+<script src="/console/js/delegations.js"></script>
+<script src="/console/js/runner-tasks.js"></script>
+<script src="/console/js/projections.js"></script>
+<script src="/console/js/app.js"></script>
+</body>
+</html>

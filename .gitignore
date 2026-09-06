@@ -1,0 +1,29 @@
+bin/
+*.exe
+*.wasm
+.env
+.env.*
+!.env.example
+coverage/
+coverage*.out
+/server
+/data/
+**/__pycache__/
+*.pyc
+*.tmp
+
+# Local credentials, development caches, and acceptance-test fixtures.
+/.credentials/
+/.codex-*/
+/.gocache/
+/.gotmp/
+/.gofmt-verify-sentinel/
+/.tmp*/
+/*.log
+/*.pprof
+
+# Local PowerShell profiling output.
+/$maxCpu
+/$maxMem
+/$typCpu
+/$typMem

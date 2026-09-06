@@ -1,0 +1,352 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	"sync"
+	"time"
+)
+
+// BindingJournal makes console-applied dynamic bindings durable: policy
+// layers, capability disables, HTTP capability binds, and env credentials are
+// journaled so a restart can re-apply them. Static credential values are
+// deliberately NOT journaled (secret values never enter the database twice).
+type BindingRecord struct {
+	ID      string          `json:"id"`
+	Kind    string          `json:"kind"`
+	Summary json.RawMessage `json:"summary,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type BindingJournal interface {
+	Record(ctx context.Context, record BindingRecord) error
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context) ([]BindingRecord, error)
+}
+
+const (
+	MaxAdminBindings       = 256
+	MaxBindingPayloadBytes = 256 << 10
+)
+
+var (
+	sqlInsertBinding = sqlQuery{"INSERT INTO admin_bindings (id, kind, summary, payload, created_at) VALUES (?, ?, ?, ?, ?)"}
+	sqlDeleteBinding = sqlQuery{"DELETE FROM admin_bindings WHERE id = ?"}
+	sqlListBindings  = sqlQuery{"SELECT id, kind, summary, payload FROM admin_bindings ORDER BY created_at"}
+	sqlCountBindings = sqlQuery{"SELECT COUNT(*) FROM admin_bindings"}
+)
+
+// SQLBindingJournal implements BindingJournal on the shared schema.
+type SQLBindingJournal struct {
+	db          *sql.DB
+	dialect     SQLDialect
+	maxBindings int
+}
+
+func NewSQLBindingJournal(db *sql.DB, dialect SQLDialect) (*SQLBindingJournal, error) {
+	if db == nil {
+		return nil, fmt.Errorf("binding journal requires a database handle")
+	}
+	if err := validateSQLDialect(dialect); err != nil {
+		return nil, err
+	}
+	return &SQLBindingJournal{db: db, dialect: dialect}, nil
+}
+
+func (s *SQLBindingJournal) bindingCap() int {
+	if s != nil && s.maxBindings > 0 {
+		return s.maxBindings
+	}
+	return MaxAdminBindings
+}
+
+func (s *SQLBindingJournal) Record(ctx context.Context, record BindingRecord) error {
+	if err := validateSQLTextFilter("binding id", record.ID); err != nil {
+		return err
+	}
+	if record.ID == "" {
+		return fmt.Errorf("binding id is empty")
+	}
+	if err := validateSQLTextFilter("binding kind", record.Kind); err != nil {
+		return err
+	}
+	if record.Kind == "" {
+		return fmt.Errorf("binding kind is empty")
+	}
+	summary, err := json.Marshal(record.Summary)
+	if err != nil {
+		return fmt.Errorf("encode binding summary: %w", err)
+	}
+	payload, err := json.Marshal(record.Payload)
+	if err != nil {
+		return fmt.Errorf("encode binding payload: %w", err)
+	}
+	if len(summary)+len(payload) > MaxBindingPayloadBytes {
+		return fmt.Errorf("binding payload exceeds %d bytes", MaxBindingPayloadBytes)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, sqlCountBindings.bind(s.dialect)).Scan(&count); err != nil {
+		return err
+	}
+	if count >= s.bindingCap() {
+		return fmt.Errorf("admin bindings exceed maximum of %d", s.bindingCap())
+	}
+	_, err = s.db.ExecContext(ctx, sqlInsertBinding.bind(s.dialect),
+		record.ID, record.Kind, string(summary), string(payload), time.Now().UTC().UnixMilli(),
+	)
+	return duplicateAsConflict(record.ID, err)
+}
+
+func (s *SQLBindingJournal) Delete(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, sqlDeleteBinding.bind(s.dialect), id)
+	if err != nil {
+		return err
+	}
+	return requireAffected(result, "binding "+id+" not found")
+}
+
+func (s *SQLBindingJournal) List(ctx context.Context) ([]BindingRecord, error) {
+	rows, err := s.db.QueryContext(ctx, sqlListBindings.bind(s.dialect))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []BindingRecord{}
+	for rows.Next() {
+		var record BindingRecord
+		var summaryJSON, payloadJSON string
+		if err := rows.Scan(&record.ID, &record.Kind, &summaryJSON, &payloadJSON); err != nil {
+			return nil, err
+		}
+		record.Summary = json.RawMessage(summaryJSON)
+		record.Payload = json.RawMessage(payloadJSON)
+		out = append(out, record)
+	}
+	return out, rows.Err()
+}
+
+// Retention prunes: bounded-table hygiene for audit, hits, and leases.
+
+var (
+	sqlPruneAudit           = sqlQuery{"DELETE FROM audit_events WHERE time < ?"}
+	sqlPruneHits            = sqlQuery{"DELETE FROM obs_hits WHERE time < ?"}
+	sqlPruneLeases          = sqlQuery{"DELETE FROM session_leases WHERE expires_at < ?"}
+	sqlPruneToolInvocations = sqlQuery{`DELETE FROM tool_invocations
+		WHERE state = 'completed' AND completed_at > 0 AND completed_at < ?`}
+	sqlPruneApprovals = sqlQuery{`DELETE FROM approval_requests
+		WHERE status <> 'pending' AND decided_at > 0 AND decided_at < ?`}
+	sqlPruneRunSubmissions = sqlQuery{`DELETE FROM run_submissions
+		WHERE created_at < ? AND EXISTS (
+			SELECT 1 FROM run_control rc WHERE rc.run_id = run_submissions.run_id
+			AND rc.status NOT IN ('queued', 'running', 'waiting_approval'))`}
+)
+
+// PruneAudit deletes audit events older than the cutoff.
+func (s *SQLSessionStore) PruneAudit(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneAudit.bind(s.dialect), olderThan.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// PruneHits deletes observability hits older than the cutoff.
+func (s *SQLSessionStore) PruneHits(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneHits.bind(s.dialect), olderThan.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// PruneExpiredLeases deletes expired session lease rows.
+func (s *SQLSessionStore) PruneExpiredLeases(ctx context.Context) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneLeases.bind(s.dialect), time.Now().UTC().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// PruneToolInvocations deletes only old completed outcomes. Started and
+// uncertain rows are retained because deleting them could permit a duplicate
+// non-idempotent side effect.
+func (s *SQLSessionStore) PruneToolInvocations(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneToolInvocations.bind(s.dialect), olderThan.UTC().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// PruneApprovals deletes old decided requests. Pending approvals remain until
+// they are decided or expired by the approval worker.
+func (s *SQLSessionStore) PruneApprovals(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneApprovals.bind(s.dialect), olderThan.UTC().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// PruneRunSubmissions removes old idempotency mappings only after their Run is
+// terminal. Active mappings remain fences regardless of age.
+func (s *SQLSessionStore) PruneRunSubmissions(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, sqlPruneRunSubmissions.bind(s.dialect), olderThan.UTC().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// RunStat records the outcome of one finished run for metrics aggregation.
+type RunStat struct {
+	RunID        string    `json:"run_id"`
+	SessionID    string    `json:"session_id"`
+	TenantID     string    `json:"tenant"`
+	Status       string    `json:"status"`
+	InputTokens  int64     `json:"input_tokens"`
+	OutputTokens int64     `json:"output_tokens"`
+	DurationMS   int64     `json:"duration_ms"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// RunMetrics is the aggregated view served to the console.
+type RunMetrics struct {
+	TotalRuns     int64   `json:"total_runs"`
+	CompletedRuns int64   `json:"completed_runs"`
+	FailedRuns    int64   `json:"failed_runs"`
+	TokensIn      int64   `json:"tokens_in"`
+	TokensOut     int64   `json:"tokens_out"`
+	AvgDurationMS float64 `json:"avg_duration_ms"`
+}
+
+// RunStatsStore records finished runs and serves aggregated metrics.
+type RunStatsStore interface {
+	RecordRunStat(ctx context.Context, stat RunStat) error
+	// Metrics aggregates over one tenant; empty tenant means all.
+	Metrics(ctx context.Context, tenantID string) (RunMetrics, error)
+}
+
+var (
+	sqlInsertRunStat = sqlQuery{"INSERT INTO run_stats (run_id, session_id, tenant, status, input_tokens, output_tokens, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"}
+	sqlCountRunStats = sqlQuery{"SELECT COUNT(*) FROM run_stats"}
+	sqlGetRunStat    = sqlQuery{"SELECT run_id FROM run_stats WHERE run_id = ?"}
+	sqlMetricsRuns   = sqlQuery{"SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN status IN ('failed','cancelled') THEN 1 ELSE 0 END), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COALESCE(AVG(duration_ms), 0) FROM run_stats"}
+)
+
+// SQLRunStatsStore implements RunStatsStore on the shared schema.
+const MaxRunStats = 8192
+
+type SQLRunStatsStore struct {
+	db       *sql.DB
+	dialect  SQLDialect
+	maxStats int
+}
+
+func NewSQLRunStatsStore(db *sql.DB, dialect SQLDialect) (*SQLRunStatsStore, error) {
+	if db == nil {
+		return nil, fmt.Errorf("run stats store requires a database handle")
+	}
+	if err := validateSQLDialect(dialect); err != nil {
+		return nil, err
+	}
+	return &SQLRunStatsStore{db: db, dialect: dialect}, nil
+}
+
+func (s *SQLRunStatsStore) statsCap() int {
+	if s != nil && s.maxStats > 0 {
+		return s.maxStats
+	}
+	return MaxRunStats
+}
+
+func (s *SQLRunStatsStore) RecordRunStat(ctx context.Context, stat RunStat) error {
+	if stat.CreatedAt.IsZero() {
+		stat.CreatedAt = time.Now().UTC()
+	}
+	var stored int
+	if err := s.db.QueryRowContext(ctx, sqlCountRunStats.bind(s.dialect)).Scan(&stored); err != nil {
+		return err
+	}
+	if stored >= s.statsCap() {
+		var existing string
+		getErr := s.db.QueryRowContext(ctx, sqlGetRunStat.bind(s.dialect), stat.RunID).Scan(&existing)
+		if getErr == nil {
+			return fmt.Errorf("%w: %s", core.ErrSessionConflict, stat.RunID)
+		}
+		if !errors.Is(getErr, sql.ErrNoRows) {
+			return getErr
+		}
+		return fmt.Errorf("run stats exceed maximum of %d", s.statsCap())
+	}
+	_, err := s.db.ExecContext(ctx, sqlInsertRunStat.bind(s.dialect),
+		stat.RunID, stat.SessionID, stat.TenantID, stat.Status,
+		stat.InputTokens, stat.OutputTokens, stat.DurationMS, stat.CreatedAt.UnixMilli(),
+	)
+	return duplicateAsConflict(stat.RunID, err)
+}
+
+// Metrics aggregates run outcomes and token metering, optionally per tenant.
+func (s *SQLRunStatsStore) Metrics(ctx context.Context, tenantID string) (RunMetrics, error) {
+	query := sqlMetricsRuns
+	args := []any{}
+	if tenantID != "" {
+		query = sqlQuery{sqlMetricsRuns.text + " WHERE tenant = ?"}
+		args = append(args, tenantID)
+	}
+	var metrics RunMetrics
+	err := s.db.QueryRowContext(ctx, query.bind(s.dialect), args...).Scan(
+		&metrics.TotalRuns, &metrics.CompletedRuns, &metrics.FailedRuns,
+		&metrics.TokensIn, &metrics.TokensOut, &metrics.AvgDurationMS,
+	)
+	return metrics, err
+}
+
+// NamedLocks provides reference-counted named mutexes: the map entry for an
+// id is removed when the last holder releases, so per-session locks no
+// longer accumulate for the lifetime of the process.
+type NamedLocks struct {
+	mu    sync.Mutex
+	locks map[string]*namedMutex
+}
+
+type namedMutex struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// Lock and Unlock forward to the embedded mutex so callers can treat the
+// named mutex like a regular one.
+func (m *namedMutex) Lock()   { m.mu.Lock() }
+func (m *namedMutex) Unlock() { m.mu.Unlock() }
+
+func NewNamedLocks() *NamedLocks {
+	return &NamedLocks{locks: map[string]*namedMutex{}}
+}
+
+// Acquire registers a reference and returns the mutex plus a release
+// function. The caller owns Lock/Unlock on the returned mutex and must call
+// release exactly once.
+func (n *NamedLocks) Acquire(id string) (*namedMutex, func()) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	lock := n.locks[id]
+	if lock == nil {
+		lock = &namedMutex{}
+		n.locks[id] = lock
+	}
+	lock.refs++
+	return lock, func() {
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		lock.refs--
+		if lock.refs <= 0 && n.locks[id] == lock {
+			delete(n.locks, id)
+		}
+	}
+}

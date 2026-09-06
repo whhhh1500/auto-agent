@@ -1,0 +1,4687 @@
+{
+  "inventory_date": "2026-09-04",
+  "module": "github.com/cc-auto-agent/harness-core",
+  "status": "current-observed-snapshot",
+  "public_api_additions": [
+    {
+      "package": "pkg/storage",
+      "types": [
+        "StreamingObjectGetter",
+        "StreamingObjectPutter",
+        "StreamingObjectStore"
+      ],
+      "functions": null,
+      "constructors": null,
+      "variables": [
+        "ErrObjectTooLarge",
+        "ErrStreamingUnsupported"
+      ],
+      "constants": null,
+      "note": "Streaming getter/putter interfaces are optional; ObjectStore byte methods remain the compatibility surface. ErrStreamingUnsupported must be returned before consuming a request body so callers can safely fall back."
+    },
+    {
+      "package": "pkg/runtime",
+      "types": [
+        "CompositionStore",
+        "DurableHostState",
+        "DurableComposition",
+        "DurableCompositionStatus"
+      ],
+      "functions": [
+        "OpenModuleHost"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrRecoveryBlocked",
+        "ErrRecoveryRequired"
+      ],
+      "constants": [
+        "DurableCompositionRetained"
+      ],
+      "note": "M1d3 durable host opening and CAS composition checkpoints; non-empty recovery checkpoints fail closed."
+    },
+    {
+      "package": "pkg/runtime",
+      "types": [
+        "RecoverableStagedModule",
+        "RecoveryContext"
+      ],
+      "functions": [
+        "RecoverModuleHost"
+      ],
+      "constructors": null,
+      "variables": null,
+      "constants": null,
+      "note": "M1d4 restart recovery rebinds journal-evidenced resources, loses prior leases, and never substitutes Activate."
+    },
+    {
+      "package": "pkg/core",
+      "types": [
+        "AcceptedInvocation",
+        "AcceptedModelCall",
+        "ModelCallBudget",
+        "ModelCallGate",
+        "ModelCallRequest"
+      ],
+      "functions": [
+        "ModelCallRequest.Validate",
+        "RequireAcceptedInvocation",
+        "RequireAcceptedModelCall"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrAcceptedInvocationRequired",
+        "ErrAcceptedModelCallRequired"
+      ],
+      "constants": null,
+      "note": "M1f1 acceptance proofs are kernel-minted after the tool journal/model gate; zero or mutated proofs fail closed."
+    },
+    {
+      "package": "pkg/runtime",
+      "types": [
+        "FenceAuthorizer",
+        "FenceCommand",
+        "FenceDecision",
+        "FenceJournal",
+        "FenceRecord",
+        "FenceResult",
+        "HostControls",
+        "MemoryFenceJournal"
+      ],
+      "functions": [
+        "FenceCommand.Validate",
+        "ModuleHost.FenceAuthorized"
+      ],
+      "constructors": [
+        "NewMemoryFenceJournal",
+        "NewModuleHostWithControls",
+        "OpenModuleHostWithControls",
+        "RecoverModuleHostWithControls"
+      ],
+      "variables": [
+        "ErrFenceConflict",
+        "ErrFenceJournalFull",
+        "ErrFenceUnauthorized",
+        "ErrFenceUnknown",
+        "ErrInvalidFenceCommand"
+      ],
+      "constants": [
+        "FenceDecisionConflict",
+        "FenceDecisionExecute",
+        "FenceDecisionReplay",
+        "FenceDecisionRetry",
+        "FenceDecisionUnknown",
+        "MaxFenceReasonBytes",
+        "MaxMemoryFenceRecords"
+      ],
+      "note": "M1e1 authorization-first, request-idempotent fencing. Legacy ModuleHost.Fence remains compile-compatible but fails closed; MemoryFenceJournal is a bounded reference, and v35 SQL FenceJournal is provided by pkg/adapter/sql/fencejournal. PostgreSQL v35 Fence verification passed against isolated disposable schemas on 2026-09-04 when HARNESS_TEST_PG_DSN was configured; without that DSN future runs remain an explicit skip. TTLs above 30s and legacy HostGeneration=0 do not guarantee external exactly-once."
+    },
+    {
+      "package": "pkg/runtime",
+      "types": [
+        "HostOwnershipClaim",
+        "HostOwnershipStore"
+      ],
+      "functions": [
+        "ModuleHost.ReleaseOwnership",
+        "ModuleHost.Close"
+      ],
+      "constructors": null,
+      "variables": null,
+      "constants": [
+        "HostOwnershipTTL",
+        "MaxHostOwnershipTTL"
+      ],
+      "note": "Accepted bounded M1 ownership/lifecycle seam: durable host claims are generation-fenced, with a 30s default TTL and 5m maximum. ReleaseOwnership/Close are ownership-only and do not imply module cleanup; legacy zero HostGeneration is compatibility-only."
+    },
+    {
+      "package": "pkg/adapter/modelprovider",
+      "types": [
+        "Registration"
+      ],
+      "functions": [
+        "Registration.Extension"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [
+        "Contract"
+      ],
+      "note": "M1 registration metadata seam only: emits validated runtime collection metadata for a provider. Catalog, router, auth, model resolution, and protocol binding remain M2 concerns."
+    },
+    {
+      "package": "pkg/adapter/modelprotocol",
+      "types": [
+        "Registration"
+      ],
+      "functions": [
+        "Registration.Extension"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [
+        "Contract"
+      ],
+      "note": "M1 registration metadata seam only: emits validated runtime collection metadata for a protocol. Provider compatibility, transport, catalog, router, and auth remain M2 concerns."
+    },
+    {
+      "package": "pkg/adapter/coreplugin",
+      "types": [
+        "Module"
+      ],
+      "functions": [
+        "Module.Manifest",
+        "Module.Stage"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Accepted bounded process-local, non-recoverable core.Plugin compatibility facade. Declared runtime provides are trusted metadata; no durable effects or legacy Install replay. Full legacy-plugin migration/removal remains later."
+    },
+    {
+      "package": "pkg/app/artifactmigration",
+      "types": [
+        "ArtifactCopy",
+        "ArtifactRuntime",
+        "Backend",
+        "BackendIdentity",
+        "KeyChange",
+        "Lease",
+        "Migration",
+        "Mutation",
+        "MutationAppend",
+        "MutationEvidence",
+        "MutationOperation",
+        "MutationState",
+        "MutationToken",
+        "MutationRecorder",
+        "ProgressFunc",
+        "Repository",
+        "State",
+        "TransferProgress",
+        "TransferStats"
+      ],
+      "functions": [
+        "Backend.Valid",
+        "Migration.MutationToken",
+        "MutationOperation.Valid",
+        "MutationState.Valid",
+        "State.Terminal",
+        "State.Valid",
+        "ValidateLease",
+        "ValidateMigration",
+        "ValidateMutationAppend",
+        "ValidateMutationToken"
+      ],
+      "constructors": [],
+      "variables": [
+        "ErrInvalidMigration",
+        "ErrLeaseConflict",
+        "ErrLeaseLost",
+        "ErrMigrationConflict",
+        "ErrMutationConflict"
+      ],
+      "constants": [
+        "BackendLocal",
+        "BackendS3",
+        "MaxArtifactActivationKeys",
+        "MaxBackendIdentityBytes",
+        "MaxCursorBytes",
+        "MaxDesiredRevisionBytes",
+        "MaxErrorCodeBytes",
+        "MaxErrorDetailBytes",
+        "MaxLeaseOwnerBytes",
+        "MaxLeaseTTL",
+        "MaxMigrationIDBytes",
+        "MaxMutationDigestBytes",
+        "MaxMutationETagBytes",
+        "MaxMutationListLimit",
+        "MaxMutationObjectKeyBytes",
+        "MutationApplied",
+        "MutationDelete",
+        "MutationPending",
+        "MutationPut",
+        "ResourceKey",
+        "StateApplyFailed",
+        "StateCatchingUp",
+        "StateCancelled",
+        "StateLocalActive",
+        "StateS3Active",
+        "StateSyncing",
+        "StateVerifying"
+      ],
+      "note": "Slice A durable resource-migration contract plus the storage-neutral runtime/copy port. Concrete object stores, route barriers, copy policy, and S3 clients remain outside the application package."
+    },
+    {
+      "package": "pkg/app/runexecutor",
+      "types": [
+        "Factory",
+        "Metadata",
+        "Registration",
+        "Registry",
+        "RunExecutor",
+        "Sequential"
+      ],
+      "functions": [
+        "Registry.List",
+        "Registry.Register",
+        "Registry.Resolve",
+        "Registry.ResolveOrDefault"
+      ],
+      "constructors": [
+        "NewDefaultRegistry",
+        "NewRegistry",
+        "NewSequential",
+        "SequentialRegistration"
+      ],
+      "variables": [
+        "ErrExecutorNotFound",
+        "ErrFactoryPanic",
+        "ErrInvalidRegistration",
+        "ErrRegistryFull",
+        "ErrVersionMismatch"
+      ],
+      "constants": [
+        "DefaultMaxExecutors",
+        "SequentialID",
+        "SequentialImplementationRevision",
+        "SequentialVersion"
+      ],
+      "note": "Experimental application-level orchestrator seam. It reuses core turn/session DTOs; sequential delegates only to an injected core.Runtime. Registry factories are cheap, side-effect-free boundaries and panics become ErrFactoryPanic. One ID has one active version; upgrade uses a new ID or drains then rebuilds the registry. Profile and database resolution remain in upper layers, and Graph is not registered or enabled here."
+    },
+    {
+      "package": "pkg/app/modelcontrol",
+      "types": [
+        "CatalogModel",
+        "Compatibility",
+        "CredentialRef",
+        "EndpointRef",
+        "ImplementationBinding",
+        "Modality",
+        "ModelCapabilities",
+        "ProviderPlan",
+        "ProviderSpec",
+        "ProtocolSpec",
+        "Ref",
+        "Registry",
+        "ResolveInput"
+      ],
+      "functions": [
+        "Registry.Catalogs",
+        "Registry.Compatibilities",
+        "Registry.Protocols",
+        "Registry.Providers",
+        "Registry.Resolve",
+        "Registry.SnapshotRevision"
+      ],
+      "constructors": [
+        "NewRegistry"
+      ],
+      "variables": [
+        "ErrIncompatible",
+        "ErrInvalidCatalog",
+        "ErrInvalidCompatibility",
+        "ErrInvalidProtocol",
+        "ErrInvalidProvider",
+        "ErrNotFound",
+        "ErrVersionMismatch"
+      ],
+      "constants": [
+        "DefaultMaxEntries",
+        "ModalityAudio",
+        "ModalityImage",
+        "ModalityText",
+        "ModalityVideo"
+      ],
+      "note": "M2-A experimental immutable catalog-to-provider-plan metadata contract. A closed bounded snapshot independently binds catalog wire/capability/credential evidence, provider endpoint and implementation evidence, protocol implementation evidence, explicit compatibility, and deterministic snapshot revision. It has no SDK, HTTP, secret value, default global registry, routing fallback, factory, runtime object, or server wiring. Keyless local providers use an empty CredentialRef; dynamic refresh is explicit replacement by an upper layer; real protocol execution and cross-protocol handoff remain M2-B."
+    },
+    {
+      "package": "pkg/adapter/storage/artifactmigration",
+      "types": [
+        "Binding"
+      ],
+      "functions": [],
+      "constructors": [
+        "NewBinding"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Storage bridge for the storage-neutral artifactmigration runtime. It owns DynamicObjectStore, concrete candidate stores, and storage.ArtifactCopyOptions; none of those types cross into pkg/app/artifactmigration."
+    },
+    {
+      "package": "pkg/adapter/sql/artifactmigration",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.AppendMutation",
+        "Store.ClaimLease",
+        "Store.CompareAndSwap",
+        "Store.ListMutations",
+        "Store.Load",
+        "Store.MarkMutation",
+        "Store.ReleaseLease",
+        "Store.RenewLease",
+        "Store.UpdateLeaseHeld",
+        "Store.ValidateLease"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Slice A SQLite/PostgreSQL persistence adapter for the bounded artifactmigration contract. It requires the v36 schema already initialized by storage.OpenSQLSessionStore and owns no copier or backend client."
+    },
+    {
+      "package": "pkg/adapter/sql/graphcheckpoint",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.CompareAndSwap",
+        "Store.Create",
+        "Store.ListVersions",
+        "Store.ListTransitions",
+        "Store.Load",
+        "Store.LoadVersion"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Experimental Graph-G1 SQLite/PostgreSQL checkpoint and HistoryStore. It requires storage schema v41 and atomically persists a mutable CAS head with immutable checkpoint versions and append-only transition evidence; no executor, lease, server, or provider wiring is implied."
+    },
+    {
+      "package": "pkg/extensions/graph",
+      "types": [
+        "ContextBudget",
+        "ContextPlan",
+        "ContextSource",
+        "ContextSourceRef",
+        "ContextView",
+        "Definition",
+        "ValidatedDefinition",
+        "NodeSpec",
+        "EdgeSpec",
+        "EdgeKind",
+        "LayerKind",
+        "Limits",
+        "RetryPolicy",
+        "StateSchema",
+        "StateField",
+        "StateValueType",
+        "State",
+        "StatePatch",
+        "RedactionSchema",
+        "Reducer",
+        "ReducerMetadata",
+        "ReducerRegistry",
+        "NodeKindMetadata",
+        "NodeKindRegistry",
+        "PredicateMetadata",
+        "PredicateRegistry"
+      ],
+      "functions": [
+        "ValidateContextBudget",
+        "ValidateContextPlan",
+        "ValidateContextView",
+        "ContextBudget.Clone",
+        "ContextPlan.Clone",
+        "ContextSource.Clone",
+        "ContextView.Clone",
+        "ValidateDefinition",
+        "ValidatedDefinition.Clone",
+        "ValidatedDefinition.Definition",
+        "ValidatedDefinition.Revision",
+        "ApplyStatePatch",
+        "NodeKindRegistry.IDs",
+        "NodeKindRegistry.Resolve",
+        "PredicateRegistry.IDs",
+        "PredicateRegistry.Resolve",
+        "ReducerRegistry.IDs",
+        "ReducerRegistry.Resolve"
+      ],
+      "constructors": [
+        "NewNodeKindRegistry",
+        "NewPredicateRegistry",
+        "NewReducerRegistry"
+      ],
+      "variables": [
+        "ErrInvalidContextBudget",
+        "ErrInvalidContextPlan",
+        "ErrInvalidContextView",
+        "ErrInvalidDefinition"
+      ],
+      "constants": [
+        "Contract",
+        "EdgeDefault",
+        "EdgeConditional",
+        "EdgeError",
+        "LayerArtifact",
+        "LayerCurrentInput",
+        "LayerPendingApproval",
+        "LayerRecentHistory",
+        "LayerRequiredState",
+        "LayerRetrieval",
+        "LayerSummary",
+        "MaxContextIDBytes",
+        "MaxContextPlanBytes",
+        "MaxContextReasonBytes",
+        "MaxContextRevisionBytes",
+        "MaxContextSourceTokens",
+        "MaxContextSources",
+        "MaxContextStateFields",
+        "MaxContextSummaryRefs",
+        "MaxContextTotalTokens",
+        "MaxContextViewBytes",
+        "MaxContextViewLayers",
+        "MaxDefinitionBytes",
+        "MaxEdges",
+        "MaxGraphIDBytes",
+        "MaxGraphVersionBytes",
+        "MaxNodeConfigBytes",
+        "MaxNodeIDBytes",
+        "MaxNodeKindBytes",
+        "MaxNodeTimeout",
+        "MaxNodes",
+        "MaxRegistryEntries",
+        "MaxRetryAttempts",
+        "MaxStateBytes",
+        "MaxStateFieldBytes",
+        "MaxStateFields",
+        "MaxSteps",
+        "MaxVisitsPerNode",
+        "ReducerTopLevelJSONPatch",
+        "StateArray",
+        "StateBoolean",
+        "StateNumber",
+        "StateObject",
+        "StateString"
+      ],
+      "note": "Graph-G0 is a stdlib-only definition and static-validation contract. Definition revision binds every node kind, state reducer, and conditional predicate ID plus exact registry version, but not a G1 implementation locator or composition revision. It has no executor, checkpoint/store, run/resume, approval/session events, telemetry, provider/protocol binding, transport, workflow adapter, or sandbox implementation. G1 must fail closed when multiple conditional edges are true."
+    },
+    {
+      "package": "pkg/core",
+      "types": null,
+      "functions": [
+        "ValidateProfileID"
+      ],
+      "constructors": null,
+      "variables": null,
+      "constants": null,
+      "note": "Single profile-ID validator shared by profile registry, session creation, and profile-admin transport. It accepts the built-in bare general ID as well as safe namespaced IDs; it does not relax scope or ownership checks."
+    }
+  ],
+  "accepted_evidence": [
+    {
+      "date": "2026-09-04",
+      "slices": [
+        "M1b",
+        "M1c",
+        "M1d1",
+        "M1d2",
+        "M1d3",
+        "M1d4",
+        "M1 ownership/Fence/lifecycle bounds",
+        "M1 core.Plugin compatibility facade",
+        "M1 core public API/size budget",
+        "M1 completion gate"
+      ],
+      "status": "accepted/green",
+      "evidence": [
+        "full go test",
+        "full go vet",
+        "internal/modulecheck",
+        "runtime and integration -count=10 and race variants",
+        "SQLite v35 ownership/Fence migration and fresh database handle integration",
+        "PostgreSQL v35 migration, FenceJournal, and host-ownership tests against isolated disposable schemas",
+        "core.Plugin compatibility and public API budget checks"
+      ],
+      "boundaries": [
+        "M1 completion means only the stop-the-line contracts/gates are green",
+        "server auto-wiring is not claimed",
+        "full legacy-plugin migration/removal remains later",
+        "M2 model control remains separate",
+        "external exactly-once is not claimed",
+        "remaining historical PostgreSQL fixture gaps are not claimed complete",
+        "without an administrator-capable HARNESS_TEST_PG_DSN future PostgreSQL v35 runs remain an explicit skip",
+        "HostOwnershipTTL is 30s by default; TTL values above 30s and legacy HostGeneration=0 do not guarantee external exactly-once",
+        "Provider/Protocol registration is metadata-only and does not bind providers to protocols or introduce transport",
+        "inverse exactly-once depends on real executors being idempotent by EffectID",
+        "recovery owner local cleanup is best-effort and Deactivate must be idempotent",
+        "no background recovery goroutine or automatic server wiring"
+      ]
+    },
+    {
+      "date": "2026-09-04",
+      "slices": [
+        "Graph-G0 contract/validator"
+      ],
+      "status": "accepted/green",
+      "evidence": [
+        "focused graph tests",
+        "graph -count=10",
+        "graph race test",
+        "go vet",
+        "internal/modulecheck stdlib-only and external compatibility fixture",
+        "public inventory JSON parse"
+      ],
+      "boundaries": [
+        "static definition/context/state/redaction validation and deterministic top-level JSON patch only",
+        "no Graph-G1 executor, edge selection, checkpoint/store, run/resume, approval/session events, telemetry, provider/protocol binding, transport, workflow adapter, or sandbox execution",
+        "G1 must separately capture implementation-locator and composition evidence and fail closed if multiple conditional edges are true"
+      ]
+    }
+  ],
+  "sources": {
+    "go_public_api": "go doc -all ./pkg/... (production declarations; methods omitted from package symbol arrays)",
+    "http_openapi": "openapi/harness-core-v1.yaml",
+    "http_registration": "pkg/server/*.go and scripts/verify-openapi/main.go",
+    "sse_events": "pkg/core/session.go",
+    "sql_schema": "pkg/storage/sql_schema.go"
+  },
+  "public_packages": [
+    {
+      "package": "pkg/adapter/coreplugin",
+      "types": [
+        "Module"
+      ],
+      "functions": [
+        "Module.Manifest",
+        "Module.Stage"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/graphapproval",
+      "types": [
+        "Adapter",
+        "Approval",
+        "ApprovalReader",
+        "CheckpointReader",
+        "Options"
+      ],
+      "functions": [
+        "Adapter.Authorize",
+        "Adapter.Resolve"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalid",
+        "ErrUnavailable"
+      ],
+      "constants": [
+        "AuthorizationBasis"
+      ],
+      "note": "Durable Graph approval adapter over injected approval/checkpoint readers; it owns no storage protocol mutation."
+    },
+    {
+      "package": "pkg/adapter/graphtelemetry",
+      "types": [
+        "Observer"
+      ],
+      "functions": [
+        "Observer.Observe"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [],
+      "note": "Projects bounded Graph events into core telemetry without payload or identity disclosure."
+    },
+    {
+      "package": "pkg/adapter/httpapi/accountadmin",
+      "types": [
+        "AccountCreatedResponse",
+        "AccountListResponse",
+        "AccountStatusResponse",
+        "AccountView",
+        "CreateAccountRequest",
+        "CreateTenantRequest",
+        "PasswordUpdatedResponse",
+        "SetAccountPasswordRequest",
+        "SetAccountStatusRequest",
+        "TenantCreatedResponse",
+        "TenantListResponse",
+        "TenantView"
+      ],
+      "functions": [
+        "CreateAccountRequest.Validate",
+        "SetAccountStatusRequest.Validate"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/auth",
+      "types": [
+        "ActivationRequest",
+        "ActivationResponse",
+        "LoginRequest",
+        "LoginResponse"
+      ],
+      "functions": [
+        "ActivationRequest.Validate",
+        "LoginRequest.AccountID"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/jsonbody",
+      "types": [],
+      "functions": [
+        "Decode",
+        "DecodeOptional"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/modelsettings",
+      "types": [
+        "GetResponse",
+        "OptionalBool",
+        "OptionalInt",
+        "OptionalProtocolID",
+        "OptionalProviderID",
+        "OptionalString",
+        "OptionalStrings",
+        "PutRequest",
+        "PutResponse"
+      ],
+      "functions": [
+        "LegacyPutRequest",
+        "OptionalBool.UnmarshalJSON",
+        "OptionalInt.UnmarshalJSON",
+        "OptionalProtocolID.UnmarshalJSON",
+        "OptionalProviderID.UnmarshalJSON",
+        "OptionalString.UnmarshalJSON",
+        "OptionalStrings.UnmarshalJSON"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/notificationtarget",
+      "types": [
+        "CreateRequest",
+        "DeleteRequest",
+        "ListResponse",
+        "TargetView",
+        "UpdateRequest"
+      ],
+      "functions": [
+        "CreateRequest.Validate",
+        "DecodeRequest",
+        "DeleteRequest.Validate",
+        "UpdateRequest.Validate",
+        "View"
+      ],
+      "constructors": [],
+      "variables": [
+        "ErrInvalidRequest"
+      ],
+      "constants": [],
+      "note": "Strict notification-target HTTP DTOs. Opaque configuration is accepted only on mutation requests and is never projected into responses."
+    },
+    {
+      "package": "pkg/adapter/httpapi/runner",
+      "types": [
+        "ClaimRequest",
+        "CompletionRequest",
+        "GenerationRequest"
+      ],
+      "functions": [
+        "ClaimRequest.CanonicalCapabilities",
+        "ClaimRequest.ToCommand",
+        "ClaimRequest.Validate",
+        "CompletionRequest.ToResult",
+        "CompletionRequest.Validate",
+        "GenerationRequest.Validate"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/sandbox",
+      "types": [
+        "AssuranceView",
+        "ProbeView",
+        "ProviderView",
+        "ProvidersResponse"
+      ],
+      "functions": [
+        "View"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [],
+      "note": "Read-only, metadata-only sandbox discovery DTOs. The projection never returns provider objects, host or mount paths, configuration, credentials, or raw unavailable causes."
+    },
+    {
+      "package": "pkg/adapter/httpapi/settings",
+      "types": [
+        "GetResponse",
+        "PutRequest",
+        "PutResponse"
+      ],
+      "functions": [],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/httpapi/storage",
+      "types": [
+        "Configuration",
+        "GetResponse",
+        "MigrationProgress",
+        "OptionalBool",
+        "OptionalString",
+        "PutRequest",
+        "PutResponse",
+        "TestRequest",
+        "TestResponse"
+      ],
+      "functions": [
+        "OptionalBool.UnmarshalJSON",
+        "OptionalString.UnmarshalJSON",
+        "PutRequest.UnmarshalJSON"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/memory/graphcheckpoint",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.CompareAndSwap",
+        "Store.Create",
+        "Store.ListVersions",
+        "Store.ListTransitions",
+        "Store.Load",
+        "Store.LoadVersion"
+      ],
+      "constructors": [
+        "New",
+        "NewDefault"
+      ],
+      "variables": [],
+      "constants": [
+        "DefaultMaxCheckpoints",
+        "DefaultMaxTransitions"
+      ]
+    },
+    {
+      "package": "pkg/adapter/modelexecution/anthropic",
+      "types": [
+        "HTTPProvider",
+        "HTTPProviderConfig",
+        "HTTPStatusError",
+        "MessagesProtocol"
+      ],
+      "functions": [
+        "HTTPProvider.Send",
+        "HTTPStatusError.Error",
+        "HTTPStatusError.Retryable",
+        "MessagesProtocol.Execute"
+      ],
+      "constructors": [
+        "NewHTTPProvider",
+        "NewHTTPProviderRegistration",
+        "NewMessagesProtocolRegistration"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Independent Anthropic Messages HTTP provider/protocol registrations; it is explicit and not a default server selection."
+    },
+    {
+      "package": "pkg/adapter/modelexecution/corebridge",
+      "types": [
+        "Adapter"
+      ],
+      "functions": [
+        "Adapter.ArtifactRevision",
+        "Adapter.ModelContextLimits",
+        "Adapter.Provider",
+        "Adapter.Stream"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [],
+      "note": "Experimental adapter from M2-B normalized events to the existing core.LlmAdapter vocabulary. It collapses lossless tool deltas only at the legacy core boundary; it does not resolve models or own transport."
+    },
+    {
+      "package": "pkg/adapter/modelexecution/openai",
+      "types": [
+        "ChatCompletionsProtocol",
+        "HTTPProvider",
+        "HTTPProviderConfig",
+        "HTTPStatusError",
+        "ResponsesProtocol",
+        "StaticCredentialResolver"
+      ],
+      "functions": [
+        "ChatCompletionsProtocol.Execute",
+        "HTTPProvider.Send",
+        "HTTPStatusError.Error",
+        "HTTPStatusError.Retryable",
+        "ResponsesProtocol.Execute",
+        "StaticCredentialResolver.Clear",
+        "StaticCredentialResolver.ResolveCredential"
+      ],
+      "constructors": [
+        "NewHTTPProvider",
+        "NewResponsesProtocolRegistration",
+        "NewStaticCredentialResolver"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "OpenAI-compatible M2 protocol adapters. HTTPProvider owns endpoint/auth/client reuse; ChatCompletionsProtocol and ResponsesProtocol own their distinct wire payload/SSE or single-response normalization. Exact plugin registration selects protocol; Anthropic Messages is a separate adapter package."
+    },
+    {
+      "package": "pkg/adapter/modelprotocol",
+      "types": [
+        "Registration"
+      ],
+      "functions": [
+        "Registration.Extension"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [
+        "Contract"
+      ]
+    },
+    {
+      "package": "pkg/adapter/modelprovider",
+      "types": [
+        "Registration"
+      ],
+      "functions": [
+        "Registration.Extension"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [
+        "Contract"
+      ]
+    },
+    {
+      "package": "pkg/adapter/modelruntime",
+      "types": [
+        "Compiler",
+        "CompilerOptions",
+        "ConfigurationSource",
+        "PluginRegistry",
+        "ProtocolBuildInput",
+        "ProtocolPlugin",
+        "ProviderBuildInput",
+        "ProviderPlugin",
+        "Resolver"
+      ],
+      "functions": [
+        "Compiler.Resolve",
+        "PluginRegistry.Assess",
+        "PluginRegistry.Compatibilities",
+        "PluginRegistry.Compatible",
+        "PluginRegistry.Defaults",
+        "PluginRegistry.ProtocolIDs",
+        "PluginRegistry.Protocols",
+        "PluginRegistry.ProviderIDs",
+        "PluginRegistry.Providers",
+        "PluginRegistry.SnapshotRevision",
+        "Resolver.ResolveModel"
+      ],
+      "constructors": [
+        "NewBuiltinPluginRegistry",
+        "NewCompiler",
+        "NewPluginRegistry",
+        "NewPluginRegistryWithPolicy",
+        "NewResolver"
+      ],
+      "variables": [],
+      "constants": [],
+      "note": "Composition seam from stored model settings to exact immutable execution bindings; it keeps private cache keys out of artifact evidence."
+    },
+    {
+      "package": "pkg/adapter/modelsettings",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.CreateIfAbsent",
+        "Store.Load",
+        "Store.Save"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/notification/coretool",
+      "types": [],
+      "functions": [],
+      "constructors": [
+        "New",
+        "NewWithDirectory"
+      ],
+      "variables": [],
+      "constants": [
+        "ChannelsCapabilityID",
+        "SendCapabilityID",
+        "TargetsCapabilityID"
+      ],
+      "note": "N0 adapter exposing notify.channels, notify.targets, and notify.send as normal core capabilities. It requires the core accepted-invocation proof, derives run identity from guarded context, marks send as approval-required but non-idempotent until a channel proves durable deduplication, and never exposes URLs or credentials to the model."
+    },
+    {
+      "package": "pkg/adapter/notification/webhook",
+      "types": [
+        "Channel",
+        "ResolvedTarget",
+        "TargetResolver"
+      ],
+      "functions": [
+        "Channel.Deliver",
+        "Channel.Descriptor"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalidTarget",
+        "ErrTargetResolution",
+        "ErrWebhookPanic",
+        "ErrWebhookRejected",
+        "ErrWebhookResponseTooLarge",
+        "ErrWebhookSecret",
+        "ErrWebhookTransport"
+      ],
+      "constants": [
+        "ChannelID",
+        "ChannelVersion",
+        "MaxWebhookBodyBytes",
+        "MaxWebhookEndpointBytes",
+        "MaxWebhookResponseBytes",
+        "MaxWebhookSecretBytes"
+      ]
+    },
+    {
+      "package": "pkg/adapter/notification/webhook/targetresolver",
+      "types": [
+        "ConfigurationValidator",
+        "Resolver",
+        "TargetService"
+      ],
+      "functions": [
+        "ConfigurationValidator.Channel",
+        "ConfigurationValidator.ValidateConfiguration",
+        "Resolver.Channel",
+        "Resolver.List",
+        "Resolver.Resolve",
+        "Resolver.ValidateConfiguration"
+      ],
+      "constructors": [
+        "New",
+        "NewConfigurationValidator"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/runexecutor/graph",
+      "types": [
+        "ApprovalDecisionResolver",
+        "Options",
+        "ReferencePlanner",
+        "SegmentAuthority",
+        "SegmentGrant"
+      ],
+      "functions": [
+        "ReferencePlanner.Plan",
+        "Registration"
+      ],
+      "constructors": [
+        "NewDefaultDefinition"
+      ],
+      "variables": [
+        "ErrApprovalResolverUnavailable",
+        "ErrCallbackPanic",
+        "ErrInvalidOptions",
+        "ErrSegmentUnavailable"
+      ],
+      "constants": [
+        "ID",
+        "ImplementationRevision",
+        "Version"
+      ],
+      "note": "Explicit experimental Graph runexecutor registration; no server default wiring is implied."
+    },
+    {
+      "package": "pkg/adapter/sandboxexec",
+      "types": [
+        "Capability",
+        "Config"
+      ],
+      "functions": [
+        "Capability.Execute",
+        "Capability.Manifest"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalidRequest",
+        "ErrUnavailable"
+      ],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/artifactmigration",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.AppendMutation",
+        "Store.ClaimLease",
+        "Store.CompareAndSwap",
+        "Store.FailMutation",
+        "Store.ListMutations",
+        "Store.Load",
+        "Store.MarkMutation",
+        "Store.MarkMutationsThrough",
+        "Store.ReleaseLease",
+        "Store.RenewLease",
+        "Store.UpdateLeaseHeld",
+        "Store.ValidateLease"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/compositionstore",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.ClaimHostOwnership",
+        "Store.CompareAndSwap",
+        "Store.Load",
+        "Store.ReleaseHostOwnership",
+        "Store.RenewHostOwnership",
+        "Store.ValidateHostOwnership"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": [
+        "MaxStateJSONBytes"
+      ]
+    },
+    {
+      "package": "pkg/adapter/sql/effectjournal",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.List",
+        "Store.MarkApplied",
+        "Store.MarkReverted",
+        "Store.MarkUnknown",
+        "Store.Record"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/fencejournal",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.Begin",
+        "Store.Complete",
+        "Store.MarkUnknown"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/graphcheckpoint",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.CompareAndSwap",
+        "Store.Create",
+        "Store.ListVersions",
+        "Store.ListTransitions",
+        "Store.Load",
+        "Store.LoadVersion"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/graphsegment",
+      "types": [
+        "Authority",
+        "Clock"
+      ],
+      "functions": [
+        "Authority.Acquire"
+      ],
+      "constructors": [
+        "New",
+        "NewWithOptions"
+      ],
+      "variables": [
+        "ErrLeaseBusy",
+        "ErrLeaseInvalid",
+        "ErrLeaseUnavailable"
+      ],
+      "constants": [
+        "DefaultTTL"
+      ]
+    },
+    {
+      "package": "pkg/adapter/sql/notificationtarget",
+      "types": [
+        "Cipher",
+        "Options",
+        "Store"
+      ],
+      "functions": [
+        "Store.Create",
+        "Store.Delete",
+        "Store.List",
+        "Store.ListRecords",
+        "Store.ResolveConfig",
+        "Store.Update"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrCipherFailure",
+        "ErrCipherRequired"
+      ],
+      "constants": [],
+      "note": "SQL-backed encrypted opaque notification-target configuration; metadata list records omit configuration."
+    },
+    {
+      "package": "pkg/adapter/sql/settings",
+      "types": [
+        "Cipher",
+        "Options",
+        "Store"
+      ],
+      "functions": [
+        "Store.Cipher",
+        "Store.CompareAndSwapSetting",
+        "Store.GetSetting",
+        "Store.SetSetting",
+        "Store.SetSettingIfAbsent"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/sql/sqlkit",
+      "types": [
+        "Dialect"
+      ],
+      "functions": [
+        "Bind",
+        "Dialect.String",
+        "Dialect.Valid"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": [
+        "Postgres",
+        "SQLite"
+      ]
+    },
+    {
+      "package": "pkg/adapter/storage/artifactmigration",
+      "types": [
+        "Binding"
+      ],
+      "functions": [
+        "Binding.Activate",
+        "Binding.Bind",
+        "Binding.Cancel",
+        "Binding.RestoreActive"
+      ],
+      "constructors": [
+        "NewBinding"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/adapter/storageconfig",
+      "types": [
+        "Store"
+      ],
+      "functions": [
+        "Store.CreateIfAbsent",
+        "Store.Load",
+        "Store.LoadEvidence",
+        "Store.SaveEvidence",
+        "Store.SaveEvidenceIfDesiredRevision",
+        "Store.UpdateIfRevision"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/app/artifactmigration",
+      "types": [
+        "ActivationCallback",
+        "ArtifactCopy",
+        "ArtifactRuntime",
+        "Backend",
+        "BackendIdentity",
+        "Coordinator",
+        "KeyChange",
+        "Lease",
+        "Migration",
+        "Mutation",
+        "MutationAppend",
+        "MutationEvidence",
+        "MutationOperation",
+        "MutationRecorder",
+        "MutationState",
+        "MutationToken",
+        "PrepareRequest",
+        "ProgressFunc",
+        "Repository",
+        "State",
+        "Status",
+        "TransferProgress",
+        "TransferStats"
+      ],
+      "functions": [
+        "Backend.Valid",
+        "Coordinator.CancelCurrent",
+        "Coordinator.Prepare",
+        "Coordinator.RunOnce",
+        "Migration.MutationToken",
+        "MutationOperation.Valid",
+        "MutationState.Valid",
+        "State.Terminal",
+        "State.Valid",
+        "ValidateLease",
+        "ValidateMigration",
+        "ValidateMutationAppend",
+        "ValidateMutationToken"
+      ],
+      "constructors": [
+        "NewCoordinator"
+      ],
+      "variables": [
+        "ErrInvalidMigration",
+        "ErrLeaseConflict",
+        "ErrLeaseLost",
+        "ErrMigrationBusy",
+        "ErrMigrationConflict",
+        "ErrMutationConflict"
+      ],
+      "constants": [
+        "BackendLocal",
+        "BackendS3",
+        "DurableOperationTimeout",
+        "MaxArtifactActivationKeys",
+        "MaxBackendIdentityBytes",
+        "MaxCursorBytes",
+        "MaxDesiredRevisionBytes",
+        "MaxErrorCodeBytes",
+        "MaxErrorDetailBytes",
+        "MaxLeaseOwnerBytes",
+        "MaxLeaseTTL",
+        "MaxMigrationIDBytes",
+        "MaxMutationDigestBytes",
+        "MaxMutationETagBytes",
+        "MaxMutationListLimit",
+        "MaxMutationObjectKeyBytes",
+        "MaxReplayPageSize",
+        "MaxVerificationPasses",
+        "MutationApplied",
+        "MutationDelete",
+        "MutationPending",
+        "MutationPut",
+        "MutationRecordTimeout",
+        "ResourceKey",
+        "StateApplyFailed",
+        "StateCancelled",
+        "StateCatchingUp",
+        "StateLocalActive",
+        "StateS3Active",
+        "StateSyncing",
+        "StateVerifying"
+      ]
+    },
+    {
+      "package": "pkg/app/capabilityruntime",
+      "types": [
+        "Factory",
+        "Metadata",
+        "Registration",
+        "Registry",
+        "Request",
+        "Result"
+      ],
+      "functions": [
+        "Registry.Create",
+        "Registry.List",
+        "Registry.Resolve",
+        "Registry.Revision",
+        "Request.Clone"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrFactoryPanic",
+        "ErrInvalidRegistry",
+        "ErrInvalidRequest",
+        "ErrRuntimeNotFound",
+        "ErrRuntimeVersion"
+      ],
+      "constants": [
+        "DefaultCapacity",
+        "MaxFactories"
+      ],
+      "note": "Bounded immutable registry for dynamic-capability runtime factories. It exact-resolves ID/version, defensive-copies requests and manifests, contains factory panics, and has no global registry or transport policy."
+    },
+    {
+      "package": "pkg/app/contextassembly",
+      "types": [
+        "Assembler",
+        "Budget",
+        "BudgetEstimator",
+        "ByteEstimator",
+        "CompositeBudgetEstimator",
+        "Config",
+        "ContextSummarizer",
+        "ContextSummarizerFunc",
+        "Cost",
+        "Evidence",
+        "EvidenceItem",
+        "ExtractiveSummarizer",
+        "ExtractiveSummarizerConfig",
+        "Item",
+        "Layer",
+        "LlmSummarizer",
+        "Request",
+        "Result",
+        "RollingSummarizer",
+        "TokenEstimator"
+      ],
+      "functions": [
+        "Assemble",
+        "Assembler.AssembleModelContext",
+        "Budget.Validate",
+        "ByteEstimator.Estimate",
+        "ByteEstimator.EstimateFragment",
+        "CompositeBudgetEstimator.Estimate",
+        "CompositeBudgetEstimator.EstimateFragment",
+        "ContextSummarizerFunc.Summarize",
+        "ExtractiveSummarizer.Summarize",
+        "LlmSummarizer.Summarize",
+        "Request.Validate",
+        "RollingSummarizer.EnsureSummarized"
+      ],
+      "constructors": [
+        "NewAssembler",
+        "NewExtractiveSummarizer"
+      ],
+      "variables": [
+        "ErrBudgetExceeded",
+        "ErrInvalid"
+      ],
+      "constants": [
+        "DefaultExtractiveSummaryMaxBytes",
+        "DefaultExtractiveSummaryMaxMessageBytes",
+        "DefaultExtractiveSummaryMaxToolBytes",
+        "DefaultMaxToolResultBytes",
+        "DefaultSafetyMarginTokens",
+        "DefaultSummarizerPrompt",
+        "LayerProfile",
+        "LayerRecent",
+        "LayerSummary",
+        "LayerSystem",
+        "LayerToolResults",
+        "MaxBytes",
+        "MaxItems",
+        "MaxLineageRefs",
+        "MaxMetadataBytes",
+        "MaxTokens"
+      ],
+      "note": "Optional context-budgeting, deterministic extractive compression, rolling archival and bounded LLM summarization policies. The app package implements the small core ModelContextAssembler seam without background workers or durable writes outside the supplied session event path."
+    },
+    {
+      "package": "pkg/app/identity",
+      "types": [
+        "Account",
+        "ActivateCommand",
+        "ActivationResult",
+        "AdminActor",
+        "AdminRepository",
+        "AdminService",
+        "AdminUseCases",
+        "CreateAccountCommand",
+        "CreateAccountResult",
+        "CreateTenantCommand",
+        "CreateTenantResult",
+        "CredentialPort",
+        "ListAccountsCommand",
+        "ListAccountsResult",
+        "ListTenantsCommand",
+        "ListTenantsResult",
+        "LoginCommand",
+        "LoginResult",
+        "LoginThrottle",
+        "Role",
+        "Service",
+        "SetAccountPasswordCommand",
+        "SetAccountStatusCommand",
+        "SetAccountStatusResult",
+        "Status",
+        "Tenant",
+        "UseCases"
+      ],
+      "functions": [
+        "AdminService.CreateAccount",
+        "AdminService.CreateTenant",
+        "AdminService.ListAccounts",
+        "AdminService.ListTenants",
+        "AdminService.SetAccountPassword",
+        "AdminService.SetAccountStatus",
+        "ParseRole",
+        "ParseStatus",
+        "Role.Valid",
+        "RoleValues",
+        "Service.Activate",
+        "Service.Login",
+        "Status.Valid",
+        "StatusValues"
+      ],
+      "constructors": [
+        "NewAdminService",
+        "NewService"
+      ],
+      "variables": [
+        "ErrActivationPending",
+        "ErrForbidden",
+        "ErrInvalidCredentials",
+        "ErrInvalidInput",
+        "ErrThrottled"
+      ],
+      "constants": [
+        "RoleAdmin",
+        "RoleTenantAdmin",
+        "RoleUser",
+        "StatusActive",
+        "StatusDisabled",
+        "StatusPendingActivation"
+      ]
+    },
+    {
+      "package": "pkg/app/modelcatalog",
+      "types": [
+        "Compatibility",
+        "Default",
+        "Protocol",
+        "Provider",
+        "Ref",
+        "View"
+      ],
+      "functions": [
+        "View.Assess",
+        "View.Compatibilities",
+        "View.Compatible",
+        "View.Defaults",
+        "View.Providers",
+        "View.Protocols",
+        "View.SnapshotRevision"
+      ],
+      "constructors": [],
+      "variables": [
+        "ErrUnavailable"
+      ],
+      "constants": [],
+      "note": "Credential-free immutable provider/protocol catalog view for transport and settings layers. View.Defaults, Compatible, and Assess distinguish unknown references from known incompatible pairs; implementations remain in adapter packages and retain private factories."
+    },
+    {
+      "package": "pkg/app/modelcontrol",
+      "types": [
+        "CatalogModel",
+        "Compatibility",
+        "CredentialRef",
+        "EndpointRef",
+        "ImplementationBinding",
+        "Modality",
+        "ModelCapabilities",
+        "ProtocolSpec",
+        "ProviderPlan",
+        "ProviderSpec",
+        "Ref",
+        "Registry",
+        "ResolveInput"
+      ],
+      "functions": [
+        "Registry.Catalogs",
+        "Registry.Compatibilities",
+        "Registry.Protocols",
+        "Registry.Providers",
+        "Registry.Resolve",
+        "Registry.SnapshotRevision"
+      ],
+      "constructors": [
+        "NewRegistry"
+      ],
+      "variables": [
+        "ErrIncompatible",
+        "ErrInvalidCatalog",
+        "ErrInvalidCompatibility",
+        "ErrInvalidProtocol",
+        "ErrInvalidProvider",
+        "ErrNotFound",
+        "ErrVersionMismatch"
+      ],
+      "constants": [
+        "DefaultMaxEntries",
+        "ModalityAudio",
+        "ModalityImage",
+        "ModalityText",
+        "ModalityVideo"
+      ]
+    },
+    {
+      "package": "pkg/app/modelexecution",
+      "types": [
+        "CredentialMaterial",
+        "CredentialResolver",
+        "Emit",
+        "Event",
+        "EventKind",
+        "FinishReason",
+        "InboundResponse",
+        "Message",
+        "OutboundRequest",
+        "Protocol",
+        "ProtocolFactory",
+        "ProtocolRegistration",
+        "Provider",
+        "ProviderFactory",
+        "ProviderRegistration",
+        "Registry",
+        "Request",
+        "StreamValidator",
+        "Tool",
+        "ToolCall",
+        "ToolCallDelta",
+        "Usage"
+      ],
+      "functions": [
+        "CredentialMaterial.Bytes",
+        "CredentialMaterial.Clear",
+        "Registry.Execute",
+        "Request.Clone",
+        "StreamValidator.Accept",
+        "StreamValidator.Finished"
+      ],
+      "constructors": [
+        "NewCredentialMaterial",
+        "NewRegistry",
+        "NewStreamValidator"
+      ],
+      "variables": [
+        "ErrBindingDrift",
+        "ErrBindingNotFound",
+        "ErrFactoryPanic",
+        "ErrInvalidEvent",
+        "ErrInvalidRequest",
+        "ErrStreamState"
+      ],
+      "constants": [
+        "DefaultMaxEvents",
+        "DefaultMaxRequestBytes",
+        "DefaultMaxResponseBytes",
+        "DefaultMaxTextBytes",
+        "DefaultMaxToolArgBytes",
+        "DefaultMaxToolCalls",
+        "EventFinish",
+        "EventTextDelta",
+        "EventToolCallDelta",
+        "EventUsage",
+        "FinishStop",
+        "FinishToolCalls"
+      ],
+      "note": "Experimental M2-B protocol-neutral execution contract. Exact catalog snapshot/provider/protocol implementation bindings are fail-closed; Provider owns endpoint/auth/transport and Protocol owns wire body/parser. Credential material is short-lived, non-serializable and clearable. No core bridge, HTTP implementation, server/DB wiring, default registry, or protocol fallback is in the app package."
+    },
+    {
+      "package": "pkg/app/modelsettings",
+      "types": [
+        "AbsentCreator",
+        "CachedRepository",
+        "ConfigSource",
+        "GetCommand",
+        "GetResult",
+        "PostSaveObserver",
+        "ProtocolID",
+        "ProviderID",
+        "PutCommand",
+        "Repository",
+        "Service",
+        "StoredConfiguration",
+        "UseCases"
+      ],
+      "functions": [
+        "CachedRepository.CreateIfAbsent",
+        "CachedRepository.Load",
+        "CachedRepository.Save",
+        "ConfigSource.Valid",
+        "NormalizeAllowedModels",
+        "NormalizeStoredConfiguration",
+        "Service.Get",
+        "Service.Put"
+      ],
+      "constructors": [
+        "NewCachedRepository",
+        "NewService",
+        "NewServiceWithCatalog"
+      ],
+      "variables": [
+        "ErrForbidden",
+        "ErrInvalidConfiguration",
+        "ErrInvalidInput"
+      ],
+      "constants": [
+        "ConfigSourceBootstrap",
+        "ConfigSourceDB",
+        "ConfigSourceEnvImport",
+        "ConfigSourceLegacyFallback",
+        "ProtocolAnthropicMessages",
+        "ProtocolOpenAIChatCompletions",
+        "ProtocolOpenAIResponses",
+        "ProviderAnthropic",
+        "ProviderOpenAI"
+      ]
+    },
+    {
+      "package": "pkg/app/notification",
+      "types": [
+        "Capability",
+        "Channel",
+        "ChannelRef",
+        "ConfigurationValidator",
+        "Delivery",
+        "Descriptor",
+        "Receipt",
+        "ReceiptStatus",
+        "Registry",
+        "Repository",
+        "Service",
+        "SnapshotDirectory",
+        "TargetConfiguration",
+        "TargetDescriptor",
+        "TargetDirectory",
+        "TargetRecord",
+        "TargetRef"
+      ],
+      "functions": [
+        "Registry.Deliver",
+        "Registry.Descriptors",
+        "Registry.Resolve",
+        "Service.Create",
+        "Service.Delete",
+        "Service.List",
+        "Service.ListRecords",
+        "Service.ResolveConfig",
+        "Service.Update",
+        "SnapshotDirectory.List",
+        "TargetConfiguration.Clone",
+        "TargetDescriptor.Clone",
+        "TargetDescriptor.Validate",
+        "TargetRecord.Clone",
+        "TargetRef.String",
+        "ValidateDelivery",
+        "ValidateTenantID"
+      ],
+      "constructors": [
+        "NewRegistry",
+        "NewService",
+        "NewSnapshotDirectory",
+        "NewTargetRef"
+      ],
+      "variables": [
+        "ErrChannelDelivery",
+        "ErrChannelNotFound",
+        "ErrChannelPanic",
+        "ErrInvalidDelivery",
+        "ErrInvalidDescriptor",
+        "ErrInvalidReceipt",
+        "ErrInvalidTargetConfiguration",
+        "ErrInvalidTargetDescriptor",
+        "ErrInvalidTargetRevision",
+        "ErrInvalidTenantID",
+        "ErrRegistryCapacity",
+        "ErrTargetChannelChangeRequiresConfiguration",
+        "ErrTargetConfigurationFailure",
+        "ErrTargetDirectoryCapacity",
+        "ErrTargetDirectoryFailure",
+        "ErrTargetDirectoryPanic",
+        "ErrTargetDisabled",
+        "ErrTargetNotFound",
+        "ErrTargetRepository",
+        "ErrTargetRevisionConflict",
+        "ErrUnknownTargetChannel"
+      ],
+      "constants": [
+        "CapabilityDeliver",
+        "MaxCallIDBytes",
+        "MaxChannelCapabilityBytes",
+        "MaxChannelIDBytes",
+        "MaxChannelVersionBytes",
+        "MaxChannels",
+        "MaxFormatBytes",
+        "MaxIdempotencyKeyBytes",
+        "MaxMetadataEntries",
+        "MaxMetadataKeyBytes",
+        "MaxMetadataValueBytes",
+        "MaxReceiptIDBytes",
+        "MaxRunIDBytes",
+        "MaxTargetConfigurationBytes",
+        "MaxTargetFormatBytes",
+        "MaxTargetFormats",
+        "MaxTargetLabelBytes",
+        "MaxTargetRefBytes",
+        "MaxTargets",
+        "MaxTenantIDBytes",
+        "MaxTextBytes",
+        "ReceiptAccepted",
+        "ReceiptDelivered"
+      ],
+      "note": "N0 provider-neutral notification contract: immutable exact-version registry, opaque target refs, bounded non-secret delivery/receipt metadata, panic isolation, provider-error sanitization, and no transport, credentials, persistence, globals, reflection, or background workers."
+    },
+    {
+      "package": "pkg/app/runexecutor",
+      "types": [
+        "Dependencies",
+        "Factory",
+        "Metadata",
+        "Registration",
+        "Registry",
+        "RunExecutor",
+        "Sequential"
+      ],
+      "functions": [
+        "Registry.List",
+        "Registry.Resolve",
+        "Registry.ResolveOrDefault",
+        "Sequential.ResumeTurn",
+        "Sequential.RunTurn",
+        "SequentialRegistration"
+      ],
+      "constructors": [
+        "NewDefaultRegistry",
+        "NewRegistry",
+        "NewSequential"
+      ],
+      "variables": [
+        "ErrExecutorNotFound",
+        "ErrFactoryPanic",
+        "ErrInvalidRegistration",
+        "ErrRegistryFull",
+        "ErrVersionMismatch"
+      ],
+      "constants": [
+        "DefaultMaxExecutors",
+        "SequentialID",
+        "SequentialImplementationRevision",
+        "SequentialVersion"
+      ]
+    },
+    {
+      "package": "pkg/app/runliveness",
+      "types": [
+        "Callback",
+        "Clock",
+        "Config",
+        "Failure",
+        "Scheduler",
+        "Timer"
+      ],
+      "functions": [
+        "Scheduler.Close",
+        "Scheduler.Register"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrClosed",
+        "ErrDuplicateKey"
+      ],
+      "constants": [
+        "DefaultWorkers",
+        "MaxWorkers"
+      ],
+      "note": "Shared deadline-aware liveness scheduler with no per-run ticker or goroutine; callbacks remain explicit fail-safe boundaries."
+    },
+    {
+      "package": "pkg/app/secretview",
+      "types": [],
+      "functions": [
+        "Preview"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/app/settings",
+      "types": [
+        "AbsentSettingCreator",
+        "GetCommand",
+        "GetResult",
+        "PutCommand",
+        "Repository",
+        "Service",
+        "SettingCompareAndSwapper",
+        "UseCases"
+      ],
+      "functions": [
+        "Service.Get",
+        "Service.Put"
+      ],
+      "constructors": [
+        "NewService"
+      ],
+      "variables": [
+        "ErrForbidden",
+        "ErrInvalidInput"
+      ],
+      "constants": []
+    },
+    {
+      "package": "pkg/app/storageconfig",
+      "types": [
+        "ActiveState",
+        "Backend",
+        "ConfigSource",
+        "ConfigStatus",
+        "ConfigView",
+        "ErrorCode",
+        "GetCommand",
+        "GetResult",
+        "Kind",
+        "LegacyInput",
+        "LegacyProvider",
+        "MigrationCancellationPort",
+        "MigrationProgress",
+        "MigrationRuntimePort",
+        "PutCommand",
+        "PutResult",
+        "Repository",
+        "Resolution",
+        "ResolutionEvidence",
+        "Resolver",
+        "RuntimePort",
+        "Service",
+        "StoredConfiguration",
+        "UseCases"
+      ],
+      "functions": [
+        "Backend.ValidFor",
+        "ConfigSource.Valid",
+        "ConfigStatus.Valid",
+        "ErrorCode.Error",
+        "ErrorCode.Valid",
+        "Kind.Valid",
+        "Normalize",
+        "PrepareCreate",
+        "ResolutionEvidence.Validate",
+        "Resolver.Resolve",
+        "Resolver.ResolveWithLegacyProvider",
+        "Service.Get",
+        "Service.Put",
+        "Validate"
+      ],
+      "constructors": [
+        "NewDesiredRevision",
+        "NewService"
+      ],
+      "variables": [
+        "ErrApplyFailed",
+        "ErrAtomicCreateUnsupported",
+        "ErrCASUnsupported",
+        "ErrConflict",
+        "ErrForbidden",
+        "ErrInactiveConfiguration",
+        "ErrInvalidConfiguration",
+        "ErrInvalidInput",
+        "ErrInvalidKind",
+        "ErrUnsupportedTransition"
+      ],
+      "constants": [
+        "BackendEmbedded",
+        "BackendFile",
+        "BackendS3",
+        "ErrorCodeApplyFailed",
+        "ErrorCodeEvidenceSaveFailed",
+        "ErrorCodeInactive",
+        "ErrorCodeInvalid",
+        "ErrorCodePersistFailed",
+        "KindResources",
+        "KindSessions",
+        "SourceBootstrap",
+        "SourceDB",
+        "SourceEnvImport",
+        "SourceLegacyFallback",
+        "StatusActive",
+        "StatusApplyFailed",
+        "StatusInactive",
+        "StatusInvalid",
+        "StatusMigrationPending",
+        "StatusRestartPending"
+      ]
+    },
+    {
+      "package": "pkg/buildinfo",
+      "types": [],
+      "functions": [
+        "String"
+      ],
+      "constructors": [],
+      "variables": [
+        "BuildDate",
+        "Commit",
+        "Version"
+      ],
+      "constants": []
+    },
+    {
+      "package": "pkg/console",
+      "types": [],
+      "functions": [
+        "Handler"
+      ],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/control",
+      "types": [
+        "CanaryAssignment",
+        "CanaryManager",
+        "CanaryRecord",
+        "CanaryStatus",
+        "CanaryStore",
+        "ProfileRelease",
+        "ReleaseInfo",
+        "ReleaseJournal",
+        "ReleaseManager"
+      ],
+      "functions": [
+        "CanaryManager.Assign",
+        "CanaryManager.Get",
+        "CanaryManager.List",
+        "CanaryManager.Pause",
+        "CanaryManager.Promote",
+        "CanaryManager.Refresh",
+        "CanaryManager.Restore",
+        "CanaryManager.Resume",
+        "CanaryManager.Rollback",
+        "CanaryManager.Select",
+        "CanaryManager.SetBasisPoints",
+        "CanaryManager.Stage",
+        "ReleaseManager.BaselineRevision",
+        "ReleaseManager.History",
+        "ReleaseManager.PrepareCandidate",
+        "ReleaseManager.PrepareCandidateAtCurrentBaseline",
+        "ReleaseManager.Publish",
+        "ReleaseManager.PublishAtBaseline",
+        "ReleaseManager.PublishWithOperation",
+        "ReleaseManager.PublishWithOperationAtBaseline",
+        "ReleaseManager.Restore",
+        "ReleaseManager.Rollback",
+        "ReleaseManager.Sync",
+        "ValidateCanaryRecord"
+      ],
+      "constructors": [
+        "NewCanaryManager",
+        "NewReleaseManager"
+      ],
+      "variables": [
+        "ErrCanaryNotFound",
+        "ErrReleaseBaselineDrift",
+        "ErrReleaseReserved"
+      ],
+      "constants": [
+        "CanaryActive",
+        "CanaryPaused",
+        "CanaryPromoted",
+        "CanaryPromoting",
+        "CanaryRolledBack"
+      ]
+    },
+    {
+      "package": "pkg/core",
+      "types": [
+        "AcceptedInvocation",
+        "AcceptedModelCall",
+        "Agent",
+        "AgentOptions",
+        "AgentProfileLayer",
+        "AgentProfileRegistry",
+        "AgentProfileSnapshot",
+        "ApprovalDecision",
+        "ApprovalPendingError",
+        "ApprovalRequest",
+        "ApprovalRequestedData",
+        "ApprovalResolution",
+        "ApprovalResolvedData",
+        "Approver",
+        "ApproverFunc",
+        "ArtifactRevisioner",
+        "AssistantChunkData",
+        "AssistantMessageData",
+        "BindingMode",
+        "CallRateLimiter",
+        "Capability",
+        "CapabilityBinding",
+        "CapabilityContext",
+        "CapabilityFilter",
+        "CapabilityFilterFunc",
+        "CapabilityKind",
+        "CapabilityManifest",
+        "CapabilityRegistry",
+        "CapabilityRequest",
+        "CapabilityResolver",
+        "CapabilityResult",
+        "CapabilitySnapshot",
+        "ChatMessage",
+        "ChatRole",
+        "ConfinedArgv",
+        "ContextCompactor",
+        "ContextCompactorFunc",
+        "ContextProvenance",
+        "ContextSummaryData",
+        "CredentialAccessor",
+        "CredentialBinding",
+        "CredentialBindingMode",
+        "CredentialProvider",
+        "CredentialProviderFunc",
+        "CredentialRef",
+        "CredentialRefView",
+        "CredentialRegistry",
+        "CredentialResolver",
+        "CredentialResolverFunc",
+        "CredentialValue",
+        "DurableApprover",
+        "EnvironmentCredentialProvider",
+        "ExecutionSpec",
+        "Executor",
+        "ExecutorProvider",
+        "FastDispatch",
+        "FastRouter",
+        "FastRouterResolver",
+        "FastRouterResolverFunc",
+        "FastRule",
+        "GenerateOptions",
+        "Invocation",
+        "LlmAdapter",
+        "MemoryEntry",
+        "MemorySessionStore",
+        "MockLlmAdapter",
+        "ModelCallBudget",
+        "ModelCallGate",
+        "ModelCallRequest",
+        "ModelContext",
+        "ModelContextAssembler",
+        "ModelResolver",
+        "ModelResolverFunc",
+        "ModelSelection",
+        "MountedPlugin",
+        "Perm",
+        "Permission",
+        "PermissionSet",
+        "Plugin",
+        "PluginHost",
+        "PluginManifest",
+        "PluginMount",
+        "PolicyLayer",
+        "PolicyLayerView",
+        "PolicyRegistry",
+        "Principal",
+        "ProcessSandbox",
+        "PromptFragment",
+        "PromptSection",
+        "ProtectedToolInvoker",
+        "RagChunk",
+        "RagDocument",
+        "RagQuery",
+        "RecentTurnsCompactor",
+        "ResolvedPolicy",
+        "ResolvedPromptFragment",
+        "ResumeInput",
+        "RunCompositionData",
+        "RunCompositionEvidence",
+        "RunEndData",
+        "RunHooks",
+        "RunHooksFuncs",
+        "RunInfo",
+        "RunResumeData",
+        "RunStartData",
+        "RunStatus",
+        "RunSummarizer",
+        "RunUsageData",
+        "Runtime",
+        "RuntimeErrorData",
+        "SandboxMode",
+        "SandboxPolicy",
+        "SandboxProvider",
+        "SandboxUnavailableError",
+        "ScopeKind",
+        "ScopePath",
+        "ScopeRef",
+        "Session",
+        "SessionAppender",
+        "SessionEvent",
+        "SessionEventType",
+        "SessionOptions",
+        "SessionStore",
+        "SnapshotCapability",
+        "StaticCredentialProvider",
+        "StepData",
+        "StreamChunk",
+        "Telemetry",
+        "TelemetryAttributes",
+        "TelemetryContext",
+        "TelemetrySpan",
+        "TelemetryTraceContext",
+        "TokenUsage",
+        "ToolCall",
+        "ToolCallData",
+        "ToolExposure",
+        "ToolInvocation",
+        "ToolInvocationDecision",
+        "ToolInvocationJournal",
+        "ToolInvocationRecord",
+        "ToolInvocationState",
+        "ToolProvider",
+        "ToolResultData",
+        "ToolRuntime",
+        "ToolSchema",
+        "TurnInput",
+        "TurnResult",
+        "UserMessageData",
+        "WindowRateLimiter"
+      ],
+      "functions": [
+        "AddTelemetryCounter",
+        "AdjustBacktestCutoff",
+        "Agent.ResumeTurn",
+        "Agent.Run",
+        "Agent.RunTurn",
+        "Agent.Session",
+        "AgentProfileRegistry.Bind",
+        "AgentProfileRegistry.Clone",
+        "AgentProfileRegistry.ListProfiles",
+        "AgentProfileRegistry.Mount",
+        "AgentProfileRegistry.Resolve",
+        "AgentProfileSnapshot.FilterCapabilities",
+        "AgentProfileSnapshot.SystemPrompt",
+        "AppendRepair",
+        "ApprovalPendingError.Error",
+        "ApproverFunc.Approve",
+        "CapabilityFilterFunc.AllowCapability",
+        "CapabilityRegistry.Bind",
+        "CapabilityRegistry.Entries",
+        "CapabilityRegistry.Mount",
+        "CapabilityRegistry.Register",
+        "CapabilityRegistry.RegisterExecutor",
+        "CapabilityResolver.Resolve",
+        "CapabilitySnapshot.Authorized",
+        "CapabilitySnapshot.BudgetFor",
+        "CapabilitySnapshot.Capabilities",
+        "CapabilitySnapshot.Execute",
+        "CapabilitySnapshot.Filter",
+        "CapabilitySnapshot.FilterByPermissions",
+        "CapabilitySnapshot.FilterByPredicate",
+        "CapabilitySnapshot.ManifestFor",
+        "CapabilitySnapshot.MarshalJSON",
+        "CapabilitySnapshot.MaxCallBudget",
+        "CapabilitySnapshot.Principal",
+        "CapabilitySnapshot.Provider",
+        "CapabilitySnapshot.Schemas",
+        "CapabilitySnapshot.Select",
+        "CloneAgentProfileLayer",
+        "CloneToolInvocationRecord",
+        "CompositionMetadataRevision",
+        "CompositionRevision",
+        "ConsumeModelStream",
+        "ContextCompactorFunc.Compact",
+        "CredentialProviderFunc.Resolve",
+        "CredentialRegistry.Bind",
+        "CredentialRegistry.List",
+        "CredentialRegistry.Mount",
+        "CredentialRegistry.ResolveCredential",
+        "CredentialResolverFunc.ResolveCredential",
+        "EnvironmentCredentialProvider.Resolve",
+        "ExecutorProvider.ArtifactRevision",
+        "ExecutorProvider.Execute",
+        "ExtractRunCompositionEvidence",
+        "ExtractTelemetryTraceContext",
+        "FastRouter.Add",
+        "FastRouter.Dispatch",
+        "FastRouterResolverFunc.ResolveFastRouter",
+        "InjectTelemetryTraceContext",
+        "IsApprovalPending",
+        "MemorySessionStore.Create",
+        "MemorySessionStore.Load",
+        "MemorySessionStore.Save",
+        "MockLlmAdapter.ArtifactRevision",
+        "MockLlmAdapter.Provider",
+        "MockLlmAdapter.Stream",
+        "ModelCallRequest.Validate",
+        "ModelResolverFunc.ResolveModel",
+        "MountedPlugin.Close",
+        "MustScopePath",
+        "PermissionSet.Allows",
+        "PermissionSet.Clone",
+        "PermissionSet.Intersect",
+        "PluginHost.MountPlugin",
+        "PluginMount.Capability",
+        "PluginMount.CapabilityBinding",
+        "PluginMount.Credential",
+        "PluginMount.OnUnmount",
+        "PluginMount.Policy",
+        "PluginMount.Profile",
+        "PluginMount.Scope",
+        "PolicyRegistry.Bind",
+        "PolicyRegistry.List",
+        "PolicyRegistry.Mount",
+        "PolicyRegistry.Resolve",
+        "PrepareAcceptedModelCall",
+        "ProcessSandbox.Confine",
+        "ProcessSandbox.DenyUnauthorized",
+        "ProfileLayerRevision",
+        "RecentTurnsCompactor.Compact",
+        "RecordTelemetryHistogram",
+        "RepairInterrupted",
+        "RequireAcceptedInvocation",
+        "RequireAcceptedModelCall",
+        "RestoreSession",
+        "RunHooksFuncs.OnAfterStep",
+        "RunHooksFuncs.OnAfterTool",
+        "RunHooksFuncs.OnBeforeStep",
+        "RunHooksFuncs.OnBeforeTool",
+        "RunHooksFuncs.OnRunEnd",
+        "RunHooksFuncs.OnRunStart",
+        "Runtime.ResumeTurn",
+        "Runtime.RunTurn",
+        "Runtime.Validate",
+        "SandboxUnavailableError.Error",
+        "ScopePath.Child",
+        "ScopePath.Depth",
+        "ScopePath.Equal",
+        "ScopePath.IsAncestorOf",
+        "ScopePath.MarshalJSON",
+        "ScopePath.Prefixes",
+        "ScopePath.Segments",
+        "ScopePath.String",
+        "ScopePath.UnmarshalJSON",
+        "Session.Append",
+        "Session.Clone",
+        "Session.DeriveMessages",
+        "Session.Events",
+        "Session.EventsFrom",
+        "Session.HasToolCall",
+        "Session.ID",
+        "Session.LastAssistantText",
+        "Session.Metadata",
+        "Session.PendingApproval",
+        "Session.Principal",
+        "Session.ProfileID",
+        "Session.RunStatus",
+        "Session.Scope",
+        "Session.ToolResult",
+        "Session.Version",
+        "SetTelemetryGauge",
+        "StartTelemetry",
+        "StaticCredentialProvider.Resolve",
+        "ValidateApprovalID",
+        "ValidateArgs",
+        "ValidateCapabilityResult",
+        "ValidateJSONValue",
+        "ValidateNamespacedID",
+        "ValidateProfileID",
+        "ValidateRunCompositionMetadata",
+        "ValidateRunID",
+        "ValidateSchema",
+        "ValidateSessionID",
+        "ValidateToolInvocation",
+        "WindowRateLimiter.AllowCall",
+        "WithTelemetrySpanAttributes"
+      ],
+      "constructors": [
+        "NewAgent",
+        "NewAgentProfileRegistry",
+        "NewCapabilityRegistry",
+        "NewCredentialRegistry",
+        "NewID",
+        "NewMemorySessionStore",
+        "NewPermissionSet",
+        "NewPolicyRegistry",
+        "NewRuntimeErrorData",
+        "NewSandboxUnavailableError",
+        "NewScopePath",
+        "NewSession",
+        "NewToolInvocation",
+        "NewWindowRateLimiter"
+      ],
+      "variables": [
+        "ErrAcceptedInvocationRequired",
+        "ErrAcceptedModelCallRequired",
+        "ErrCredentialNotFound",
+        "ErrInvalidArgs",
+        "ErrSessionConflict",
+        "ErrSessionNotFound"
+      ],
+      "constants": [
+        "ApprovalApproved",
+        "ApprovalDenied",
+        "ApprovalExpired",
+        "ApprovalPending",
+        "BindingDisable",
+        "BindingProvide",
+        "BindingReplace",
+        "CodeApprovalDenied",
+        "CodeApprovalFailed",
+        "CodeApprovalUnavailable",
+        "CodeBudgetExceeded",
+        "CodeHookDenied",
+        "CodeInvalidArgs",
+        "CodeRateLimited",
+        "CodeRunInterrupted",
+        "CodeToolIdempotencyConflict",
+        "CodeToolJournalUnavailable",
+        "CodeToolNotStarted",
+        "CodeToolOutcomeUnknown",
+        "CredentialDisable",
+        "CredentialProvide",
+        "CredentialReplace",
+        "DefaultMaxCapabilityOutputBytes",
+        "DefaultMaxSteps",
+        "DefaultMaxToolCalls",
+        "ElidedToolResultMarker",
+        "EvApprovalRequested",
+        "EvApprovalResolved",
+        "EvAssistantChunk",
+        "EvAssistantMessage",
+        "EvContextSummary",
+        "EvRunEnd",
+        "EvRunError",
+        "EvRunResume",
+        "EvRunStart",
+        "EvRunUsage",
+        "EvStepEnd",
+        "EvStepError",
+        "EvStepStart",
+        "EvToolCall",
+        "EvToolResult",
+        "EvUserMessage",
+        "FinishStop",
+        "FinishToolCalls",
+        "HardMaxCapabilityOutputBytes",
+        "HardMaxSteps",
+        "HardMaxToolCalls",
+        "KindAgent",
+        "KindComputation",
+        "KindConnector",
+        "KindContext",
+        "KindEvaluator",
+        "KindHook",
+        "KindKnowledge",
+        "KindMemory",
+        "KindModel",
+        "KindPlugin",
+        "KindPolicy",
+        "KindPresentation",
+        "KindPrompt",
+        "KindRAG",
+        "KindRouter",
+        "KindSandbox",
+        "KindSkill",
+        "KindTool",
+        "KindWorkflow",
+        "MaxCapabilityManifestBytes",
+        "MaxCapabilityMetadataBytes",
+        "MaxCapabilitySnapshotBytes",
+        "MaxCapabilityTimeoutMs",
+        "MaxMemorySessions",
+        "MaxModelCallPrincipalMapItems",
+        "MaxProfileCapabilities",
+        "MaxProfileFragments",
+        "MaxProfileMetadataItems",
+        "MaxPromptFragmentBytes",
+        "MaxRegistryBindings",
+        "MaxReportedTokensPerCall",
+        "MaxReportedTokensPerRun",
+        "MaxRunCompositionMetadataBytes",
+        "MaxRunCompositionMetadataItems",
+        "MaxRunCompositionMetadataKeyBytes",
+        "MaxRunCompositionMetadataValueBytes",
+        "MaxRuntimeErrorMessageBytes",
+        "MaxSessionEventDataBytes",
+        "MaxSessionEvents",
+        "MaxSystemPromptBytes",
+        "MaxTelemetryAttributeKey",
+        "MaxTelemetryAttributeValue",
+        "MaxTelemetryAttributes",
+        "MaxTelemetrySpanContextAttributes",
+        "MaxToolArgumentBytes",
+        "MetricApprovalDecisions",
+        "MetricApprovalOldestAge",
+        "MetricApprovalPending",
+        "MetricApprovalRequests",
+        "MetricApprovalWait",
+        "MetricEvaluationCaseDuration",
+        "MetricEvaluationCases",
+        "MetricEvaluationDuration",
+        "MetricEvaluationGates",
+        "MetricEvaluationRuns",
+        "MetricEvaluationScore",
+        "MetricModelCalls",
+        "MetricModelContextDroppedGroups",
+        "MetricModelContextInputBytes",
+        "MetricModelContextInputTokens",
+        "MetricModelDuration",
+        "MetricQueueClaimDuration",
+        "MetricQueueClaims",
+        "MetricQueueDepth",
+        "MetricQueueOldestAge",
+        "MetricQueueRecoveries",
+        "MetricRunDuration",
+        "MetricRuns",
+        "MetricSubmissions",
+        "MetricToolCalls",
+        "MetricToolDuration",
+        "MetricToolJournalDecisions",
+        "PermRead",
+        "PermSend",
+        "PermWrite",
+        "PromptBoundaries",
+        "PromptGoals",
+        "PromptIdentity",
+        "PromptInstructions",
+        "PromptStyle",
+        "PromptTraits",
+        "PromptValues",
+        "RoleAssistant",
+        "RoleTool",
+        "RoleUser",
+        "RunCancelled",
+        "RunCompleted",
+        "RunFailed",
+        "RunLimited",
+        "RunWaitingApproval",
+        "SandboxDangerFullAccess",
+        "SandboxReadOnly",
+        "SandboxWorkspaceWrite",
+        "ScopeDeployment",
+        "ScopeGlobal",
+        "ScopeProduct",
+        "ScopeRun",
+        "ScopeSession",
+        "ScopeTenant",
+        "ScopeUser",
+        "ScopeWorkspace",
+        "SpanEvaluationCase",
+        "SpanEvaluationRun",
+        "SpanModelCall",
+        "SpanQueueClaim",
+        "SpanRunSegment",
+        "SpanToolCall",
+        "StreamKindAssistant",
+        "StreamKindFinish",
+        "ToolInvocationCompleted",
+        "ToolInvocationConflict",
+        "ToolInvocationExecuteNew",
+        "ToolInvocationExecuteRetry",
+        "ToolInvocationReplay",
+        "ToolInvocationStarted",
+        "ToolInvocationUncertain",
+        "ToolInvocationUnknown"
+      ],
+      "note": "Core keeps only the narrow ModelContextAssembler request/result seam. Context budgeting, token estimation, rolling summaries, extractive summarization, and LLM summarization live in pkg/app/contextassembly."
+    },
+    {
+      "package": "pkg/evaluation",
+      "types": [
+        "ArtifactSnapshot",
+        "Assertion",
+        "AssertionKind",
+        "AssertionResult",
+        "CapabilityCompatibilityIssue",
+        "CapabilityCompatibilityPolicy",
+        "CapabilityCompatibilityResult",
+        "Case",
+        "CaseResult",
+        "Comparison",
+        "ContextMessage",
+        "Dataset",
+        "DatasetSummary",
+        "Evaluator",
+        "EvaluatorFunc",
+        "GatePolicy",
+        "GateResult",
+        "MemoryStore",
+        "Observation",
+        "QueryStore",
+        "Registry",
+        "RunQuery",
+        "RunRequest",
+        "RunResult",
+        "RunStatus",
+        "Runner",
+        "Store"
+      ],
+      "functions": [
+        "CapabilityCompatibilityRevision",
+        "CapabilityDeclarationRevision",
+        "Compare",
+        "CompareCapabilitySnapshots",
+        "DatasetRevision",
+        "EvaluateGate",
+        "EvaluatorFunc.Evaluate",
+        "EvaluatorFunc.Kind",
+        "MemoryStore.CreateRun",
+        "MemoryStore.FinishRun",
+        "MemoryStore.GetDataset",
+        "MemoryStore.GetRun",
+        "MemoryStore.ListDatasets",
+        "MemoryStore.ListRuns",
+        "MemoryStore.PutDataset",
+        "MemoryStore.QueryRuns",
+        "MemoryStore.RecordCaseResult",
+        "MemoryStore.RecordRunError",
+        "Registry.Evaluate",
+        "RunQuery.Validate",
+        "Runner.Resume",
+        "Runner.Run",
+        "SafeCapabilityFilter",
+        "ValidateCaseResult",
+        "ValidateDataset",
+        "ValidateRunResult"
+      ],
+      "constructors": [
+        "NewMemoryStore",
+        "NewRegistry"
+      ],
+      "variables": [
+        "ErrDatasetNotFound",
+        "ErrRunNotFound"
+      ],
+      "constants": [
+        "AssertAnswerContains",
+        "AssertAnswerExact",
+        "AssertAnswerJSON",
+        "AssertRunStatus",
+        "AssertToolCalled",
+        "AssertToolNotCalled",
+        "MaxCapabilityCompatibilityIssues",
+        "MaxCapabilityCompatibilityListItems",
+        "MaxCaseAssertions",
+        "MaxCaseContext",
+        "MaxDatasetBytes",
+        "MaxDatasetCases",
+        "MaxDatasetIDs",
+        "MaxDatasetVersionsPerID",
+        "MaxEvaluationMetadata",
+        "MaxEvaluationRuns",
+        "MaxEvaluationText",
+        "MaxMetadataKeyBytes",
+        "MaxMetadataValueBytes",
+        "MaxRunningEvaluationRuns",
+        "RunCompleted",
+        "RunFailed",
+        "RunRunning"
+      ]
+    },
+    {
+      "package": "pkg/execution",
+      "types": [
+        "HTTPExecutor",
+        "MCPServerConfig",
+        "MemoryLibraryObserver",
+        "OSConfinementExecutor",
+        "OSExecSpec",
+        "ToolLibraryObservation",
+        "ToolLibraryObserver",
+        "WazeroExecutor"
+      ],
+      "functions": [
+        "HTTPExecutor.ArtifactRevision",
+        "HTTPExecutor.Execute",
+        "HTTPExecutor.Runtime",
+        "MemoryLibraryObserver.Observe",
+        "MemoryLibraryObserver.Snapshot",
+        "OSConfinementExecutor.ArtifactRevision",
+        "OSConfinementExecutor.Execute",
+        "OSConfinementExecutor.Run",
+        "OSConfinementExecutor.Runtime",
+        "RegisterMCPServer",
+        "ValidateHTTPHeader",
+        "ValidateHTTPMethod",
+        "ValidatePublicHTTPURL",
+        "WazeroExecutor.ArtifactRevision",
+        "WazeroExecutor.Execute",
+        "WazeroExecutor.Run",
+        "WazeroExecutor.Runtime"
+      ],
+      "constructors": [
+        "NewMemoryLibraryObserver"
+      ],
+      "variables": [],
+      "constants": [
+        "ContractToolLibraryV1",
+        "MaxLibraryObservations"
+      ]
+    },
+    {
+      "package": "pkg/execution/graph",
+      "types": [
+        "ApprovalAuthorizationRequest",
+        "ApprovalAuthorizer",
+        "ApprovalDecision",
+        "ApprovalDecisionCode",
+        "ApprovalPendingError",
+        "Bindings",
+        "ContextPlanner",
+        "ContextRequest",
+        "Event",
+        "EventKind",
+        "Executor",
+        "LeaseRequest",
+        "Node",
+        "NodeBinding",
+        "NodeRequest",
+        "NodeResult",
+        "Observer",
+        "Options",
+        "OutcomeCode",
+        "Predicate",
+        "PredicateBinding",
+        "Reducer",
+        "ReducerBinding",
+        "Result",
+        "ResumeRequest",
+        "RetryableError",
+        "SandboxAuthorizer",
+        "SandboxRequest",
+        "SegmentLease",
+        "StartRequest"
+      ],
+      "functions": [
+        "ApprovalDecision.Validate",
+        "ApprovalPendingError.Error",
+        "Bindings.CompositionRevision",
+        "Bindings.DefinitionRevision",
+        "Bindings.ImplementationRevision",
+        "BuiltinReducerBinding",
+        "Executor.Resume",
+        "Executor.Run",
+        "NormalizeOutcomeCode",
+        "ValidOutcomeCode"
+      ],
+      "constructors": [
+        "NewBindings",
+        "NewExecutor",
+        "NewExecutorWithOptions"
+      ],
+      "variables": [
+        "ErrApprovalAuthorizationFail",
+        "ErrApprovalPanic",
+        "ErrApprovalPending",
+        "ErrApprovalUnavailable",
+        "ErrBindingMismatch",
+        "ErrContextUnavailable",
+        "ErrEdgeAmbiguous",
+        "ErrExecutionFailed",
+        "ErrExecutionInProgress",
+        "ErrExecutionReplay",
+        "ErrInvalidApproval",
+        "ErrLeasePanic",
+        "ErrLeaseUnavailable",
+        "ErrNodePanic",
+        "ErrObserverPanic",
+        "ErrPlannerPanic",
+        "ErrPredicatePanic",
+        "ErrReducerPanic",
+        "ErrSandboxPanic",
+        "ErrSandboxUnavailable",
+        "ErrSegmentMismatch",
+        "ErrUnknownOutcome"
+      ],
+      "constants": [
+        "ApprovalDecisionApproved",
+        "ApprovalDecisionDenied",
+        "EventApprovalResolved",
+        "EventCancelled",
+        "EventCompleted",
+        "EventConflict",
+        "EventEdgeAmbiguous",
+        "EventFailed",
+        "EventNodeEnd",
+        "EventNodeError",
+        "EventNodeStart",
+        "EventResumed",
+        "EventRetry",
+        "EventStarted",
+        "EventSuspended",
+        "EventTimeout",
+        "EventUnknown",
+        "MaxApprovalActorBytes",
+        "MaxAuthorizationBasisBytes",
+        "OutcomeApprovalApproved",
+        "OutcomeApprovalDenied",
+        "OutcomeApprovalPending",
+        "OutcomeBindingMissing",
+        "OutcomeCancelled",
+        "OutcomeCompleted",
+        "OutcomeContextUnavailable",
+        "OutcomeCreated",
+        "OutcomeEdgeSelected",
+        "OutcomeEdgeSelectionFailed",
+        "OutcomeErrorEdge",
+        "OutcomeInterruptedUnknown",
+        "OutcomeInvalidApproval",
+        "OutcomeLeaseUnavailable",
+        "OutcomeNodeFailed",
+        "OutcomeNodeStarted",
+        "OutcomeNodeTimeout",
+        "OutcomePreflightFailed",
+        "OutcomeRecoveryUnknown",
+        "OutcomeReducerFailed",
+        "OutcomeRetry",
+        "OutcomeSandboxDenied",
+        "OutcomeSandboxUnavailable",
+        "OutcomeStepLimit",
+        "OutcomeUnknown",
+        "OutcomeUnknownNode",
+        "OutcomeVisitLimit"
+      ],
+      "note": "Experimental Graph-G1 executor with explicit bindings, context planner, segment lease, approval, observer, and sandbox-authorizer ports. The server composes SQL checkpoint/segment adapters but sequential remains the default; sandbox nodes reject without an injected authorizer/provider."
+    },
+    {
+      "package": "pkg/execution/sandbox",
+      "types": [
+        "Artifact",
+        "ArtifactPolicy",
+        "ArtifactSet",
+        "Assurance",
+        "AssuranceLevel",
+        "AssuranceReport",
+        "Command",
+        "ExecRequest",
+        "ExecResult",
+        "ExecSession",
+        "FencedLease",
+        "LeaseIdentity",
+        "LeaseState",
+        "Limits",
+        "LocalProvider",
+        "Metadata",
+        "Mount",
+        "NetworkPolicy",
+        "Output",
+        "Provider",
+        "ProviderID",
+        "Registration",
+        "Registry",
+        "Session",
+        "SessionSpec"
+      ],
+      "functions": [
+        "ArtifactSet.Validate",
+        "Assurance.Satisfies",
+        "Assurance.Validate",
+        "Assurance.ValidateActual",
+        "AssuranceReport.Satisfies",
+        "AssuranceReport.SatisfiesSpec",
+        "ExecRequest.Validate",
+        "ExecResult.Validate",
+        "FencedLease.Identity",
+        "FencedLease.State",
+        "FencedLease.Terminate",
+        "FencedLease.Validate",
+        "Limits.Validate",
+        "LocalProvider.ID",
+        "LocalProvider.Probe",
+        "LocalProvider.Start",
+        "NormalizeHostPath",
+        "NormalizePath",
+        "NormalizeVirtualPath",
+        "Output.Validate",
+        "Registry.Metadata",
+        "Registry.Probe",
+        "Registry.Resolve",
+        "Registry.Start",
+        "SessionSpec.Validate",
+        "ValidateArtifact",
+        "ValidateCommand",
+        "ValidateLease",
+        "ValidateProviderID"
+      ],
+      "constructors": [
+        "NewFencedLease",
+        "NewLocalRegistration",
+        "NewRegistry"
+      ],
+      "variables": [
+        "ErrArtifactUnverified",
+        "ErrAssuranceTooWeak",
+        "ErrExecFailed",
+        "ErrExecOutputLimit",
+        "ErrExecTimeout",
+        "ErrExecUnsupported",
+        "ErrInvalidRegistration",
+        "ErrInvalidSpec",
+        "ErrLeaseMismatch",
+        "ErrLeaseTerminated",
+        "ErrOutputLimit",
+        "ErrProviderFailure",
+        "ErrProviderIdentity",
+        "ErrProviderNotFound",
+        "ErrProviderPanic",
+        "ErrProviderVersionMismatch",
+        "ErrRegistryCapacity",
+        "ErrUnavailable",
+        "ErrWallTimeLimit"
+      ],
+      "constants": [
+        "AssuranceContainer",
+        "AssuranceNone",
+        "AssuranceProcess",
+        "AssuranceVM",
+        "DefaultExecArtifactBytes",
+        "DefaultExecArtifactCount",
+        "DefaultExecCombinedBytes",
+        "DefaultExecMemoryBytes",
+        "DefaultExecPreviewBytes",
+        "DefaultExecWallTime",
+        "LeaseActive",
+        "LeaseTerminated",
+        "LeaseUnknown",
+        "MaxArgBytes",
+        "MaxArgs",
+        "MaxArtifactBytes",
+        "MaxArtifactCount",
+        "MaxArtifactKeyBytes",
+        "MaxCPUTime",
+        "MaxIdentifierBytes",
+        "MaxImplementationRevisionBytes",
+        "MaxMemoryBytes",
+        "MaxMounts",
+        "MaxOutputBytes",
+        "MaxRegistrations",
+        "MaxVersionBytes",
+        "MaxWallTime",
+        "NetworkDisabled",
+        "NetworkHost",
+        "NetworkIsolated"
+      ],
+      "note": "A bounded exact-version provider registry protects callback panics and sanitizes provider failures. Local registration is composition-only and may report unavailable by platform; a normal process is never represented as a sandbox. The Windows current-user Basic provider is the explicit restricted-child path: it requires an ordinary Medium source, reports Host without network isolation, and never falls back to host execution. Historical private control-plane bindings are not part of the current public runtime inventory."
+    },
+    {
+      "package": "pkg/extensions",
+      "types": [],
+      "functions": [],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/extensions/graph",
+      "types": [
+        "ApprovalDeniedPolicy",
+        "ApprovalEvidence",
+        "Checkpoint",
+        "CheckpointKey",
+        "CheckpointStatus",
+        "CheckpointVersion",
+        "CheckpointVersionInfo",
+        "CheckpointVersionOrigin",
+        "CommitDisposition",
+        "ContextBudget",
+        "ContextPlan",
+        "ContextSource",
+        "ContextSourceRef",
+        "ContextView",
+        "Definition",
+        "EdgeEvidence",
+        "EdgeKind",
+        "EdgeSpec",
+        "LayerKind",
+        "Limits",
+        "NodeKindMetadata",
+        "NodeKindRegistry",
+        "NodeSpec",
+        "PredicateMetadata",
+        "PredicateRegistry",
+        "RedactionSchema",
+        "Reducer",
+        "ReducerMetadata",
+        "ReducerRegistry",
+        "RetryPolicy",
+        "State",
+        "StateField",
+        "StatePatch",
+        "StateSchema",
+        "StateValueType",
+        "Store",
+        "HistoryStore",
+        "Transition",
+        "ValidatedDefinition"
+      ],
+      "functions": [
+        "ApplyStatePatch",
+        "CheckpointKey.String",
+        "CloneCheckpoint",
+        "CloneCheckpointVersion",
+        "CloneCheckpointVersionInfo",
+        "CloneTransition",
+        "CommitDisposition.Valid",
+        "ContextBudget.Clone",
+        "ContextPlan.Clone",
+        "ContextSource.Clone",
+        "ContextView.Clone",
+        "NodeKindRegistry.IDs",
+        "NodeKindRegistry.Resolve",
+        "PredicateRegistry.IDs",
+        "PredicateRegistry.Resolve",
+        "ReducerRegistry.IDs",
+        "ReducerRegistry.Resolve",
+        "TransitionID",
+        "CheckpointDigest",
+        "CheckpointVersionID",
+        "ValidateCheckpoint",
+        "ValidateCheckpointKey",
+        "ValidateCheckpointVersion",
+        "ValidateCheckpointVersionInfo",
+        "ValidateContextBudget",
+        "ValidateContextPlan",
+        "ValidateContextView",
+        "ValidateDefinition",
+        "ValidateState",
+        "ValidateTransition",
+        "ValidatedDefinition.Clone",
+        "ValidatedDefinition.Definition",
+        "ValidatedDefinition.Revision"
+      ],
+      "constructors": [
+        "NewNodeKindRegistry",
+        "NewPredicateRegistry",
+        "NewReducerRegistry"
+      ],
+      "variables": [
+        "ErrCheckpointCapacity",
+        "ErrCheckpointConflict",
+        "ErrCheckpointNotFound",
+        "ErrInvalidCheckpoint",
+        "ErrInvalidContextBudget",
+        "ErrInvalidContextPlan",
+        "ErrInvalidContextView",
+        "ErrInvalidDefinition",
+        "ErrInvalidTransition"
+      ],
+      "constants": [
+        "ApprovalDeniedFail",
+        "ApprovalDeniedResumeWithDecision",
+        "CheckpointCancelled",
+        "CheckpointCompleted",
+        "CheckpointExecuting",
+        "CheckpointFailed",
+        "CheckpointReady",
+        "CheckpointUnknown",
+        "CheckpointWaitingApproval",
+        "CommitApplied",
+        "CommitReplayed",
+        "CommitUnknown",
+        "Contract",
+        "EdgeConditional",
+        "EdgeDefault",
+        "EdgeError",
+        "LayerArtifact",
+        "LayerCurrentInput",
+        "LayerPendingApproval",
+        "LayerRecentHistory",
+        "LayerRequiredState",
+        "LayerRetrieval",
+        "LayerSummary",
+        "MaxApprovalActorBytes",
+        "MaxApprovalBasisBytes",
+        "MaxCheckpointEdgeNameBytes",
+        "MaxCheckpointFailureBytes",
+        "MaxCheckpointIDBytes",
+        "MaxCheckpointTransitions",
+        "MaxCheckpointVersionPageSize",
+        "MaxContextIDBytes",
+        "MaxContextPlanBytes",
+        "MaxContextReasonBytes",
+        "MaxContextRevisionBytes",
+        "MaxContextSourceTokens",
+        "MaxContextSources",
+        "MaxContextStateFields",
+        "MaxContextSummaryRefs",
+        "MaxContextTotalTokens",
+        "MaxContextViewBytes",
+        "MaxContextViewLayers",
+        "MaxDefinitionBytes",
+        "MaxEdges",
+        "MaxGraphIDBytes",
+        "MaxGraphVersionBytes",
+        "MaxNodeConfigBytes",
+        "MaxNodeIDBytes",
+        "MaxNodeKindBytes",
+        "MaxNodeTimeout",
+        "MaxNodes",
+        "MaxRegistryEntries",
+        "MaxRetryAttempts",
+        "MaxStateBytes",
+        "MaxStateFieldBytes",
+        "MaxStateFields",
+        "MaxSteps",
+        "MaxTransitionPageSize",
+        "MaxVisitsPerNode",
+        "CheckpointVersionOriginCommit",
+        "CheckpointVersionOriginFork",
+        "CheckpointVersionOriginMigrationFloor",
+        "ReducerTopLevelJSONPatch",
+        "StateArray",
+        "StateBoolean",
+        "StateNumber",
+        "StateObject",
+        "StateString"
+      ],
+      "note": "Stdlib-only Graph/Context contract. It defines static graph validation plus bounded mutable checkpoint-head, immutable checkpoint-version, transition, and approval evidence. Store remains the hot CAS port; HistoryStore is an optional read capability. CheckpointVersionOrigin distinguishes same-run commits, v40 migration floors, and future fork lineage; execution bindings, scheduling, providers, transport, and sandbox implementation live in sibling packages and remain separately composed."
+    },
+    {
+      "package": "pkg/extensions/memory",
+      "types": [
+        "Capability",
+        "Entry",
+        "SliceStore",
+        "Store"
+      ],
+      "functions": [
+        "Capability.ArtifactRevision",
+        "Capability.Execute",
+        "Capability.Manifest",
+        "SliceStore.Forget",
+        "SliceStore.Recall",
+        "SliceStore.Remember",
+        "ValidateEntry",
+        "ValidateEntryID",
+        "ValidateForgetID",
+        "ValidateRecall",
+        "ValidateScope",
+        "ValidateTags"
+      ],
+      "constructors": [
+        "NewCapability",
+        "NewSliceStore",
+        "NewStandardCapabilities"
+      ],
+      "variables": [],
+      "constants": [
+        "ContractV1",
+        "ForgetCapabilityID",
+        "MaxEntriesPerScope",
+        "MaxEntryContentBytes",
+        "MaxEntryIDBytes",
+        "MaxEntryKeyBytes",
+        "MaxEntryTags",
+        "MaxQueryRunes",
+        "MaxRecallLimit",
+        "MaxRecallTags",
+        "MaxScopes",
+        "MaxTagRunes",
+        "RecallCapabilityID",
+        "RememberCapabilityID"
+      ],
+      "note": "Legacy single-action NewCapability remains source-compatible. NewStandardCapabilities separately exposes memory.recall (read), memory.remember (write), and approval-gated memory.forget (write); all derive scope from the accepted principal context."
+    },
+    {
+      "package": "pkg/extensions/rag",
+      "types": [
+        "Chunk",
+        "Document",
+        "Index",
+        "KeywordIndex",
+        "Query",
+        "SearchCapability"
+      ],
+      "functions": [
+        "KeywordIndex.Ingest",
+        "KeywordIndex.Search",
+        "SearchCapability.ArtifactRevision",
+        "SearchCapability.Execute",
+        "SearchCapability.Manifest",
+        "Tokenize",
+        "ValidateDocument",
+        "ValidateQuery",
+        "ValidateScope",
+        "ValidateSearch",
+        "ValidateTag",
+        "ValidateTags"
+      ],
+      "constructors": [
+        "NewKeywordIndex",
+        "NewSearchCapability",
+        "NewStandardSearchCapability"
+      ],
+      "variables": [],
+      "constants": [
+        "ContractSearchV1",
+        "MaxDocumentContentBytes",
+        "MaxDocumentIDBytes",
+        "MaxDocumentSourceBytes",
+        "MaxDocumentTags",
+        "MaxDocumentTokens",
+        "MaxDocumentsPerScope",
+        "MaxQueryRunes",
+        "MaxQueryTags",
+        "MaxQueryTokens",
+        "MaxScopes",
+        "MaxSearchTopK",
+        "MaxTagRunes"
+      ],
+      "note": "NewStandardSearchCapability is the guarded standard rag.search variant: it requires accepted invocation and sanitizes index errors/panics; legacy NewSearchCapability remains compatible."
+    },
+    {
+      "package": "pkg/extensions/runner",
+      "types": [
+        "CancelDisposition",
+        "ClaimOptions",
+        "Hub",
+        "MemoryStore",
+        "Provider",
+        "Store",
+        "Task",
+        "TaskCatalog",
+        "TaskQuery",
+        "TaskRetention",
+        "TaskRetrier",
+        "TaskState",
+        "TaskSummary"
+      ],
+      "functions": [
+        "Hub.Cancel",
+        "Hub.Claim",
+        "Hub.Complete",
+        "Hub.ListTasks",
+        "Hub.Pending",
+        "Hub.PruneTasks",
+        "Hub.RecoverExpired",
+        "Hub.Renew",
+        "Hub.Retry",
+        "Hub.Submit",
+        "Hub.SubmitScoped",
+        "Hub.SubmitWithKey",
+        "Hub.Task",
+        "MemoryStore.CancelTask",
+        "MemoryStore.ClaimTask",
+        "MemoryStore.CompleteTask",
+        "MemoryStore.CreateTask",
+        "MemoryStore.GetTask",
+        "MemoryStore.ListTasks",
+        "MemoryStore.PendingTasks",
+        "MemoryStore.PruneTasks",
+        "MemoryStore.RecoverExpiredTasks",
+        "MemoryStore.RenewTaskClaim",
+        "MemoryStore.RetryTask",
+        "Provider.ArtifactRevision",
+        "Provider.Execute",
+        "RegisterCapability",
+        "TaskQuery.Normalize",
+        "TaskQuery.Validate"
+      ],
+      "constructors": [
+        "NewHub",
+        "NewHubWithStore",
+        "NewMemoryStore"
+      ],
+      "variables": [
+        "ErrCatalogUnsupported",
+        "ErrOutcomeUnknown",
+        "ErrRetentionUnsupported",
+        "ErrSubmissionConflict",
+        "ErrTaskNotFound"
+      ],
+      "constants": [
+        "CancelDispositionCancelled",
+        "CancelDispositionRequested",
+        "CancelDispositionTerminal",
+        "DefaultCatalogLimit",
+        "DefaultMaxAttempts",
+        "DefaultPollInterval",
+        "HardMaxAttempts",
+        "MaxCatalogFilterLen",
+        "MaxCatalogLimit",
+        "MaxCatalogOffset",
+        "MaxCatalogStates",
+        "MaxClaimCapabilities",
+        "MaxIdempotencyKey",
+        "MaxInFlightTasks",
+        "MaxStoredTasks",
+        "MaxWorkerID",
+        "TaskCancelled",
+        "TaskClaimed",
+        "TaskCompleted",
+        "TaskFailed",
+        "TaskQueued"
+      ]
+    },
+    {
+      "package": "pkg/extensions/subagent",
+      "types": [
+        "Capability",
+        "DelegationLinkCatalog",
+        "DelegationLinkFilter",
+        "DelegationLinkStore",
+        "Link",
+        "MemoryDelegationLinkStore",
+        "Options"
+      ],
+      "functions": [
+        "Capability.ArtifactRevision",
+        "Capability.Execute",
+        "Capability.Manifest",
+        "Link.Key",
+        "MemoryDelegationLinkStore.Get",
+        "MemoryDelegationLinkStore.GetByChild",
+        "MemoryDelegationLinkStore.List",
+        "MemoryDelegationLinkStore.PutIfAbsent",
+        "ValidateLink",
+        "ValidateLinkFilter"
+      ],
+      "constructors": [
+        "NewCapability",
+        "NewMemoryDelegationLinkStore"
+      ],
+      "variables": [],
+      "constants": [
+        "AttributeDepth",
+        "ContractV1",
+        "DefaultMaxChildren",
+        "DefaultMaxDepth",
+        "MaxDelegationDepth",
+        "MaxLinkIDBytes",
+        "MaxLinkSubjectBytes",
+        "MaxLinkTenantBytes"
+      ]
+    },
+    {
+      "package": "pkg/extensions/toollib",
+      "types": [
+        "ApplyStats",
+        "Catalog",
+        "HashingSearcher",
+        "Hit",
+        "HybridSearcher",
+        "Record",
+        "Searcher"
+      ],
+      "functions": [
+        "Catalog.Apply",
+        "Catalog.ByName",
+        "Catalog.Get",
+        "Catalog.Len",
+        "Catalog.Reset",
+        "Catalog.Search",
+        "Catalog.SetSearcher",
+        "Catalog.Snapshot",
+        "ContentRevision",
+        "HashingSearcher.Search",
+        "HybridSearcher.Search",
+        "QualifyID",
+        "SearchRecords"
+      ],
+      "constructors": [
+        "NewCatalog"
+      ],
+      "variables": [],
+      "constants": [
+        "DefaultTopK",
+        "MaxSearchTopK",
+        "MaxSummaryRunes"
+      ]
+    },
+    {
+      "package": "pkg/extensions/workflow",
+      "types": [
+        "Capability",
+        "Definition",
+        "Step"
+      ],
+      "functions": [
+        "Capability.ArtifactRevision",
+        "Capability.Execute",
+        "Capability.Manifest"
+      ],
+      "constructors": [
+        "NewCapability"
+      ],
+      "variables": [],
+      "constants": [
+        "ContractV1"
+      ]
+    },
+    {
+      "package": "pkg/integration",
+      "types": [],
+      "functions": [],
+      "constructors": [],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/logging",
+      "types": [
+        "Options",
+        "RotatingWriter"
+      ],
+      "functions": [
+        "RotatingWriter.Close",
+        "RotatingWriter.Rotate",
+        "RotatingWriter.Write"
+      ],
+      "constructors": [
+        "New",
+        "NewRotatingWriter"
+      ],
+      "variables": [],
+      "constants": []
+    },
+    {
+      "package": "pkg/provider/openai",
+      "types": [
+        "HTTPStatusError",
+        "OpenAIAdapterConfig",
+        "OpenAICompatibleAdapter",
+        "RetryLlmAdapter"
+      ],
+      "functions": [
+        "HTTPStatusError.Error",
+        "HTTPStatusError.Retryable",
+        "OpenAICompatibleAdapter.ArtifactRevision",
+        "OpenAICompatibleAdapter.Provider",
+        "OpenAICompatibleAdapter.Stream",
+        "RetryLlmAdapter.ArtifactRevision",
+        "RetryLlmAdapter.Provider",
+        "RetryLlmAdapter.Stream"
+      ],
+      "constructors": [
+        "NewOpenAIAdapterFromEnv",
+        "NewOpenAICompatibleAdapter"
+      ],
+      "variables": [],
+      "constants": [
+        "HardMaxBackoff",
+        "HardMaxRetries"
+      ]
+    },
+    {
+      "package": "pkg/runtime",
+      "types": [
+        "ActivationTransaction",
+        "CompositionStore",
+        "ContractID",
+        "Dependency",
+        "DesiredModuleState",
+        "DrainRequest",
+        "DrainResult",
+        "DurableComposition",
+        "DurableCompositionStatus",
+        "DurableHostState",
+        "EffectAction",
+        "EffectDescriptor",
+        "EffectID",
+        "EffectJournal",
+        "EffectKind",
+        "EffectPhase",
+        "EffectState",
+        "ExtensionID",
+        "ExtensionSemantic",
+        "FenceAuthorizer",
+        "FenceCommand",
+        "FenceDecision",
+        "FenceJournal",
+        "FenceRecord",
+        "FenceRequest",
+        "FenceResult",
+        "HostControls",
+        "HostOwnershipClaim",
+        "HostOwnershipStore",
+        "InverseExecutor",
+        "Lease",
+        "LeaseIdentity",
+        "LeaseRequest",
+        "LifecycleState",
+        "MemoryCompositionStore",
+        "MemoryEffectJournal",
+        "MemoryFenceJournal",
+        "Module",
+        "ModuleHost",
+        "ModuleID",
+        "ModuleLeaseOwner",
+        "ModuleManifest",
+        "ProvidedExtension",
+        "RecordedEffect",
+        "RecoverableStagedModule",
+        "RecoveryContext",
+        "Snapshot",
+        "StageContext",
+        "StagedModule",
+        "Version",
+        "VersionConstraint",
+        "VersionRange"
+      ],
+      "functions": [
+        "BuildSnapshot",
+        "BuildSnapshotForAPI",
+        "Dependency.Clone",
+        "DurableComposition.Clone",
+        "DurableCompositionStatus.Valid",
+        "DurableHostState.Clone",
+        "DurableHostState.MarshalJSON",
+        "EffectPhase.Valid",
+        "EffectState.Valid",
+        "ExtensionSemantic.Valid",
+        "FenceCommand.Validate",
+        "Lease.Release",
+        "LifecycleState.Valid",
+        "MemoryCompositionStore.ClaimHostOwnership",
+        "MemoryCompositionStore.CompareAndSwap",
+        "MemoryCompositionStore.Load",
+        "MemoryCompositionStore.ReleaseHostOwnership",
+        "MemoryCompositionStore.RenewHostOwnership",
+        "MemoryCompositionStore.ValidateHostOwnership",
+        "MemoryEffectJournal.List",
+        "MemoryEffectJournal.MarkApplied",
+        "MemoryEffectJournal.MarkReverted",
+        "MemoryEffectJournal.MarkUnknown",
+        "MemoryEffectJournal.Record",
+        "MemoryFenceJournal.Begin",
+        "MemoryFenceJournal.Complete",
+        "MemoryFenceJournal.MarkUnknown",
+        "ModuleHost.AcquireLease",
+        "ModuleHost.Activate",
+        "ModuleHost.ActiveCompositionRevision",
+        "ModuleHost.ApplyModules",
+        "ModuleHost.Close",
+        "ModuleHost.Deactivate",
+        "ModuleHost.Drain",
+        "ModuleHost.Fence",
+        "ModuleHost.FenceAuthorized",
+        "ModuleHost.Reconcile",
+        "ModuleHost.ReleaseLease",
+        "ModuleHost.ReleaseOwnership",
+        "ModuleHost.RemoveModule",
+        "ModuleHost.Snapshot",
+        "ModuleHost.State",
+        "ModuleManifest.Clone",
+        "ModuleManifest.EffectiveDrainTimeout",
+        "OpenModuleHost",
+        "OpenModuleHostWithControls",
+        "ProvidedExtension.Clone",
+        "RecoverModuleHost",
+        "RecoverModuleHostWithControls",
+        "Snapshot.Extensions",
+        "Snapshot.Manifest",
+        "Snapshot.Manifests",
+        "Snapshot.MarshalJSON",
+        "Snapshot.Revision",
+        "Snapshot.UnmarshalJSON",
+        "ValidateCollection",
+        "ValidateDurableHostState",
+        "ValidateEffectDescriptor",
+        "ValidateExtension",
+        "ValidateExtensions",
+        "ValidateManifest",
+        "ValidatePipeline",
+        "ValidateScopedOverlay",
+        "ValidateSingleStrategy",
+        "ValidateStatefulResource",
+        "Version.Compare",
+        "Version.String",
+        "Version.Valid",
+        "VersionRange.Contains",
+        "VersionRange.Valid"
+      ],
+      "constructors": [
+        "NewMemoryCompositionStore",
+        "NewMemoryEffectJournal",
+        "NewMemoryFenceJournal",
+        "NewModuleHost",
+        "NewModuleHostWithControls"
+      ],
+      "variables": [
+        "ErrActivationFailed",
+        "ErrCompositionConflict",
+        "ErrDependency",
+        "ErrDependencyCycle",
+        "ErrEffectConflict",
+        "ErrEffectNotFound",
+        "ErrFenceConflict",
+        "ErrFenceJournalFull",
+        "ErrFenceUnauthorized",
+        "ErrFenceUnknown",
+        "ErrHostOwnershipConflict",
+        "ErrHostOwnershipLost",
+        "ErrInvalidComposition",
+        "ErrInvalidEffect",
+        "ErrInvalidExtension",
+        "ErrInvalidFenceCommand",
+        "ErrInvalidHost",
+        "ErrInvalidManifest",
+        "ErrLeaseMismatch",
+        "ErrLeaseNotFound",
+        "ErrLeasesRemaining",
+        "ErrModuleNotFound",
+        "ErrRecoveryBlocked",
+        "ErrRecoveryRequired",
+        "ErrSemanticConflict",
+        "ErrStageFailed"
+      ],
+      "constants": [
+        "DefaultDrainTimeout",
+        "DurableCompositionActive",
+        "DurableCompositionBlocked",
+        "DurableCompositionDraining",
+        "DurableCompositionPrepared",
+        "DurableCompositionRetained",
+        "EffectApplied",
+        "EffectPhaseActivate",
+        "EffectPhaseReconcile",
+        "EffectPhaseStage",
+        "EffectPrepared",
+        "EffectReverted",
+        "EffectUnknown",
+        "FenceDecisionConflict",
+        "FenceDecisionExecute",
+        "FenceDecisionReplay",
+        "FenceDecisionRetry",
+        "FenceDecisionUnknown",
+        "HostOwnershipTTL",
+        "MaxDrainTimeout",
+        "MaxDurableCompositions",
+        "MaxDurableExtensionEntries",
+        "MaxDurableManifestEntries",
+        "MaxExtensionOrderingTargets",
+        "MaxFenceReasonBytes",
+        "MaxHostOwnershipTTL",
+        "MaxManifestDependencies",
+        "MaxManifestEffects",
+        "MaxManifestProvides",
+        "MaxMemoryFenceRecords",
+        "MaxModules",
+        "MaxPipelineGroup",
+        "MaxSnapshotExtensions",
+        "MaxSnapshotOrderingEdges",
+        "SemanticCollection",
+        "SemanticPipeline",
+        "SemanticScopedOverlay",
+        "SemanticSingleStrategy",
+        "SemanticStatefulResource",
+        "StateActive",
+        "StateConstructed",
+        "StateDeactivating",
+        "StateDiscovered",
+        "StateDraining",
+        "StateFailed",
+        "StateHealthy",
+        "StateInactive",
+        "StateStaged",
+        "StateValidated",
+        "StateWaitingDependencies"
+      ],
+      "note": "LeaseRequest.HostGeneration, LeaseIdentity.HostGeneration, Lease.Identity.HostGeneration, and FenceRequest.HostGeneration are generation-fenced boundaries; legacy zero generation remains compatibility-only and does not guarantee downstream external exactly-once."
+    },
+    {
+      "package": "pkg/server",
+      "types": [
+        "AccountAuthenticator",
+        "AuthChain",
+        "Authenticator",
+        "AuthenticatorFunc",
+        "Config",
+        "HeaderAuthenticator",
+        "HeaderIdentitySource",
+        "Identity",
+        "IdentitySource",
+        "IdentitySourceFunc",
+        "PermanentRunError",
+        "PrincipalMapper",
+        "PrincipalMapperFunc",
+        "RunPrincipalResolver",
+        "RunPrincipalResolverFunc",
+        "Server",
+        "StaticPrincipalMapper",
+        "StorageConfig"
+      ],
+      "functions": [
+        "AccountAuthenticator.Authenticate",
+        "AuthChain.Authenticate",
+        "AuthenticatorFunc.Authenticate",
+        "DefaultRunnerRecoveryInterval",
+        "HeaderAuthenticator.Authenticate",
+        "HeaderIdentitySource.Identity",
+        "IdentitySourceFunc.Identity",
+        "ParseRunnerCapabilitiesGrant",
+        "PermanentRunError.Error",
+        "PermanentRunError.Unwrap",
+        "PermanentRunFailure",
+        "PrincipalMapperFunc.MapPrincipal",
+        "RunPrincipalResolverFunc.ResolveRunPrincipal",
+        "Server.Handler",
+        "Server.RecoverStaleRuns",
+        "Server.RestoreBindings",
+        "Server.RunWorkerOnce",
+        "Server.Shutdown",
+        "Server.StartRetentionLoop",
+        "Server.StartRunWorkers",
+        "Server.StartRunnerRecoveryLoop",
+        "StaticPrincipalMapper.MapPrincipal"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [],
+      "constants": [
+        "MaxActiveRuns",
+        "RunnerCapabilitiesAttribute"
+      ]
+    },
+    {
+      "package": "pkg/storage",
+      "types": [
+        "Account",
+        "AccountStore",
+        "ApprovalFilter",
+        "ApprovalMetrics",
+        "ApprovalMetricsStore",
+        "ApprovalRecord",
+        "ApprovalStore",
+        "ArtifactCopier",
+        "ArtifactCopyOptions",
+        "ArtifactCopyProgress",
+        "ArtifactCopyProgressRecorder",
+        "ArtifactCopyStats",
+        "ArtifactKeyChange",
+        "ArtifactMutation",
+        "ArtifactMutationOperation",
+        "ArtifactMutationRecorder",
+        "ArtifactReconcileProgress",
+        "ArtifactReconcileProgressRecorder",
+        "ArtifactReconcileStats",
+        "AssignmentVariant",
+        "AuditEvent",
+        "AuditFilter",
+        "AuditStore",
+        "BindingJournal",
+        "BindingRecord",
+        "Cipher",
+        "ColdSweeper",
+        "DynamicObjectStore",
+        "EvidenceKind",
+        "EvidencePage",
+        "EvidencePager",
+        "EvidenceQuery",
+        "EvidenceRecord",
+        "EvidenceStatsStore",
+        "EvidenceStore",
+        "EvidenceVariantStats",
+        "FileObjectStore",
+        "FileSessionStore",
+        "InitialAdminCredentials",
+        "MemoryObjectStore",
+        "MemoryProjectionMaintainer",
+        "MemoryProjectionStats",
+        "NamedLocks",
+        "ObjectItem",
+        "ObjectStore",
+        "ObsHit",
+        "ObsHitFilter",
+        "ObsRule",
+        "ObsStore",
+        "PostgresStartupLock",
+        "PutOptions",
+        "QueuedRun",
+        "RagProjectionMaintainer",
+        "RagProjectionStats",
+        "RetentionPruner",
+        "RunControlStore",
+        "RunEvidenceStats",
+        "RunMetrics",
+        "RunQueueMetrics",
+        "RunQueueMetricsStore",
+        "RunQueueStore",
+        "RunRecord",
+        "RunStat",
+        "RunStatsStore",
+        "S3Config",
+        "S3Error",
+        "S3ObjectStore",
+        "S3SessionStore",
+        "SQLAccountStore",
+        "SQLApprovalStore",
+        "SQLAuditStore",
+        "SQLBindingJournal",
+        "SQLCanaryStore",
+        "SQLDelegationLinkStore",
+        "SQLDialect",
+        "SQLEvaluationStore",
+        "SQLLibraryObserver",
+        "SQLMemoryStore",
+        "SQLObsStore",
+        "SQLRagIndex",
+        "SQLRunControlStore",
+        "SQLRunStatsStore",
+        "SQLRunnerStore",
+        "SQLSessionStore",
+        "SQLToolInvocationJournal",
+        "SessionFilter",
+        "SessionLeaser",
+        "SessionLister",
+        "SessionQuerier",
+        "SessionSummary",
+        "StreamingObjectGetter",
+        "StreamingObjectPutter",
+        "StreamingObjectStore",
+        "TenantView",
+        "WriteBehind"
+      ],
+      "functions": [
+        "AccountsTableExists",
+        "AcquirePostgresStartupLock",
+        "ArtifactCopier.ApplyAndVerifyKeys",
+        "ArtifactCopier.Copy",
+        "ArtifactCopier.Reconcile",
+        "ArtifactCopier.ReconcileWithProgress",
+        "BootstrapAdmin",
+        "BootstrapAdminWithPassword",
+        "BootstrapInitialAdmin",
+        "Cipher.Decrypt",
+        "Cipher.Encrypt",
+        "ColdSweeper.Sweep",
+        "DecompressZstd",
+        "DynamicObjectStore.ArtifactMigrationStores",
+        "DynamicObjectStore.BeginArtifactMigration",
+        "DynamicObjectStore.CancelArtifactMigration",
+        "DynamicObjectStore.Delete",
+        "DynamicObjectStore.EnsureBucket",
+        "DynamicObjectStore.Get",
+        "DynamicObjectStore.Label",
+        "DynamicObjectStore.List",
+        "DynamicObjectStore.Open",
+        "DynamicObjectStore.Put",
+        "DynamicObjectStore.PutStream",
+        "DynamicObjectStore.Swap",
+        "DynamicObjectStore.TrySwap",
+        "DynamicObjectStore.WithArtifactActivationBarrier",
+        "EnsureMasterKey",
+        "EvidenceQuery.Validate",
+        "FileObjectStore.Delete",
+        "FileObjectStore.Get",
+        "FileObjectStore.List",
+        "FileObjectStore.Open",
+        "FileObjectStore.Put",
+        "FileObjectStore.PutStream",
+        "FileSessionStore.AppendEvents",
+        "FileSessionStore.Create",
+        "FileSessionStore.Load",
+        "FileSessionStore.QueryEvidence",
+        "FileSessionStore.QueryEvidencePage",
+        "FileSessionStore.RunEvidenceStats",
+        "FileSessionStore.Save",
+        "IsConflict",
+        "MatchEvent",
+        "MemoryObjectStore.Delete",
+        "MemoryObjectStore.Get",
+        "MemoryObjectStore.List",
+        "MemoryObjectStore.Put",
+        "NamedLocks.Acquire",
+        "OpenSQLSessionStore",
+        "ParseScopePath",
+        "PostgresStartupLock.Release",
+        "PrincipalForAccount",
+        "RunMessageDigest",
+        "S3Error.Error",
+        "S3ObjectStore.Delete",
+        "S3ObjectStore.EnsureBucket",
+        "S3ObjectStore.Get",
+        "S3ObjectStore.List",
+        "S3ObjectStore.Open",
+        "S3ObjectStore.Put",
+        "S3ObjectStore.PutStream",
+        "S3SessionStore.AppendEvents",
+        "S3SessionStore.Create",
+        "S3SessionStore.Load",
+        "S3SessionStore.QueryEvidence",
+        "S3SessionStore.QueryEvidencePage",
+        "S3SessionStore.RunEvidenceStats",
+        "S3SessionStore.Save",
+        "SQLAccountStore.ActivateInitialAccount",
+        "SQLAccountStore.CountAccounts",
+        "SQLAccountStore.CreateAccount",
+        "SQLAccountStore.CreateTenant",
+        "SQLAccountStore.CreateToken",
+        "SQLAccountStore.GetAccount",
+        "SQLAccountStore.GetSetting",
+        "SQLAccountStore.ListAccounts",
+        "SQLAccountStore.ListTenants",
+        "SQLAccountStore.ResolveToken",
+        "SQLAccountStore.RevokeToken",
+        "SQLAccountStore.SetAccountPassword",
+        "SQLAccountStore.SetAccountStatus",
+        "SQLAccountStore.SetSetting",
+        "SQLApprovalStore.ApprovalMetrics",
+        "SQLApprovalStore.Approve",
+        "SQLApprovalStore.CancelRunApprovals",
+        "SQLApprovalStore.DecideApproval",
+        "SQLApprovalStore.ExpireApprovals",
+        "SQLApprovalStore.GetApproval",
+        "SQLApprovalStore.ListApprovals",
+        "SQLApprovalStore.RequestApproval",
+        "SQLAuditStore.ListAudit",
+        "SQLAuditStore.RecordAudit",
+        "SQLBindingJournal.Delete",
+        "SQLBindingJournal.List",
+        "SQLBindingJournal.Record",
+        "SQLCanaryStore.ControlRevision",
+        "SQLCanaryStore.CreateCanary",
+        "SQLCanaryStore.GetCanary",
+        "SQLCanaryStore.ListCanaries",
+        "SQLCanaryStore.ListOpenCanaries",
+        "SQLCanaryStore.UpdateCanary",
+        "SQLDelegationLinkStore.Get",
+        "SQLDelegationLinkStore.GetByChild",
+        "SQLDelegationLinkStore.List",
+        "SQLDelegationLinkStore.PutIfAbsent",
+        "SQLEvaluationStore.CreateRun",
+        "SQLEvaluationStore.FinishRun",
+        "SQLEvaluationStore.GetDataset",
+        "SQLEvaluationStore.GetRun",
+        "SQLEvaluationStore.ListDatasets",
+        "SQLEvaluationStore.ListRuns",
+        "SQLEvaluationStore.PutDataset",
+        "SQLEvaluationStore.QueryRuns",
+        "SQLEvaluationStore.RecordCaseResult",
+        "SQLEvaluationStore.RecordRunError",
+        "SQLLibraryObserver.List",
+        "SQLLibraryObserver.ListForTenant",
+        "SQLLibraryObserver.Observe",
+        "SQLMemoryStore.Forget",
+        "SQLMemoryStore.ProjectionStats",
+        "SQLMemoryStore.RebuildProjection",
+        "SQLMemoryStore.Recall",
+        "SQLMemoryStore.Remember",
+        "SQLObsStore.CreateRule",
+        "SQLObsStore.DeleteRule",
+        "SQLObsStore.ListHits",
+        "SQLObsStore.ListRules",
+        "SQLObsStore.RecordHit",
+        "SQLObsStore.UpdateRule",
+        "SQLRagIndex.Ingest",
+        "SQLRagIndex.ProjectionStats",
+        "SQLRagIndex.RebuildProjection",
+        "SQLRagIndex.Search",
+        "SQLRunControlStore.ClaimRun",
+        "SQLRunControlStore.CreateRun",
+        "SQLRunControlStore.EnqueueRun",
+        "SQLRunControlStore.EnqueueRunOnce",
+        "SQLRunControlStore.FailStaleRuns",
+        "SQLRunControlStore.FindActiveRun",
+        "SQLRunControlStore.FinishRun",
+        "SQLRunControlStore.FinishRunClaim",
+        "SQLRunControlStore.GetRun",
+        "SQLRunControlStore.HeartbeatRun",
+        "SQLRunControlStore.ListRuns",
+        "SQLRunControlStore.PauseRun",
+        "SQLRunControlStore.PauseRunClaim",
+        "SQLRunControlStore.RecoverExpiredRunClaims",
+        "SQLRunControlStore.RenewRunClaim",
+        "SQLRunControlStore.RequestRunCancel",
+        "SQLRunControlStore.RetryRunClaim",
+        "SQLRunControlStore.RunCancelRequested",
+        "SQLRunControlStore.RunQueueMetrics",
+        "SQLRunStatsStore.Metrics",
+        "SQLRunStatsStore.RecordRunStat",
+        "SQLRunnerStore.CancelTask",
+        "SQLRunnerStore.ClaimTask",
+        "SQLRunnerStore.CompleteTask",
+        "SQLRunnerStore.CreateTask",
+        "SQLRunnerStore.GetTask",
+        "SQLRunnerStore.ListTasks",
+        "SQLRunnerStore.PendingTasks",
+        "SQLRunnerStore.PruneTasks",
+        "SQLRunnerStore.RecoverExpiredTasks",
+        "SQLRunnerStore.RenewTaskClaim",
+        "SQLRunnerStore.RetryTask",
+        "SQLSessionStore.AcquireSessionLease",
+        "SQLSessionStore.AppendEvents",
+        "SQLSessionStore.ControlRevision",
+        "SQLSessionStore.Create",
+        "SQLSessionStore.FindReleaseByOperation",
+        "SQLSessionStore.LibraryObserver",
+        "SQLSessionStore.ListReleaseProfiles",
+        "SQLSessionStore.ListSessions",
+        "SQLSessionStore.Load",
+        "SQLSessionStore.LoadReleases",
+        "SQLSessionStore.MarkRolledBack",
+        "SQLSessionStore.PruneApprovals",
+        "SQLSessionStore.PruneAudit",
+        "SQLSessionStore.PruneExpiredLeases",
+        "SQLSessionStore.PruneHits",
+        "SQLSessionStore.PruneRunSubmissions",
+        "SQLSessionStore.PruneToolInvocations",
+        "SQLSessionStore.QueryEvidence",
+        "SQLSessionStore.QueryEvidencePage",
+        "SQLSessionStore.QuerySessions",
+        "SQLSessionStore.RecordRelease",
+        "SQLSessionStore.ReleaseSessionLease",
+        "SQLSessionStore.RenewSessionLease",
+        "SQLSessionStore.RunEvidenceStats",
+        "SQLSessionStore.Save",
+        "SQLToolInvocationJournal.BeginToolInvocation",
+        "SQLToolInvocationJournal.CompleteToolInvocation",
+        "SQLToolInvocationJournal.MarkToolInvocationUncertain",
+        "ValidateObjectKey",
+        "ValidateSessionIDForFile",
+        "VerifyPassword",
+        "VerifyPasswordOrDummy",
+        "WriteBehind.Abort",
+        "WriteBehind.Flush",
+        "WriteBehind.MarkDirty",
+        "WriteBehind.SavedVersion"
+      ],
+      "constructors": [
+        "NewArtifactCopier",
+        "NewCipher",
+        "NewDynamicObjectStore",
+        "NewFileObjectStore",
+        "NewFileSessionStore",
+        "NewMemoryObjectStore",
+        "NewNamedLocks",
+        "NewS3ObjectStore",
+        "NewS3SessionStore",
+        "NewSQLAccountStore",
+        "NewSQLApprovalStore",
+        "NewSQLAuditStore",
+        "NewSQLBindingJournal",
+        "NewSQLCanaryStore",
+        "NewSQLDelegationLinkStore",
+        "NewSQLEvaluationStore",
+        "NewSQLLibraryObserver",
+        "NewSQLMemoryStore",
+        "NewSQLObsStore",
+        "NewSQLRagIndex",
+        "NewSQLRunControlStore",
+        "NewSQLRunStatsStore",
+        "NewSQLRunnerStore",
+        "NewSQLToolInvocationJournal",
+        "NewWriteBehind"
+      ],
+      "variables": [
+        "ErrApprovalNotFound",
+        "ErrArtifactMigrationActive",
+        "ErrConditionUnsupported",
+        "ErrEvidenceCursorInvalid",
+        "ErrInvalidRunSubmission",
+        "ErrObjectNotFound",
+        "ErrObjectTooLarge",
+        "ErrPreconditionFailed",
+        "ErrRunNotFound",
+        "ErrRunSubmissionConflict",
+        "ErrS3ResponseTooLarge",
+        "ErrStreamingUnsupported"
+      ],
+      "constants": [
+        "AccountActive",
+        "AccountDisabled",
+        "AccountPendingActivation",
+        "ArtifactMutationDelete",
+        "ArtifactMutationPut",
+        "AssignmentCandidate",
+        "AssignmentLive",
+        "AssignmentUnassigned",
+        "DefaultApprovalTTL",
+        "DefaultArtifactCopyBatchSize",
+        "DefaultArtifactCopyPageSize",
+        "DefaultRunMaxAttempts",
+        "EvidenceBacktest",
+        "EvidenceCanary",
+        "EvidenceEvaluation",
+        "EvidenceRelease",
+        "EvidenceRun",
+        "HardApprovalTTL",
+        "HardRunMaxAttempts",
+        "MaxAccountPasswordBytes",
+        "MaxAccounts",
+        "MaxAdminBindings",
+        "MaxApprovalRequestBytes",
+        "MaxArtifactActivationKeys",
+        "MaxArtifactCopyBatchSize",
+        "MaxArtifactCopyPageSize",
+        "MaxAuditDetailBytes",
+        "MaxAuditEvents",
+        "MaxBindingPayloadBytes",
+        "MaxEventChunkBytes",
+        "MaxEventChunksPerSession",
+        "MaxEvidenceCursorBytes",
+        "MaxEvidenceRecords",
+        "MaxFileSessionBytes",
+        "MaxInFlightRuns",
+        "MaxLiveAuthTokens",
+        "MaxMemoryObjects",
+        "MaxObjectBytes",
+        "MaxObsHits",
+        "MaxObsRules",
+        "MaxObsSnippetBytes",
+        "MaxOpenCanaries",
+        "MaxPendingApprovals",
+        "MaxQueuedMessageBytes",
+        "MaxReleaseHistoryPerProfile",
+        "MaxRunStats",
+        "MaxRunSubmissions",
+        "MaxSettingValueBytes",
+        "MaxSettings",
+        "MaxStoredSessions",
+        "MaxStreamingObjectBytes",
+        "MaxTenants",
+        "MaxTokenTTL",
+        "MaxToolInvocations",
+        "MinInitialPasswordRunes",
+        "RoleAccountAdmin",
+        "RoleAccountTenantAdmin",
+        "RoleAccountUser",
+        "RunStatusQueued",
+        "RunStatusRunning",
+        "RunStatusWaitingApproval",
+        "SQLDialectPostgres",
+        "SQLDialectSQLite",
+        "SQLSchemaVersion",
+        "SecretPrefix"
+      ]
+    },
+    {
+      "package": "pkg/telemetry/otel",
+      "types": [
+        "Config",
+        "Recorder"
+      ],
+      "functions": [
+        "HTTPHandler",
+        "Recorder.AddCounter",
+        "Recorder.ExtractTraceContext",
+        "Recorder.InjectTraceContext",
+        "Recorder.RecordHistogram",
+        "Recorder.SetGauge",
+        "Recorder.Start"
+      ],
+      "constructors": [
+        "New",
+        "NewFromEnv"
+      ],
+      "variables": [],
+      "constants": []
+    }
+  ],
+  "http_operations": [
+    "GET /healthz -\u003e health",
+    "GET /readyz -\u003e ready",
+    "GET /v1/admin/accounts -\u003e listAccounts",
+    "POST /v1/admin/accounts -\u003e createAccount",
+    "POST /v1/admin/accounts/{account}/password -\u003e setAccountPassword",
+    "POST /v1/admin/accounts/{account}/status -\u003e setAccountStatus",
+    "GET /v1/admin/approvals -\u003e listApprovals",
+    "GET /v1/admin/approvals/{approvalID} -\u003e getApproval",
+    "POST /v1/admin/approvals/{approvalID}/decision -\u003e decideApproval",
+    "GET /v1/admin/audit -\u003e listAudit",
+    "POST /v1/admin/backtests -\u003e runBacktest",
+    "GET /v1/admin/bindings -\u003e listBindings",
+    "DELETE /v1/admin/bindings/{id} -\u003e unbindBinding",
+    "POST /v1/admin/capabilities/bind -\u003e bindCapability",
+    "POST /v1/admin/capabilities/{id}/disable -\u003e disableCapability",
+    "POST /v1/admin/capabilities/{id}/enable -\u003e enableCapability",
+    "GET /v1/admin/capability-runtimes -\u003e listCapabilityRuntimes",
+    "GET /v1/admin/credentials -\u003e listCredentials",
+    "POST /v1/admin/credentials -\u003e bindCredential",
+    "GET /v1/admin/delegations -\u003e listDelegations",
+    "GET /v1/admin/evaluations/datasets -\u003e listEvaluationDatasets",
+    "POST /v1/admin/evaluations/datasets -\u003e putEvaluationDataset",
+    "GET /v1/admin/evaluations/datasets/{datasetID}/versions/{version} -\u003e getEvaluationDataset",
+    "GET /v1/admin/evaluations/runs -\u003e listEvaluationRuns",
+    "POST /v1/admin/evaluations/runs -\u003e runEvaluation",
+    "GET /v1/admin/evaluations/runs/{evaluationRunID} -\u003e getEvaluationRun",
+    "POST /v1/admin/evaluations/runs/{evaluationRunID}/gate -\u003e gateEvaluation",
+    "POST /v1/admin/evaluations/runs/{evaluationRunID}/resume -\u003e resumeEvaluation",
+    "GET /v1/admin/evidence -\u003e listEvidence",
+    "GET /v1/admin/evidence/runs/{runID} -\u003e getEvidenceRun",
+    "GET /v1/admin/evidence/stats -\u003e evidenceStats",
+    "GET /v1/admin/memory/projection -\u003e memoryProjectionStats",
+    "POST /v1/admin/memory/projection/rebuild -\u003e rebuildMemoryProjection",
+    "GET /v1/admin/metrics -\u003e adminMetrics",
+    "GET /v1/admin/model-runtimes -\u003e listModelRuntimes",
+    "GET /v1/admin/model-settings/llm -\u003e getModelSettings",
+    "PUT /v1/admin/model-settings/llm -\u003e putModelSettings",
+    "GET /v1/admin/notification-targets -\u003e listNotificationTargets",
+    "POST /v1/admin/notification-targets -\u003e createNotificationTarget",
+    "PUT /v1/admin/notification-targets -\u003e updateNotificationTarget",
+    "DELETE /v1/admin/notification-targets -\u003e deleteNotificationTarget",
+    "GET /v1/admin/obs/hits -\u003e listObservationHits",
+    "GET /v1/admin/obs/rules -\u003e listObservationRules",
+    "POST /v1/admin/obs/rules -\u003e createObservationRule",
+    "PUT /v1/admin/obs/rules/{id} -\u003e updateObservationRule",
+    "DELETE /v1/admin/obs/rules/{id} -\u003e deleteObservationRule",
+    "GET /v1/admin/overview -\u003e adminOverview",
+    "GET /v1/admin/policies -\u003e listPolicies",
+    "POST /v1/admin/policies -\u003e bindPolicy",
+    "GET /v1/admin/profiles/{id} -\u003e getAdminProfile",
+    "PUT /v1/admin/profiles/{id} -\u003e putAdminProfile",
+    "GET /v1/admin/rag/projection -\u003e ragProjectionStats",
+    "POST /v1/admin/rag/projection/rebuild -\u003e rebuildRagProjection",
+    "POST /v1/admin/runners/recover -\u003e recoverRunnerTasks",
+    "GET /v1/admin/runners/tasks -\u003e listAdminRunnerTasks",
+    "GET /v1/admin/runners/tasks/{taskID} -\u003e getAdminRunnerTask",
+    "POST /v1/admin/runners/tasks/{taskID}/cancel -\u003e cancelAdminRunnerTask",
+    "POST /v1/admin/runners/tasks/{taskID}/retry -\u003e retryAdminRunnerTask",
+    "GET /v1/admin/sandbox/providers -\u003e listSandboxProviders",
+    "GET /v1/admin/settings/{key} -\u003e getSetting",
+    "PUT /v1/admin/settings/{key} -\u003e putSetting",
+    "GET /v1/admin/storage/resources -\u003e getResourceStorage",
+    "PUT /v1/admin/storage/resources -\u003e putResourceStorage",
+    "GET /v1/admin/storage/sessions -\u003e getSessionStorage",
+    "PUT /v1/admin/storage/sessions -\u003e putSessionStorage",
+    "POST /v1/admin/storage/test -\u003e testStorage",
+    "GET /v1/admin/tenants -\u003e listTenants",
+    "POST /v1/admin/tenants -\u003e createTenant",
+    "GET /v1/admin/tool-library/observations -\u003e listToolLibraryObservations",
+    "POST /v1/auth/activate -\u003e activateInitialAccount",
+    "POST /v1/auth/login -\u003e login",
+    "POST /v1/auth/logout -\u003e logout",
+    "GET /v1/capabilities -\u003e listCapabilities",
+    "GET /v1/profiles -\u003e listProfiles",
+    "GET /v1/profiles/{id}/canaries -\u003e listCanaries",
+    "POST /v1/profiles/{id}/canaries -\u003e stageCanary",
+    "GET /v1/profiles/{id}/canaries/{canaryID} -\u003e getCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/pause -\u003e pauseCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/percentage -\u003e setCanaryPercentage",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/promote -\u003e promoteCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/resume -\u003e resumeCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/rollback -\u003e rollbackCanary",
+    "GET /v1/profiles/{id}/capabilities -\u003e listProfileCapabilities",
+    "POST /v1/profiles/{id}/publish -\u003e publishProfile",
+    "GET /v1/profiles/{id}/releases -\u003e listProfileReleases",
+    "GET /v1/profiles/{id}/releases/{version} -\u003e getProfileRelease",
+    "POST /v1/profiles/{id}/rollback -\u003e rollbackProfile",
+    "GET /v1/resources -\u003e listResources",
+    "GET /v1/resources/{key} -\u003e getResource",
+    "PUT /v1/resources/{key} -\u003e putResource",
+    "DELETE /v1/resources/{key} -\u003e deleteResource",
+    "POST /v1/runners/claim -\u003e claimRunnerTask",
+    "POST /v1/runners/tasks/{id}/complete -\u003e completeRunnerTask",
+    "POST /v1/runners/tasks/{id}/renew -\u003e renewRunnerTask",
+    "GET /v1/sessions -\u003e listSessions",
+    "POST /v1/sessions -\u003e createSession",
+    "GET /v1/sessions/{id} -\u003e getSession",
+    "POST /v1/sessions/{id}/cancel -\u003e cancelActiveSessionRun",
+    "GET /v1/sessions/{id}/events -\u003e listSessionEvents",
+    "GET /v1/sessions/{id}/runs -\u003e listRuns",
+    "POST /v1/sessions/{id}/runs -\u003e runTurn",
+    "POST /v1/sessions/{id}/runs/async -\u003e enqueueRun",
+    "GET /v1/sessions/{id}/runs/{runID} -\u003e getRun",
+    "POST /v1/sessions/{id}/runs/{runID}/cancel -\u003e cancelRun"
+  ],
+  "http_counts": {
+    "openapi_total": 104,
+    "openapi_v1": 102,
+    "registered_v1_verified": 102
+  },
+  "http_notes": [
+    "The Go mux uses /v1/resources/{key...}; the verifier normalizes it to the OpenAPI /v1/resources/{key} form.",
+    "OpenAPI and registered route parity is checked by scripts/verify-openapi.",
+    "Generic settings GET is fail-closed for every key; found values are redacted/write_only and never returned. Generic settings PUT requires a present non-null value; explicit empty JSON strings remain valid."
+  ],
+  "sse_event_names": [
+    "run/start",
+    "run/resume",
+    "run/end",
+    "run/error",
+    "run/usage",
+    "step/start",
+    "step/end",
+    "step/error",
+    "user/message",
+    "assistant/message",
+    "assistant/chunk",
+    "tool/call",
+    "tool/result",
+    "approval/requested",
+    "approval/resolved",
+    "context/summary",
+    "store/error",
+    "control/error"
+  ],
+  "sql_schema": {
+    "current_version": 41,
+    "history": [
+      {
+        "version": 1,
+        "change": "base session/event storage",
+        "tables_added": [
+          "store_meta",
+          "sessions",
+          "event_chunks"
+        ]
+      },
+      {
+        "version": 2,
+        "change": "leases, releases, memory and RAG backing",
+        "tables_added": [
+          "session_leases",
+          "profile_releases",
+          "memory_entries",
+          "rag_documents"
+        ]
+      },
+      {
+        "version": 3,
+        "change": "built-in identity and settings",
+        "tables_added": [
+          "accounts",
+          "auth_tokens",
+          "tenants",
+          "settings"
+        ]
+      },
+      {
+        "version": 4,
+        "change": "administrative audit trail",
+        "tables_added": [
+          "audit_events"
+        ]
+      },
+      {
+        "version": 5,
+        "change": "observability rules and hits",
+        "tables_added": [
+          "obs_rules",
+          "obs_hits"
+        ]
+      },
+      {
+        "version": 6,
+        "change": "binding journal and run metrics",
+        "tables_added": [
+          "admin_bindings",
+          "run_stats"
+        ]
+      },
+      {
+        "version": 7,
+        "change": "durable run lifecycle and cancellation",
+        "tables_added": [
+          "run_control"
+        ]
+      },
+      {
+        "version": 8,
+        "change": "durable asynchronous run queue",
+        "tables_added": [
+          "run_queue"
+        ]
+      },
+      {
+        "version": 9,
+        "change": "tool side-effect journal",
+        "tables_added": [
+          "tool_invocations"
+        ]
+      },
+      {
+        "version": 10,
+        "change": "durable human approvals and waiting-approval fence",
+        "tables_added": [
+          "approval_requests"
+        ]
+      },
+      {
+        "version": 11,
+        "change": "async submission idempotency",
+        "tables_added": [
+          "run_submissions"
+        ]
+      },
+      {
+        "version": 12,
+        "change": "W3C trace carrier migration on run queue",
+        "tables_added": []
+      },
+      {
+        "version": 13,
+        "change": "durable evaluation datasets/runs/cases",
+        "tables_added": [
+          "evaluation_datasets",
+          "evaluation_runs",
+          "evaluation_case_results"
+        ]
+      },
+      {
+        "version": 14,
+        "change": "release artifact/revision compatibility migration",
+        "tables_added": []
+      },
+      {
+        "version": 15,
+        "change": "staged canary state and gate evidence",
+        "tables_added": [
+          "profile_canaries"
+        ]
+      },
+      {
+        "version": 16,
+        "change": "idempotent canary promotion indexes",
+        "tables_added": []
+      },
+      {
+        "version": 17,
+        "change": "persisted release baseline migration",
+        "tables_added": []
+      },
+      {
+        "version": 18,
+        "change": "global control revision",
+        "tables_added": []
+      },
+      {
+        "version": 19,
+        "change": "evaluation composition metadata migration",
+        "tables_added": []
+      },
+      {
+        "version": 20,
+        "change": "evaluation revision indexes",
+        "tables_added": []
+      },
+      {
+        "version": 21,
+        "change": "append-only run evidence projection",
+        "tables_added": [
+          "run_evidence"
+        ]
+      },
+      {
+        "version": 22,
+        "change": "run evidence status index",
+        "tables_added": []
+      },
+      {
+        "version": 23,
+        "change": "run evidence assignment variant index",
+        "tables_added": []
+      },
+      {
+        "version": 24,
+        "change": "private runner task queue",
+        "tables_added": [
+          "runner_tasks"
+        ]
+      },
+      {
+        "version": 25,
+        "change": "runner task trace carrier migration",
+        "tables_added": []
+      },
+      {
+        "version": 26,
+        "change": "canonical memory/RAG tag projection preparation",
+        "tables_added": []
+      },
+      {
+        "version": 27,
+        "change": "rebuildable RAG token/tag projections",
+        "tables_added": [
+          "rag_document_tokens",
+          "rag_document_tags"
+        ]
+      },
+      {
+        "version": 28,
+        "change": "rebuildable memory tag projection",
+        "tables_added": [
+          "memory_entry_tags"
+        ]
+      },
+      {
+        "version": 29,
+        "change": "bounded tool-library disclosure log",
+        "tables_added": [
+          "tool_library_observations"
+        ]
+      },
+      {
+        "version": 30,
+        "change": "delegation link migration preparation",
+        "tables_added": []
+      },
+      {
+        "version": 31,
+        "change": "metadata-only parent/child delegation links",
+        "tables_added": [
+          "delegation_links"
+        ]
+      },
+      {
+        "version": 32,
+        "change": "account identity separated from optional email metadata",
+        "tables_added": [],
+        "indexes_added": [
+          "auth_tokens_account_id"
+        ]
+      },
+      {
+        "version": 33,
+        "change": "durable runtime module-effect journal",
+        "tables_added": [
+          "runtime_effect_sequences",
+          "runtime_effects"
+        ]
+      },
+      {
+        "version": 34,
+        "change": "durable runtime host-state compare-and-swap document",
+        "tables_added": [
+          "runtime_host_state"
+        ]
+      },
+      {
+        "version": 35,
+        "change": "durable host ownership and request-idempotent Fence journal",
+        "tables_added": [
+          "runtime_host_ownership",
+          "runtime_fence_journal"
+        ]
+      },
+      {
+        "version": 36,
+        "change": "durable artifact migration slot and metadata-only mutation journal",
+        "tables_added": [
+          "artifact_migrations",
+          "artifact_migration_mutations"
+        ]
+      },
+      {
+        "version": 37,
+        "change": "experimental Graph-G1 durable checkpoint fact and append-only transition evidence",
+        "tables_added": [
+          "graph_checkpoints",
+          "graph_transitions"
+        ]
+      },
+      {
+        "version": 38,
+        "change": "encrypted tenant-scoped notification target metadata",
+        "tables_added": [
+          "notification_targets"
+        ],
+        "indexes_added": [
+          "notification_targets_tenant_enabled"
+        ]
+      },
+      {
+        "version": 39,
+        "change": "generation-fenced Graph segment lease",
+        "tables_added": [
+          "graph_segment_leases"
+        ]
+      },
+      {
+        "version": 40,
+        "change": "approval-by-run and stale-run recovery indexes",
+        "tables_added": [],
+        "indexes_added": [
+          "approval_requests_run_status",
+          "run_control_stale"
+        ]
+      },
+      {
+        "version": 41,
+        "change": "immutable Graph checkpoint versions alongside mutable CAS heads and append-only transitions",
+        "tables_added": [
+          "graph_checkpoint_versions"
+        ]
+      }
+    ],
+    "canonical_tables_at_v41": [
+      "store_meta",
+      "sessions",
+      "event_chunks",
+      "session_leases",
+      "profile_releases",
+      "memory_entries",
+      "rag_documents",
+      "accounts",
+      "auth_tokens",
+      "tenants",
+      "settings",
+      "audit_events",
+      "obs_rules",
+      "obs_hits",
+      "admin_bindings",
+      "run_stats",
+      "run_control",
+      "run_queue",
+      "tool_invocations",
+      "approval_requests",
+      "run_submissions",
+      "evaluation_datasets",
+      "evaluation_runs",
+      "evaluation_case_results",
+      "profile_canaries",
+      "run_evidence",
+      "runner_tasks",
+      "rag_document_tokens",
+      "rag_document_tags",
+      "memory_entry_tags",
+      "tool_library_observations",
+      "delegation_links",
+      "runtime_effect_sequences",
+      "runtime_effects",
+      "runtime_host_state",
+      "runtime_host_ownership",
+      "runtime_fence_journal",
+      "artifact_migrations",
+      "artifact_migration_mutations",
+      "graph_checkpoints",
+      "graph_checkpoint_versions",
+      "graph_transitions",
+      "notification_targets",
+      "graph_segment_leases"
+    ]
+  },
+  "core_budget": {
+    "baseline_date": "2026-09-04",
+    "production_go_file_hard_limit": 36,
+    "production_go_files": 34,
+    "production_nonblank_physical_line_hard_limit": 8743,
+    "production_nonblank_physical_lines": 8615,
+    "production_single_file_nonblank_physical_line_hard_limit": 1500,
+    "public_api_ast_count": 902,
+    "public_api_ast_limit": 905,
+    "public_api_ast_rule": "go/ast counts exported top-level names, exported methods on exported receiver types, named exported struct fields on exported types, and named exported interface methods; embedded unnamed members are excluded; *_test.go and generated files are excluded. The accepted 2026-09-04 Graph/context/composition/schema/performance refactor baseline is 902 items; the 905 ceiling leaves three compatibility-fix slots, and new domain API must live outside pkg/core. A separate 1,500 non-blank physical-line ceiling prevents concentration in a single core file."
+  },
+  "compatibility_scope": {
+    "legacy_import_paths_preserved": [
+      "pkg/core",
+      "pkg/server",
+      "pkg/storage",
+      "pkg/control",
+      "pkg/evaluation",
+      "pkg/execution",
+      "pkg/provider",
+      "pkg/telemetry",
+      "pkg/extensions"
+    ],
+    "fixture_package": "internal/modulecheck_test",
+    "fixture_is_production_dependency": false
+  }
+}

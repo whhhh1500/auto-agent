@@ -1,0 +1,121 @@
+name: container-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: harness-core:release-${{ github.sha }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: docker/setup-buildx-action@v3.10.0
+
+      # Load one local image so the SBOM is generated from the built container,
+      # then create the reviewable multi-architecture OCI artifact below.
+      - name: build amd64 image for SBOM
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GOPROXY=${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+            GOSUMDB=${{ vars.GOSUMDB || 'sum.golang.org' }}
+
+      # A tag push is an independent release entry point. Exercise the image
+      # before producing its SBOM/OCI artifact instead of relying on branch CI.
+      - name: HTTP and SSE release smoke
+        run: bash scripts/container-smoke.sh "${{ env.IMAGE_NAME }}"
+
+      - name: secret scan (release worktree)
+        run: >-
+          docker run --rm --volume "${{ github.workspace }}:/repo:ro"
+          zricethezav/gitleaks:v8.28.0 detect --source=/repo --no-git --no-banner
+          --redact --exit-code 1
+
+      - name: secret scan (release image export)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/harness-release-image"
+          container_id="$(docker create "${{ env.IMAGE_NAME }}")"
+          trap 'docker rm "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/harness-release-image"
+          docker run --rm --volume "$RUNNER_TEMP/harness-release-image:/scan:ro" \
+            zricethezav/gitleaks:v8.28.0 detect --source=/scan --no-git --no-banner --redact --exit-code 1
+
+      - name: create output directory
+        shell: bash
+        run: mkdir -p dist
+
+      - name: generate SPDX image SBOM
+        uses: anchore/sbom-action@v0.20.11
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          format: spdx-json
+          output-file: dist/sbom.spdx.json
+          upload-artifact: false
+
+      - name: build immutable multi-architecture OCI artifact
+        uses: docker/build-push-action@v6.18.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=oci,dest=dist/harness-core-${{ github.ref_name }}.oci
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            GOPROXY=${{ vars.GOPROXY || 'https://proxy.golang.org,direct' }}
+            GOSUMDB=${{ vars.GOSUMDB || 'sum.golang.org' }}
+
+      - name: checksum and release metadata
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          printf 'tag=%s\ncommit=%s\nregistry_push=false\n' "$TAG" "$COMMIT" > dist/IMAGE-METADATA
+          (cd dist && sha256sum harness-core-*.oci sbom.spdx.json > SHA256SUMS)
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      # This is intentionally an integration hook, not a fake signature. A
+      # future deployment may add a registry, cosign key/OIDC policy, and an
+      # attestation command after review. This workflow never pushes images.
+      - name: signing and registry integration hook
+        shell: bash
+        env:
+          RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_REGISTRY" || -z "$COSIGN_PRIVATE_KEY" ]]; then
+            echo 'registry/signing integration is not configured; push and signature generation skipped'
+            printf 'registry_push=false\nsigned=false\nconfigure=RELEASE_REGISTRY plus a reviewed cosign/OIDC policy\n' > dist/ATTESTATION-INTEGRATION
+            exit 0
+          fi
+          echo 'registry/signing credentials detected, but publishing remains disabled in this review workflow' >&2
+          printf 'registry_push=false\nsigned=false\nnext_step=review and enable a separate signed publish workflow\n' > dist/ATTESTATION-INTEGRATION
+
+      - name: upload review artifacts
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: harness-core-container-${{ github.ref_name }}
+          path: dist
+          if-no-files-found: error
