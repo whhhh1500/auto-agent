@@ -114,6 +114,7 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 			if index, exists := byID[message.ToolCallID]; exists && tools[index].result == nil {
 				copyOf := message
 				tools[index].result = &copyOf
+				delete(byID, message.ToolCallID) // IDs can be reused after a completed call, across turns.
 			} else {
 				unpairedResults = append(unpairedResults, message)
 			}
@@ -127,7 +128,10 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 	builder := boundedSummaryBuilder{limit: s.maxBytes - reserve, hardLimit: s.maxBytes}
 	builder.record(fmt.Sprintf("[extractive summary source_messages=%d]", len(messages)))
 	for _, message := range summaries {
-		builder.record("prior_summary: " + s.messageValue(message.Content, s.maxMessageBytes))
+		// A prior durable summary has a different budget from a single raw
+		// message. Preserve it whole when it fits, otherwise label its omission.
+		remaining := builder.limit - builder.builder.Len() - len("prior_summary: ") - 1
+		builder.record("prior_summary: " + s.messageValue(message.Content, remaining))
 	}
 	for _, message := range users {
 		builder.record("recent_user_goal_or_constraint: " + s.messageValue(message.Content, s.maxMessageBytes))

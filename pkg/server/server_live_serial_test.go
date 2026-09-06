@@ -54,6 +54,7 @@ func TestLiveModelSerialModuleAcceptance(t *testing.T) {
 		{"wasm_computation", serialWASMComputation},
 		{"tool_disclosure_small", serialToolDisclosureSmall},
 		{"tool_disclosure_large", serialToolDisclosureLarge},
+		{"rolling_summary", serialRollingSummary},
 	} {
 		if !t.Run(tc.name, func(t *testing.T) {
 			model.test = t

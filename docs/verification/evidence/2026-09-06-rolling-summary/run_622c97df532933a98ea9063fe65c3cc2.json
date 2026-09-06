@@ -1,0 +1,1392 @@
+{
+  "context_metrics_process_cumulative": {
+    "harness.model.context.dropped_groups": 0,
+    "harness.model.context.input_bytes": 9470,
+    "harness.model.context.input_tokens": 5092
+  },
+  "events": [
+    {
+      "data": {},
+      "run_id": "seed-summary-0",
+      "seq": 0,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/0: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 1,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 2,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/1: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 3,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 4,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/2: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 5,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 6,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/3: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 7,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 8,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/4: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 9,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 10,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/5: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 11,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 12,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/6: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 13,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 14,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/7: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 15,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 16,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/8: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 17,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 18,
+      "time": "2026-09-06T07:07:59.5755393Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/9: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 19,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 20,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/10: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 21,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 22,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/11: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 23,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 24,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/12: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 25,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 26,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/13: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 27,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 28,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/14: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 29,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 30,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/15: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 31,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 32,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/16: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 33,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 34,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/17: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 35,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 36,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/18: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 37,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 38,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/19: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 39,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 40,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/20: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 41,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 42,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/21: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 43,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 44,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/22: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 45,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 46,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/23: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 47,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 48,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/24: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 49,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 50,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/25: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 51,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 52,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/26: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 53,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 54,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/27: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 55,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 56,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/28: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 57,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 58,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/29: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 59,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 60,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/30: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 61,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 62,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/31: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 63,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 64,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 65,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 66,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 67,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 68,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 69,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 70,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/35: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 71,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 72,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/36: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 73,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 74,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/37: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 75,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 76,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/38: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 77,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 78,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/39: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 79,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 80,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/40: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 81,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 82,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/41: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 83,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 84,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/42: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 85,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 86,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/43: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 87,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 88,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/44: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 89,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 90,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/45: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 91,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 92,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/46: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 93,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 94,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/47: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 95,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 96,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/48: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 97,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 98,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/49: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 99,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 100,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/50: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 101,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 102,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/51: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 103,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 104,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/52: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 105,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 106,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/53: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 107,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 108,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/54: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 109,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 110,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/55: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 111,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 112,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/56: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 113,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 114,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/57: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 115,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 116,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/58: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 117,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 118,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/59: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 119,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 120,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/60: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 121,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 122,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/61: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 123,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 124,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/62: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 125,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 126,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "text": "Audit entry 0/63: inventory reconciliation checked; no verification code changed."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 127,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "text": "Logged."
+      },
+      "run_id": "seed-summary-0",
+      "seq": 128,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "seed-summary-0",
+      "seq": 129,
+      "time": "2026-09-06T07:07:59.5759345Z",
+      "type": "run/end"
+    },
+    {
+      "data": {
+        "assignment_revision": "3aeabb4a3276cece593f9f4eb5a4278154b23b22703a5e3d07924ccdab645397",
+        "capability_snapshot_id": "2a3bec54a03fab3b26b8356c4784c70236156ae3073be25480e9127a7a7ff7fb",
+        "composition": {
+          "capabilities": [],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 8,
+          "metadata": {
+            "harness.executor.id": "sequential",
+            "harness.executor.implementation_revision": "core-runtime-v1",
+            "harness.executor.version": "1"
+          },
+          "model": {
+            "model": "gemini-3.8-flash",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": null,
+            "created_at": "2026-09-06T07:07:59.5908297Z",
+            "fragments": [
+              {
+                "content": "Read the requested warehouse verification code from the existing conversation. Reply only with its exact code. Codes are independent for each warehouse; do not infer one from another. Do not repeat any other warehouse's code.",
+                "id": "serial.summary.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "5e5047346f8229fe3c8f79d9e6719e55b8e4bdbbeca4eecdf7e7b12f61c509e9",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "gemini-3.8-flash",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.summary",
+            "profile_id": "serial.summary",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_a9f4c8e239b95dec3edc0aff64e6fa69",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "77650da31bb9d69af009aa23a94773289545dd6dec93e234804cbeee4a0ad4ae",
+        "profile_snapshot_id": "5e5047346f8229fe3c8f79d9e6719e55b8e4bdbbeca4eecdf7e7b12f61c509e9"
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 130,
+      "time": "2026-09-06T07:07:59.5908297Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "What is the verification code for warehouse ALPHA? Return only that code."
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 131,
+      "time": "2026-09-06T07:07:59.5908297Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 132,
+      "time": "2026-09-06T07:07:59.5908297Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "end": 70,
+        "op": "replace",
+        "start": 1,
+        "summary": "[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier."
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 133,
+      "time": "2026-09-06T07:07:59.5908297Z",
+      "type": "context/summary"
+    },
+    {
+      "data": {
+        "text": "proof_24468afb1e401ceac61c9b223"
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 134,
+      "time": "2026-09-06T07:08:03.7948722Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "12cf240"
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 135,
+      "time": "2026-09-06T07:08:03.8040577Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "proof_24468afb1e401ceac61c9b22312cf240"
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 136,
+      "time": "2026-09-06T07:08:03.8631509Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 137,
+      "time": "2026-09-06T07:08:03.8631509Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "input_tokens": 1112,
+        "output_tokens": 348
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 138,
+      "time": "2026-09-06T07:08:03.8631509Z",
+      "type": "run/usage"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+      "seq": 139,
+      "time": "2026-09-06T07:08:03.8631509Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+  "session_id": "sess_a9f4c8e239b95dec3edc0aff64e6fa69",
+  "spans": [
+    {
+      "attributes": {
+        "claim.outcome": "claimed",
+        "run.id": "run_622c97df532933a98ea9063fe65c3cc2",
+        "session.id": "sess_a9f4c8e239b95dec3edc0aff64e6fa69",
+        "worker.id": "serial-acceptance"
+      },
+      "duration_ms": 0,
+      "name": "harness.queue.claim",
+      "parent_id": "0000000000000000",
+      "span_id": "40450d5e3d80b231",
+      "status": "Unset",
+      "trace_id": "4c4d4a931c5b3e749777e259fbbf5956"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "9470",
+        "model.context.input_tokens": "5092",
+        "model.finish": "stop",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.summary",
+        "run.id": "run_622c97df532933a98ea9063fe65c3cc2",
+        "run.step": "0",
+        "session.id": "sess_a9f4c8e239b95dec3edc0aff64e6fa69"
+      },
+      "duration_ms": 4271,
+      "name": "harness.model.call",
+      "parent_id": "b39162d994c6cdc6",
+      "span_id": "f27edc75b7daede5",
+      "status": "Unset",
+      "trace_id": "07524460f3397a2a83781c4d05da2ed8"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.summary",
+        "run.id": "run_622c97df532933a98ea9063fe65c3cc2",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_a9f4c8e239b95dec3edc0aff64e6fa69",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 4272,
+      "name": "harness.run.segment",
+      "parent_id": "0000000000000000",
+      "span_id": "b39162d994c6cdc6",
+      "status": "Unset",
+      "trace_id": "07524460f3397a2a83781c4d05da2ed8"
+    }
+  ]
+}

@@ -1,0 +1,3991 @@
+{
+  "arms": [
+    {
+      "elapsed_ms": 10769,
+      "input_tokens": 7520,
+      "output_tokens": 889,
+      "projections": [
+        {
+          "model_messages": [
+            {
+              "content": "Audit entry 0/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 1
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 2
+            },
+            {
+              "content": "Audit entry 0/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 3
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 4
+            },
+            {
+              "content": "Audit entry 0/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 5
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 6
+            },
+            {
+              "content": "Audit entry 0/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 7
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 8
+            },
+            {
+              "content": "Audit entry 0/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 9
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 10
+            },
+            {
+              "content": "Audit entry 0/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 11
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 12
+            },
+            {
+              "content": "Audit entry 0/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 13
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 14
+            },
+            {
+              "content": "Audit entry 0/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 15
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 16
+            },
+            {
+              "content": "Audit entry 0/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 17
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 18
+            },
+            {
+              "content": "Audit entry 0/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 19
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 20
+            },
+            {
+              "content": "Audit entry 0/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 21
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 22
+            },
+            {
+              "content": "Audit entry 0/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 23
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 24
+            },
+            {
+              "content": "Audit entry 0/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 25
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 26
+            },
+            {
+              "content": "Audit entry 0/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 27
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 28
+            },
+            {
+              "content": "Audit entry 0/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 29
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 30
+            },
+            {
+              "content": "Audit entry 0/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 31
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 32
+            },
+            {
+              "content": "Audit entry 0/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 33
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 34
+            },
+            {
+              "content": "Audit entry 0/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 35
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 36
+            },
+            {
+              "content": "Audit entry 0/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 37
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 38
+            },
+            {
+              "content": "Audit entry 0/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 39
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 40
+            },
+            {
+              "content": "Audit entry 0/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 41
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 42
+            },
+            {
+              "content": "Audit entry 0/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 43
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 44
+            },
+            {
+              "content": "Audit entry 0/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 45
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 46
+            },
+            {
+              "content": "Audit entry 0/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 47
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 48
+            },
+            {
+              "content": "Audit entry 0/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 49
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 50
+            },
+            {
+              "content": "Audit entry 0/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 51
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 52
+            },
+            {
+              "content": "Audit entry 0/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 53
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 54
+            },
+            {
+              "content": "Audit entry 0/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 55
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 56
+            },
+            {
+              "content": "Audit entry 0/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 57
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 58
+            },
+            {
+              "content": "Audit entry 0/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 59
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 60
+            },
+            {
+              "content": "Audit entry 0/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 61
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 62
+            },
+            {
+              "content": "Audit entry 0/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 63
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 64
+            },
+            {
+              "content": "Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 65
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 66
+            },
+            {
+              "content": "Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 67
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 68
+            },
+            {
+              "content": "Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 69
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 70
+            },
+            {
+              "content": "Audit entry 0/35: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 71
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 72
+            },
+            {
+              "content": "Audit entry 0/36: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 73
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 74
+            },
+            {
+              "content": "Audit entry 0/37: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 75
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 76
+            },
+            {
+              "content": "Audit entry 0/38: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 77
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 78
+            },
+            {
+              "content": "Audit entry 0/39: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 79
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 80
+            },
+            {
+              "content": "Audit entry 0/40: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 81
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 82
+            },
+            {
+              "content": "Audit entry 0/41: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 83
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 84
+            },
+            {
+              "content": "Audit entry 0/42: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 85
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 86
+            },
+            {
+              "content": "Audit entry 0/43: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 87
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 88
+            },
+            {
+              "content": "Audit entry 0/44: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 89
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 90
+            },
+            {
+              "content": "Audit entry 0/45: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 91
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 92
+            },
+            {
+              "content": "Audit entry 0/46: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 93
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 94
+            },
+            {
+              "content": "Audit entry 0/47: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 95
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 96
+            },
+            {
+              "content": "Audit entry 0/48: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 97
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 98
+            },
+            {
+              "content": "Audit entry 0/49: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 99
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 100
+            },
+            {
+              "content": "Audit entry 0/50: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 101
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 102
+            },
+            {
+              "content": "Audit entry 0/51: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 103
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 104
+            },
+            {
+              "content": "Audit entry 0/52: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 105
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 106
+            },
+            {
+              "content": "Audit entry 0/53: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 107
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 108
+            },
+            {
+              "content": "Audit entry 0/54: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 109
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 110
+            },
+            {
+              "content": "Audit entry 0/55: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 111
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 112
+            },
+            {
+              "content": "Audit entry 0/56: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 113
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 114
+            },
+            {
+              "content": "Audit entry 0/57: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 115
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 116
+            },
+            {
+              "content": "Audit entry 0/58: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 117
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 118
+            },
+            {
+              "content": "Audit entry 0/59: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 119
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 120
+            },
+            {
+              "content": "Audit entry 0/60: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 121
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 122
+            },
+            {
+              "content": "Audit entry 0/61: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 123
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 124
+            },
+            {
+              "content": "Audit entry 0/62: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 125
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 126
+            },
+            {
+              "content": "Audit entry 0/63: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 127
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 128
+            },
+            {
+              "content": "What is the verification code for warehouse ALPHA? Return only that code.",
+              "role": "user",
+              "source_seq": 131
+            }
+          ],
+          "run_id": "run_54ad04e504a91fa9fa6a31d3d8a0f797",
+          "summaries": null,
+          "turn": 1
+        },
+        {
+          "model_messages": [
+            {
+              "content": "Audit entry 0/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 1
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 2
+            },
+            {
+              "content": "Audit entry 0/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 3
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 4
+            },
+            {
+              "content": "Audit entry 0/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 5
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 6
+            },
+            {
+              "content": "Audit entry 0/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 7
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 8
+            },
+            {
+              "content": "Audit entry 0/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 9
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 10
+            },
+            {
+              "content": "Audit entry 0/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 11
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 12
+            },
+            {
+              "content": "Audit entry 0/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 13
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 14
+            },
+            {
+              "content": "Audit entry 0/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 15
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 16
+            },
+            {
+              "content": "Audit entry 0/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 17
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 18
+            },
+            {
+              "content": "Audit entry 0/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 19
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 20
+            },
+            {
+              "content": "Audit entry 0/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 21
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 22
+            },
+            {
+              "content": "Audit entry 0/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 23
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 24
+            },
+            {
+              "content": "Audit entry 0/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 25
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 26
+            },
+            {
+              "content": "Audit entry 0/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 27
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 28
+            },
+            {
+              "content": "Audit entry 0/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 29
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 30
+            },
+            {
+              "content": "Audit entry 0/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 31
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 32
+            },
+            {
+              "content": "Audit entry 0/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 33
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 34
+            },
+            {
+              "content": "Audit entry 0/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 35
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 36
+            },
+            {
+              "content": "Audit entry 0/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 37
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 38
+            },
+            {
+              "content": "Audit entry 0/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 39
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 40
+            },
+            {
+              "content": "Audit entry 0/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 41
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 42
+            },
+            {
+              "content": "Audit entry 0/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 43
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 44
+            },
+            {
+              "content": "Audit entry 0/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 45
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 46
+            },
+            {
+              "content": "Audit entry 0/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 47
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 48
+            },
+            {
+              "content": "Audit entry 0/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 49
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 50
+            },
+            {
+              "content": "Audit entry 0/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 51
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 52
+            },
+            {
+              "content": "Audit entry 0/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 53
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 54
+            },
+            {
+              "content": "Audit entry 0/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 55
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 56
+            },
+            {
+              "content": "Audit entry 0/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 57
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 58
+            },
+            {
+              "content": "Audit entry 0/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 59
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 60
+            },
+            {
+              "content": "Audit entry 0/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 61
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 62
+            },
+            {
+              "content": "Audit entry 0/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 63
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 64
+            },
+            {
+              "content": "Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 65
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 66
+            },
+            {
+              "content": "Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 67
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 68
+            },
+            {
+              "content": "Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 69
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 70
+            },
+            {
+              "content": "Audit entry 0/35: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 71
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 72
+            },
+            {
+              "content": "Audit entry 0/36: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 73
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 74
+            },
+            {
+              "content": "Audit entry 0/37: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 75
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 76
+            },
+            {
+              "content": "Audit entry 0/38: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 77
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 78
+            },
+            {
+              "content": "Audit entry 0/39: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 79
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 80
+            },
+            {
+              "content": "Audit entry 0/40: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 81
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 82
+            },
+            {
+              "content": "Audit entry 0/41: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 83
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 84
+            },
+            {
+              "content": "Audit entry 0/42: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 85
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 86
+            },
+            {
+              "content": "Audit entry 0/43: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 87
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 88
+            },
+            {
+              "content": "Audit entry 0/44: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 89
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 90
+            },
+            {
+              "content": "Audit entry 0/45: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 91
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 92
+            },
+            {
+              "content": "Audit entry 0/46: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 93
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 94
+            },
+            {
+              "content": "Audit entry 0/47: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 95
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 96
+            },
+            {
+              "content": "Audit entry 0/48: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 97
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 98
+            },
+            {
+              "content": "Audit entry 0/49: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 99
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 100
+            },
+            {
+              "content": "Audit entry 0/50: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 101
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 102
+            },
+            {
+              "content": "Audit entry 0/51: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 103
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 104
+            },
+            {
+              "content": "Audit entry 0/52: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 105
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 106
+            },
+            {
+              "content": "Audit entry 0/53: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 107
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 108
+            },
+            {
+              "content": "Audit entry 0/54: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 109
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 110
+            },
+            {
+              "content": "Audit entry 0/55: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 111
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 112
+            },
+            {
+              "content": "Audit entry 0/56: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 113
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 114
+            },
+            {
+              "content": "Audit entry 0/57: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 115
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 116
+            },
+            {
+              "content": "Audit entry 0/58: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 117
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 118
+            },
+            {
+              "content": "Audit entry 0/59: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 119
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 120
+            },
+            {
+              "content": "Audit entry 0/60: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 121
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 122
+            },
+            {
+              "content": "Audit entry 0/61: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 123
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 124
+            },
+            {
+              "content": "Audit entry 0/62: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 125
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 126
+            },
+            {
+              "content": "Audit entry 0/63: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 127
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 128
+            },
+            {
+              "content": "What is the verification code for warehouse ALPHA? Return only that code.",
+              "role": "user",
+              "source_seq": 131
+            },
+            {
+              "content": "proof_24468afb1e401ceac61c9b22312cf240",
+              "role": "assistant",
+              "source_seq": 135
+            },
+            {
+              "content": "Audit entry 1/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 140
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 141
+            },
+            {
+              "content": "Audit entry 1/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 142
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 143
+            },
+            {
+              "content": "Audit entry 1/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 144
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 145
+            },
+            {
+              "content": "Audit entry 1/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 146
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 147
+            },
+            {
+              "content": "Audit entry 1/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 148
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 149
+            },
+            {
+              "content": "Audit entry 1/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 150
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 151
+            },
+            {
+              "content": "Audit entry 1/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 152
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 153
+            },
+            {
+              "content": "Audit entry 1/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 154
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 155
+            },
+            {
+              "content": "Audit entry 1/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 156
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 157
+            },
+            {
+              "content": "Audit entry 1/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 158
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 159
+            },
+            {
+              "content": "Audit entry 1/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 160
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 161
+            },
+            {
+              "content": "Audit entry 1/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 162
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 163
+            },
+            {
+              "content": "Audit entry 1/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 164
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 165
+            },
+            {
+              "content": "Audit entry 1/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 166
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 167
+            },
+            {
+              "content": "Audit entry 1/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 168
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 169
+            },
+            {
+              "content": "Audit entry 1/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 170
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 171
+            },
+            {
+              "content": "Audit entry 1/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 172
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 173
+            },
+            {
+              "content": "Audit entry 1/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 174
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 175
+            },
+            {
+              "content": "Audit entry 1/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 176
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 177
+            },
+            {
+              "content": "Audit entry 1/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 178
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 179
+            },
+            {
+              "content": "Audit entry 1/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 180
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 181
+            },
+            {
+              "content": "Audit entry 1/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 182
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 183
+            },
+            {
+              "content": "Audit entry 1/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 184
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 185
+            },
+            {
+              "content": "Audit entry 1/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 186
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 187
+            },
+            {
+              "content": "Audit entry 1/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 188
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 189
+            },
+            {
+              "content": "Audit entry 1/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 190
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 191
+            },
+            {
+              "content": "Audit entry 1/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 192
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 193
+            },
+            {
+              "content": "Audit entry 1/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 194
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 195
+            },
+            {
+              "content": "Audit entry 1/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 196
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 197
+            },
+            {
+              "content": "Audit entry 1/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 198
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 199
+            },
+            {
+              "content": "Audit entry 1/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 200
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 201
+            },
+            {
+              "content": "Audit entry 1/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 202
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 203
+            },
+            {
+              "content": "What is the verification code for warehouse BETA? Return only that code.",
+              "role": "user",
+              "source_seq": 206
+            }
+          ],
+          "run_id": "run_5cc868c10851306dff15747bc14c3272",
+          "summaries": null,
+          "turn": 2
+        },
+        {
+          "model_messages": [
+            {
+              "content": "Audit entry 0/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 1
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 2
+            },
+            {
+              "content": "Audit entry 0/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 3
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 4
+            },
+            {
+              "content": "Audit entry 0/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 5
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 6
+            },
+            {
+              "content": "Audit entry 0/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 7
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 8
+            },
+            {
+              "content": "Audit entry 0/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 9
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 10
+            },
+            {
+              "content": "Audit entry 0/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 11
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 12
+            },
+            {
+              "content": "Audit entry 0/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 13
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 14
+            },
+            {
+              "content": "Audit entry 0/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 15
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 16
+            },
+            {
+              "content": "Audit entry 0/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 17
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 18
+            },
+            {
+              "content": "Audit entry 0/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 19
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 20
+            },
+            {
+              "content": "Audit entry 0/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 21
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 22
+            },
+            {
+              "content": "Audit entry 0/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 23
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 24
+            },
+            {
+              "content": "Audit entry 0/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 25
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 26
+            },
+            {
+              "content": "Audit entry 0/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 27
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 28
+            },
+            {
+              "content": "Audit entry 0/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 29
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 30
+            },
+            {
+              "content": "Audit entry 0/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 31
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 32
+            },
+            {
+              "content": "Audit entry 0/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 33
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 34
+            },
+            {
+              "content": "Audit entry 0/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 35
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 36
+            },
+            {
+              "content": "Audit entry 0/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 37
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 38
+            },
+            {
+              "content": "Audit entry 0/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 39
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 40
+            },
+            {
+              "content": "Audit entry 0/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 41
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 42
+            },
+            {
+              "content": "Audit entry 0/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 43
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 44
+            },
+            {
+              "content": "Audit entry 0/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 45
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 46
+            },
+            {
+              "content": "Audit entry 0/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 47
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 48
+            },
+            {
+              "content": "Audit entry 0/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 49
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 50
+            },
+            {
+              "content": "Audit entry 0/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 51
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 52
+            },
+            {
+              "content": "Audit entry 0/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 53
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 54
+            },
+            {
+              "content": "Audit entry 0/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 55
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 56
+            },
+            {
+              "content": "Audit entry 0/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 57
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 58
+            },
+            {
+              "content": "Audit entry 0/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 59
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 60
+            },
+            {
+              "content": "Audit entry 0/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 61
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 62
+            },
+            {
+              "content": "Audit entry 0/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 63
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 64
+            },
+            {
+              "content": "Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 65
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 66
+            },
+            {
+              "content": "Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 67
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 68
+            },
+            {
+              "content": "Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "role": "user",
+              "source_seq": 69
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 70
+            },
+            {
+              "content": "Audit entry 0/35: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 71
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 72
+            },
+            {
+              "content": "Audit entry 0/36: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 73
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 74
+            },
+            {
+              "content": "Audit entry 0/37: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 75
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 76
+            },
+            {
+              "content": "Audit entry 0/38: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 77
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 78
+            },
+            {
+              "content": "Audit entry 0/39: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 79
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 80
+            },
+            {
+              "content": "Audit entry 0/40: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 81
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 82
+            },
+            {
+              "content": "Audit entry 0/41: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 83
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 84
+            },
+            {
+              "content": "Audit entry 0/42: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 85
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 86
+            },
+            {
+              "content": "Audit entry 0/43: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 87
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 88
+            },
+            {
+              "content": "Audit entry 0/44: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 89
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 90
+            },
+            {
+              "content": "Audit entry 0/45: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 91
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 92
+            },
+            {
+              "content": "Audit entry 0/46: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 93
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 94
+            },
+            {
+              "content": "Audit entry 0/47: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 95
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 96
+            },
+            {
+              "content": "Audit entry 0/48: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 97
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 98
+            },
+            {
+              "content": "Audit entry 0/49: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 99
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 100
+            },
+            {
+              "content": "Audit entry 0/50: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 101
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 102
+            },
+            {
+              "content": "Audit entry 0/51: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 103
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 104
+            },
+            {
+              "content": "Audit entry 0/52: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 105
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 106
+            },
+            {
+              "content": "Audit entry 0/53: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 107
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 108
+            },
+            {
+              "content": "Audit entry 0/54: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 109
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 110
+            },
+            {
+              "content": "Audit entry 0/55: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 111
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 112
+            },
+            {
+              "content": "Audit entry 0/56: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 113
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 114
+            },
+            {
+              "content": "Audit entry 0/57: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 115
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 116
+            },
+            {
+              "content": "Audit entry 0/58: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 117
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 118
+            },
+            {
+              "content": "Audit entry 0/59: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 119
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 120
+            },
+            {
+              "content": "Audit entry 0/60: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 121
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 122
+            },
+            {
+              "content": "Audit entry 0/61: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 123
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 124
+            },
+            {
+              "content": "Audit entry 0/62: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 125
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 126
+            },
+            {
+              "content": "Audit entry 0/63: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 127
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 128
+            },
+            {
+              "content": "What is the verification code for warehouse ALPHA? Return only that code.",
+              "role": "user",
+              "source_seq": 131
+            },
+            {
+              "content": "proof_24468afb1e401ceac61c9b22312cf240",
+              "role": "assistant",
+              "source_seq": 135
+            },
+            {
+              "content": "Audit entry 1/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 140
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 141
+            },
+            {
+              "content": "Audit entry 1/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 142
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 143
+            },
+            {
+              "content": "Audit entry 1/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 144
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 145
+            },
+            {
+              "content": "Audit entry 1/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 146
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 147
+            },
+            {
+              "content": "Audit entry 1/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 148
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 149
+            },
+            {
+              "content": "Audit entry 1/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 150
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 151
+            },
+            {
+              "content": "Audit entry 1/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 152
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 153
+            },
+            {
+              "content": "Audit entry 1/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 154
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 155
+            },
+            {
+              "content": "Audit entry 1/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 156
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 157
+            },
+            {
+              "content": "Audit entry 1/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 158
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 159
+            },
+            {
+              "content": "Audit entry 1/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 160
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 161
+            },
+            {
+              "content": "Audit entry 1/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 162
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 163
+            },
+            {
+              "content": "Audit entry 1/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 164
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 165
+            },
+            {
+              "content": "Audit entry 1/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 166
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 167
+            },
+            {
+              "content": "Audit entry 1/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 168
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 169
+            },
+            {
+              "content": "Audit entry 1/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 170
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 171
+            },
+            {
+              "content": "Audit entry 1/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 172
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 173
+            },
+            {
+              "content": "Audit entry 1/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 174
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 175
+            },
+            {
+              "content": "Audit entry 1/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 176
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 177
+            },
+            {
+              "content": "Audit entry 1/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 178
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 179
+            },
+            {
+              "content": "Audit entry 1/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 180
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 181
+            },
+            {
+              "content": "Audit entry 1/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 182
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 183
+            },
+            {
+              "content": "Audit entry 1/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 184
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 185
+            },
+            {
+              "content": "Audit entry 1/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 186
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 187
+            },
+            {
+              "content": "Audit entry 1/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 188
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 189
+            },
+            {
+              "content": "Audit entry 1/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 190
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 191
+            },
+            {
+              "content": "Audit entry 1/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 192
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 193
+            },
+            {
+              "content": "Audit entry 1/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 194
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 195
+            },
+            {
+              "content": "Audit entry 1/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 196
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 197
+            },
+            {
+              "content": "Audit entry 1/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 198
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 199
+            },
+            {
+              "content": "Audit entry 1/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 200
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 201
+            },
+            {
+              "content": "Audit entry 1/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 202
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 203
+            },
+            {
+              "content": "What is the verification code for warehouse BETA? Return only that code.",
+              "role": "user",
+              "source_seq": 206
+            },
+            {
+              "content": "proof_2fa6b09b558f5fb322ba409d1c2121c5",
+              "role": "assistant",
+              "source_seq": 210
+            },
+            {
+              "content": "Audit entry 2/0: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 215
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 216
+            },
+            {
+              "content": "Audit entry 2/1: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 217
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 218
+            },
+            {
+              "content": "Audit entry 2/2: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 219
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 220
+            },
+            {
+              "content": "Audit entry 2/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 221
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 222
+            },
+            {
+              "content": "Audit entry 2/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 223
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 224
+            },
+            {
+              "content": "Audit entry 2/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 225
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 226
+            },
+            {
+              "content": "Audit entry 2/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 227
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 228
+            },
+            {
+              "content": "Audit entry 2/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 229
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 230
+            },
+            {
+              "content": "Audit entry 2/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 231
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 232
+            },
+            {
+              "content": "Audit entry 2/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 233
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 234
+            },
+            {
+              "content": "Audit entry 2/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 235
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 236
+            },
+            {
+              "content": "Audit entry 2/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 237
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 238
+            },
+            {
+              "content": "Audit entry 2/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 239
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 240
+            },
+            {
+              "content": "Audit entry 2/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 241
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 242
+            },
+            {
+              "content": "Audit entry 2/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 243
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 244
+            },
+            {
+              "content": "Audit entry 2/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 245
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 246
+            },
+            {
+              "content": "Audit entry 2/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 247
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 248
+            },
+            {
+              "content": "Audit entry 2/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 249
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 250
+            },
+            {
+              "content": "Audit entry 2/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 251
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 252
+            },
+            {
+              "content": "Audit entry 2/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 253
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 254
+            },
+            {
+              "content": "Audit entry 2/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 255
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 256
+            },
+            {
+              "content": "Audit entry 2/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 257
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 258
+            },
+            {
+              "content": "Audit entry 2/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 259
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 260
+            },
+            {
+              "content": "Audit entry 2/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 261
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 262
+            },
+            {
+              "content": "Audit entry 2/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 263
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 264
+            },
+            {
+              "content": "Audit entry 2/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 265
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 266
+            },
+            {
+              "content": "Audit entry 2/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 267
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 268
+            },
+            {
+              "content": "Audit entry 2/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 269
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 270
+            },
+            {
+              "content": "Audit entry 2/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 271
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 272
+            },
+            {
+              "content": "Audit entry 2/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 273
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 274
+            },
+            {
+              "content": "Audit entry 2/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 275
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 276
+            },
+            {
+              "content": "Audit entry 2/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 277
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 278
+            },
+            {
+              "content": "What is the verification code for warehouse GAMMA? Return only that code.",
+              "role": "user",
+              "source_seq": 281
+            }
+          ],
+          "run_id": "run_5d8e8d49869beb8fcf860c39c6f65560",
+          "summaries": null,
+          "turn": 3
+        }
+      ],
+      "requests": [
+        {
+          "InputTokens": 1701,
+          "Messages": 129,
+          "OutputTokens": 249,
+          "ToolNames": [],
+          "Tools": 0
+        },
+        {
+          "InputTokens": 2409,
+          "Messages": 195,
+          "OutputTokens": 323,
+          "ToolNames": [],
+          "Tools": 0
+        },
+        {
+          "InputTokens": 3410,
+          "Messages": 261,
+          "OutputTokens": 317,
+          "ToolNames": [],
+          "Tools": 0
+        }
+      ],
+      "run_ids": [
+        "run_54ad04e504a91fa9fa6a31d3d8a0f797",
+        "run_5cc868c10851306dff15747bc14c3272",
+        "run_5d8e8d49869beb8fcf860c39c6f65560"
+      ],
+      "service_pool_replacements": 2,
+      "summary_enabled": false
+    },
+    {
+      "elapsed_ms": 12017,
+      "input_tokens": 3727,
+      "output_tokens": 890,
+      "projections": [
+        {
+          "model_messages": [
+            {
+              "content": "[conversation summary of events 1–70]\n[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.",
+              "provenance": {
+                "kind": "summary",
+                "revision": "133",
+                "source_end": 70,
+                "source_start": 1
+              },
+              "role": "user",
+              "source_seq": 133
+            },
+            {
+              "content": "Audit entry 0/35: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 71
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 72
+            },
+            {
+              "content": "Audit entry 0/36: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 73
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 74
+            },
+            {
+              "content": "Audit entry 0/37: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 75
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 76
+            },
+            {
+              "content": "Audit entry 0/38: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 77
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 78
+            },
+            {
+              "content": "Audit entry 0/39: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 79
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 80
+            },
+            {
+              "content": "Audit entry 0/40: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 81
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 82
+            },
+            {
+              "content": "Audit entry 0/41: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 83
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 84
+            },
+            {
+              "content": "Audit entry 0/42: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 85
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 86
+            },
+            {
+              "content": "Audit entry 0/43: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 87
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 88
+            },
+            {
+              "content": "Audit entry 0/44: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 89
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 90
+            },
+            {
+              "content": "Audit entry 0/45: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 91
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 92
+            },
+            {
+              "content": "Audit entry 0/46: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 93
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 94
+            },
+            {
+              "content": "Audit entry 0/47: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 95
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 96
+            },
+            {
+              "content": "Audit entry 0/48: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 97
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 98
+            },
+            {
+              "content": "Audit entry 0/49: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 99
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 100
+            },
+            {
+              "content": "Audit entry 0/50: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 101
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 102
+            },
+            {
+              "content": "Audit entry 0/51: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 103
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 104
+            },
+            {
+              "content": "Audit entry 0/52: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 105
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 106
+            },
+            {
+              "content": "Audit entry 0/53: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 107
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 108
+            },
+            {
+              "content": "Audit entry 0/54: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 109
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 110
+            },
+            {
+              "content": "Audit entry 0/55: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 111
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 112
+            },
+            {
+              "content": "Audit entry 0/56: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 113
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 114
+            },
+            {
+              "content": "Audit entry 0/57: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 115
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 116
+            },
+            {
+              "content": "Audit entry 0/58: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 117
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 118
+            },
+            {
+              "content": "Audit entry 0/59: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 119
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 120
+            },
+            {
+              "content": "Audit entry 0/60: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 121
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 122
+            },
+            {
+              "content": "Audit entry 0/61: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 123
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 124
+            },
+            {
+              "content": "Audit entry 0/62: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 125
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 126
+            },
+            {
+              "content": "Audit entry 0/63: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 127
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 128
+            },
+            {
+              "content": "What is the verification code for warehouse ALPHA? Return only that code.",
+              "role": "user",
+              "source_seq": 131
+            }
+          ],
+          "run_id": "run_622c97df532933a98ea9063fe65c3cc2",
+          "summaries": [
+            {
+              "end": 70,
+              "op": "replace",
+              "start": 1,
+              "summary": "[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier."
+            }
+          ],
+          "turn": 1
+        },
+        {
+          "model_messages": [
+            {
+              "content": "[conversation summary of events 1–146]\n[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–70]\n[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: What is the verification code for warehouse ALPHA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 1/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/2: inventory reconciliation checked; no verification code changed.",
+              "provenance": {
+                "kind": "summary",
+                "revision": "209",
+                "source_end": 146,
+                "source_start": 1
+              },
+              "role": "user",
+              "source_seq": 209
+            },
+            {
+              "content": "Audit entry 1/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 147
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 148
+            },
+            {
+              "content": "Audit entry 1/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 149
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 150
+            },
+            {
+              "content": "Audit entry 1/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 151
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 152
+            },
+            {
+              "content": "Audit entry 1/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 153
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 154
+            },
+            {
+              "content": "Audit entry 1/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 155
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 156
+            },
+            {
+              "content": "Audit entry 1/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 157
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 158
+            },
+            {
+              "content": "Audit entry 1/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 159
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 160
+            },
+            {
+              "content": "Audit entry 1/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 161
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 162
+            },
+            {
+              "content": "Audit entry 1/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 163
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 164
+            },
+            {
+              "content": "Audit entry 1/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 165
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 166
+            },
+            {
+              "content": "Audit entry 1/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 167
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 168
+            },
+            {
+              "content": "Audit entry 1/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 169
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 170
+            },
+            {
+              "content": "Audit entry 1/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 171
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 172
+            },
+            {
+              "content": "Audit entry 1/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 173
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 174
+            },
+            {
+              "content": "Audit entry 1/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 175
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 176
+            },
+            {
+              "content": "Audit entry 1/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 177
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 178
+            },
+            {
+              "content": "Audit entry 1/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 179
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 180
+            },
+            {
+              "content": "Audit entry 1/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 181
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 182
+            },
+            {
+              "content": "Audit entry 1/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 183
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 184
+            },
+            {
+              "content": "Audit entry 1/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 185
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 186
+            },
+            {
+              "content": "Audit entry 1/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 187
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 188
+            },
+            {
+              "content": "Audit entry 1/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 189
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 190
+            },
+            {
+              "content": "Audit entry 1/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 191
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 192
+            },
+            {
+              "content": "Audit entry 1/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 193
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 194
+            },
+            {
+              "content": "Audit entry 1/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 195
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 196
+            },
+            {
+              "content": "Audit entry 1/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 197
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 198
+            },
+            {
+              "content": "Audit entry 1/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 199
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 200
+            },
+            {
+              "content": "Audit entry 1/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 201
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 202
+            },
+            {
+              "content": "Audit entry 1/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 203
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 204
+            },
+            {
+              "content": "What is the verification code for warehouse BETA? Return only that code.",
+              "role": "user",
+              "source_seq": 207
+            }
+          ],
+          "run_id": "run_78ff64cd5f59e5444c1fcfae995230fe",
+          "summaries": [
+            {
+              "end": 146,
+              "op": "replace",
+              "start": 1,
+              "summary": "[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–70]\n[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: What is the verification code for warehouse ALPHA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 1/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/2: inventory reconciliation checked; no verification code changed."
+            }
+          ],
+          "turn": 2
+        },
+        {
+          "model_messages": [
+            {
+              "content": "[conversation summary of events 1–222]\n[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–146]\n[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–70]\n[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: What is the verification code for warehouse ALPHA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 1/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/2: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: What is the verification code for warehouse BETA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 2/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 2/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 2/2: inventory reconciliation checked; no verification code changed.",
+              "provenance": {
+                "kind": "summary",
+                "revision": "285",
+                "source_end": 222,
+                "source_start": 1
+              },
+              "role": "user",
+              "source_seq": 285
+            },
+            {
+              "content": "Audit entry 2/3: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 223
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 224
+            },
+            {
+              "content": "Audit entry 2/4: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 225
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 226
+            },
+            {
+              "content": "Audit entry 2/5: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 227
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 228
+            },
+            {
+              "content": "Audit entry 2/6: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 229
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 230
+            },
+            {
+              "content": "Audit entry 2/7: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 231
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 232
+            },
+            {
+              "content": "Audit entry 2/8: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 233
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 234
+            },
+            {
+              "content": "Audit entry 2/9: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 235
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 236
+            },
+            {
+              "content": "Audit entry 2/10: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 237
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 238
+            },
+            {
+              "content": "Audit entry 2/11: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 239
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 240
+            },
+            {
+              "content": "Audit entry 2/12: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 241
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 242
+            },
+            {
+              "content": "Audit entry 2/13: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 243
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 244
+            },
+            {
+              "content": "Audit entry 2/14: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 245
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 246
+            },
+            {
+              "content": "Audit entry 2/15: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 247
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 248
+            },
+            {
+              "content": "Audit entry 2/16: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 249
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 250
+            },
+            {
+              "content": "Audit entry 2/17: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 251
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 252
+            },
+            {
+              "content": "Audit entry 2/18: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 253
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 254
+            },
+            {
+              "content": "Audit entry 2/19: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 255
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 256
+            },
+            {
+              "content": "Audit entry 2/20: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 257
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 258
+            },
+            {
+              "content": "Audit entry 2/21: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 259
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 260
+            },
+            {
+              "content": "Audit entry 2/22: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 261
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 262
+            },
+            {
+              "content": "Audit entry 2/23: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 263
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 264
+            },
+            {
+              "content": "Audit entry 2/24: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 265
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 266
+            },
+            {
+              "content": "Audit entry 2/25: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 267
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 268
+            },
+            {
+              "content": "Audit entry 2/26: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 269
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 270
+            },
+            {
+              "content": "Audit entry 2/27: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 271
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 272
+            },
+            {
+              "content": "Audit entry 2/28: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 273
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 274
+            },
+            {
+              "content": "Audit entry 2/29: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 275
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 276
+            },
+            {
+              "content": "Audit entry 2/30: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 277
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 278
+            },
+            {
+              "content": "Audit entry 2/31: inventory reconciliation checked; no verification code changed.",
+              "role": "user",
+              "source_seq": 279
+            },
+            {
+              "content": "Logged.",
+              "role": "assistant",
+              "source_seq": 280
+            },
+            {
+              "content": "What is the verification code for warehouse GAMMA? Return only that code.",
+              "role": "user",
+              "source_seq": 283
+            }
+          ],
+          "run_id": "run_bed6d0c021c092bfe0e1b123cf821a5b",
+          "summaries": [
+            {
+              "end": 222,
+              "op": "replace",
+              "start": 1,
+              "summary": "[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–146]\n[extractive summary source_messages=67]\nprior_summary: [conversation summary of events 1–70]\n[extractive summary source_messages=70]\nrecent_user_goal_or_constraint: Audit entry 0/31: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Warehouse ALPHA verification code: proof_24468afb1e401ceac61c9b22312cf240. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse BETA verification code: proof_2fa6b09b558f5fb322ba409d1c2121c5. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: Warehouse GAMMA verification code: proof_19cc02e041feb5b3588ce00779cf808f. This approved handoff record remains valid for the rest of this conversation. The receiving team checks this code against the signed inventory register before accepting a delivery. Store each warehouse's code separately: neighboring sites do not share codes. Subsequent routine audit entries confirm reconciliation status only and do not change this record. When the operator asks for this warehouse, return its exact code without adding reconciliation notes or another site's identifier.\nrecent_user_goal_or_constraint: What is the verification code for warehouse ALPHA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 1/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 1/2: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: What is the verification code for warehouse BETA? Return only that code.\nrecent_user_goal_or_constraint: Audit entry 2/0: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 2/1: inventory reconciliation checked; no verification code changed.\nrecent_user_goal_or_constraint: Audit entry 2/2: inventory reconciliation checked; no verification code changed."
+            }
+          ],
+          "turn": 3
+        }
+      ],
+      "requests": [
+        {
+          "InputTokens": 1112,
+          "Messages": 60,
+          "OutputTokens": 348,
+          "ToolNames": [],
+          "Tools": 0
+        },
+        {
+          "InputTokens": 1240,
+          "Messages": 60,
+          "OutputTokens": 169,
+          "ToolNames": [],
+          "Tools": 0
+        },
+        {
+          "InputTokens": 1375,
+          "Messages": 60,
+          "OutputTokens": 373,
+          "ToolNames": [],
+          "Tools": 0
+        }
+      ],
+      "run_ids": [
+        "run_622c97df532933a98ea9063fe65c3cc2",
+        "run_78ff64cd5f59e5444c1fcfae995230fe",
+        "run_bed6d0c021c092bfe0e1b123cf821a5b"
+      ],
+      "service_pool_replacements": 2,
+      "summary_enabled": true
+    }
+  ],
+  "distinct_facts": 3,
+  "policy": "extractive 120/60; mechanical compactor disabled in both arms",
+  "seed_turns": [
+    64,
+    32,
+    32
+  ]
+}

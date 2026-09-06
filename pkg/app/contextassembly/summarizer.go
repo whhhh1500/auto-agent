@@ -33,8 +33,9 @@ func (f ContextSummarizerFunc) Summarize(ctx context.Context, messages []core.Ch
 // RollingSummarizer archives a bounded history prefix into one durable event.
 type RollingSummarizer struct {
 	MaxMessages int
-	KeepTail    int
-	Summarizer  ContextSummarizer
+	// KeepTail is an upper bound; a safe event range may retain fewer messages.
+	KeepTail   int
+	Summarizer ContextSummarizer
 }
 
 func (r *RollingSummarizer) EnsureSummarized(ctx context.Context, session *core.Session, runID string, emit func(core.SessionEvent), messages []core.ChatMessage) ([]core.ChatMessage, error) {
@@ -51,7 +52,7 @@ func (r *RollingSummarizer) EnsureSummarized(ctx context.Context, session *core.
 	if session == nil {
 		return nil, fmt.Errorf("rolling summarizer session is nil")
 	}
-	boundary := summarizeBoundary(messages, keepTail)
+	boundary, start, end := summarizeArchiveRange(messages, keepTail)
 	if boundary <= 0 {
 		return nil, fmt.Errorf("rolling summarizer cannot fit history within MaxMessages")
 	}
@@ -69,8 +70,11 @@ func (r *RollingSummarizer) EnsureSummarized(ctx context.Context, session *core.
 	if strings.TrimSpace(summary) == "" || !utf8.ValidString(summary) || len(summary) > maxContextSummaryBytes {
 		return nil, fmt.Errorf("rolling summarizer returned an invalid or oversized summary")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	event, err := session.Append(runID, core.EvContextSummary, core.ContextSummaryData{
-		Op: "replace", Start: archived[0].SourceSeq, End: archived[len(archived)-1].SourceSeq, Summary: summary,
+		Op: "replace", Start: start, End: end, Summary: summary,
 	})
 	if err != nil {
 		return nil, err
@@ -117,13 +121,42 @@ func summariesOnly(messages []core.ChatMessage) bool {
 	return true
 }
 
-func summarizeBoundary(messages []core.ChatMessage, keepTail int) int {
-	for i := 1; i < len(messages); i++ {
-		if messages[i].Role == core.RoleUser && len(messages)-i <= keepTail {
-			return i
+// Summary messages are positioned at their original range, but SourceSeq is
+// the later summary event. Close the archive over both before persisting: every
+// replaced message must be summarized, and no retained message may be shadowed.
+// A suffix minimum makes this linear even with multiple disjoint summaries.
+func summarizeArchiveRange(messages []core.ChatMessage, keepTail int) (int, int64, int64) {
+	suffixStart := make([]int64, len(messages))
+	for i := len(messages) - 1; i >= 0; i-- {
+		start, _ := summaryMessageRange(messages[i])
+		suffixStart[i] = start
+		if i+1 < len(messages) {
+			suffixStart[i] = min(start, suffixStart[i+1])
 		}
 	}
-	return 0
+	var start, end int64
+	for i := 0; i+1 < len(messages); i++ {
+		low, high := summaryMessageRange(messages[i])
+		if i == 0 {
+			start, end = low, high
+		} else {
+			start, end = min(start, low), max(end, high)
+		}
+		next := messages[i+1]
+		if len(messages)-i-1 <= keepTail && next.Role == core.RoleUser &&
+			(next.Provenance == nil || next.Provenance.Kind != "summary") && end < suffixStart[i+1] {
+			return i + 1, start, end
+		}
+	}
+	return 0, 0, 0
+}
+
+func summaryMessageRange(message core.ChatMessage) (int64, int64) {
+	start, end := message.SourceSeq, message.SourceSeq
+	if p := message.Provenance; p != nil && p.Kind == "summary" {
+		start, end = min(start, p.SourceStart), max(end, p.SourceEnd)
+	}
+	return start, end
 }
 
 // DefaultSummarizerPrompt is used when no custom system prompt is supplied.

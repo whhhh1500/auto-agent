@@ -59,6 +59,12 @@ implementation.
   Its adapter normalizes matching legacy tool-call aliases and omits completed
   workflow child audit results from model input, while durable events retain
   every protected step. Conflicting aliases or missing outer results fail closed.
+  Rolling summaries close the replacement range over original provenance and
+  prior summary events before writing it, preserving an unshadowed tail and the
+  append-only source log. The default extractive policy uses no additional model
+  calls; [three-cycle live verification](performance/2026-09-06-rolling-summary.md)
+  covers selected facts and service reconstruction, with explicit finite-budget
+  and optional LLM-summary accounting limits.
 - `pkg/app/modelcontrol` owns immutable catalog/provider/protocol evidence;
   `pkg/adapter/modelruntime` compiles persisted settings through explicit
   provider and protocol plugins.
