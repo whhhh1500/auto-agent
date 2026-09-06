@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 	"sync"
 	"time"
@@ -19,6 +20,8 @@ import (
 // external writers surface as ErrSessionConflict on Flush.
 type WriteBehind struct {
 	store              core.SessionStore
+	fencedAppender     FencedSessionAppender
+	fence              SessionWriteFence
 	session            *core.Session
 	maxDelay           time.Duration
 	backgroundDisabled bool
@@ -49,6 +52,38 @@ func NewWriteBehind(store core.SessionStore, session *core.Session, startVersion
 		savedVersion:       startVersion,
 		changed:            make(chan struct{}),
 	}
+}
+
+// NewFencedWriteBehind creates a WriteBehind whose every non-empty incremental
+// append is authorized by one durable queued-run fence. The store must
+// implement the optional FencedSessionAppender contract; there is no
+// best-effort fallback. A fence-loss error is retained as the writer's terminal
+// persistence error: it stops future background scheduling, and Checkpoint,
+// Flush, and Abort report it to the owner that must stop the stale worker.
+func NewFencedWriteBehind(store core.SessionStore, fence SessionWriteFence, session *core.Session, startVersion int64, maxDelay time.Duration) (*WriteBehind, error) {
+	if store == nil || session == nil {
+		return nil, fmt.Errorf("fenced write-behind requires a store and session")
+	}
+	if err := validateSessionWriteFence(fence); err != nil {
+		return nil, err
+	}
+	if session.ID() != fence.SessionID {
+		return nil, fmt.Errorf("write-behind session %q does not match fenced session %q", session.ID(), fence.SessionID)
+	}
+	if startVersion < 0 {
+		return nil, fmt.Errorf("fenced write-behind start version must not be negative")
+	}
+	if currentVersion := session.Version(); startVersion > currentVersion {
+		return nil, fmt.Errorf("fenced write-behind start version %d exceeds session version %d", startVersion, currentVersion)
+	}
+	appender, ok := store.(FencedSessionAppender)
+	if !ok {
+		return nil, fmt.Errorf("session store %T does not implement fenced append", store)
+	}
+	writer := NewWriteBehind(store, session, startVersion, maxDelay)
+	writer.fencedAppender = appender
+	writer.fence = fence
+	return writer, nil
 }
 
 // MarkDirty schedules a background flush within maxDelay. It is safe to call
@@ -158,7 +193,9 @@ func (w *WriteBehind) flushOnce(ctx context.Context) {
 	events := session.EventsFrom(savedVersion)
 	targetVersion := savedVersion + int64(len(events))
 	var err error
-	if appender, ok := w.store.(core.SessionAppender); ok {
+	if w.fencedAppender != nil {
+		err = w.fencedAppender.AppendEventsFenced(ctx, w.fence, savedVersion, events)
+	} else if appender, ok := w.store.(core.SessionAppender); ok {
 		err = appender.AppendEvents(ctx, session.ID(), savedVersion, events)
 	} else {
 		var snapshot *core.Session

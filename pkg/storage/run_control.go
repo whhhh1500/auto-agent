@@ -181,6 +181,7 @@ var (
 		WHERE run_id = ?`}
 	sqlRenewRunClaim = sqlQuery{`UPDATE run_queue SET lease_expires_at = ? WHERE run_id = ? AND worker_id = ? AND generation = ? AND lease_expires_at > ?
 		AND EXISTS (SELECT 1 FROM run_control WHERE run_control.run_id = run_queue.run_id AND status = 'running')`}
+	sqlLockRunningRunForRenew = sqlQuery{`SELECT 1 FROM run_control WHERE run_id = ? AND status = 'running' FOR UPDATE`}
 	sqlRetryClaimedRunControl = sqlQuery{`UPDATE run_control SET status = 'queued', error_code = ?, updated_at = ?
 		WHERE run_id = ? AND status = 'running'
 		AND EXISTS (SELECT 1 FROM run_queue WHERE run_queue.run_id = run_control.run_id
@@ -567,6 +568,19 @@ func (s *SQLRunControlStore) RenewRunClaim(ctx context.Context, runID, workerID 
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Keep PostgreSQL's row-lock order consistent with claim, retry, pause,
+	// finish, and fenced Session append: run_control before run_queue. SQLite
+	// serializes writers, and does not support FOR UPDATE.
+	if s.dialect == SQLDialectPostgres {
+		var locked int
+		err := tx.QueryRowContext(ctx, sqlLockRunningRunForRenew.bind(s.dialect), runID).Scan(&locked)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
 	result, err := tx.ExecContext(ctx, sqlRenewRunClaim.bind(s.dialect),
 		now.Add(leaseTTL).UnixMilli(), runID, workerID, generation, now.UnixMilli(),
 	)
