@@ -547,7 +547,7 @@ flowchart TD
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
-**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史，但新增同步交互尚未 benchmark。本次仍未做数据库大小增长、SQLite 锁竞争和远端 PG 压测。
+**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史。Pre-tool durable checkpoint 的局部开销见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)；其中分位数为 batch-normalized，并非单请求 tail，且 Memory/SQLite 结果不能替代 PostgreSQL。本次仍未做数据库大小增长、SQLite 锁竞争和远端 PG 压测。
 
 **对比 / 取舍：** 本项目自带的服务级存储范围较广，代价是 migration 与多 Store 一致性维护。LangGraph/Eino 的 checkpoint 后端聚焦编排恢复，不能直接当作整个 SaaS 数据层替代品；也不能据此说它们缺少持久化。
 
