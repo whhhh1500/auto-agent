@@ -57,10 +57,11 @@ type LlmAdapter interface {
 }
 
 type modelStreamResult struct {
-	Text       string
-	ToolCalls  []ToolCall
-	Usage      TokenUsage
-	FinishKind string
+	usageReported bool
+	Text          string
+	ToolCalls     []ToolCall
+	Usage         TokenUsage
+	FinishKind    string
 }
 
 // consumeModelStream is the single protocol boundary for every model adapter.
@@ -114,6 +115,7 @@ func consumeModelStream(
 			}
 			usageSeen = true
 			result.Usage = *chunk.Usage
+			result.usageReported = true
 		}
 
 		switch chunk.Kind {
@@ -127,7 +129,6 @@ func consumeModelStream(
 				cancelStream()
 				return
 			}
-			text.WriteString(chunk.Text)
 			appendStreamCalls := func(items []ToolCall) {
 				for _, call := range items {
 					if !containsCall(calls, call) {
@@ -148,8 +149,10 @@ func consumeModelStream(
 				if callbackErr := safeAssistantCallback(onAssistant, chunk); callbackErr != nil {
 					protocolErr = callbackErr
 					cancelStream()
+					return
 				}
 			}
+			text.WriteString(chunk.Text)
 		case StreamKindFinish:
 			if chunk.Text != "" || chunk.ToolCall != nil || len(chunk.ToolCalls) > 0 {
 				protocolErr = fmt.Errorf("finish chunk carries assistant content")
@@ -217,6 +220,18 @@ func consumeModelStream(
 func ConsumeModelStream(ctx context.Context, adapter LlmAdapter, opts GenerateOptions, onAssistant func(StreamChunk) error) error {
 	_, err := consumeModelStream(ctx, adapter, opts, onAssistant)
 	return err
+}
+
+// ConsumeModelStreamUsage also returns the first validated usage report, even
+// when a later stream error occurs. Nil means no valid report was received;
+// invalid or duplicate reports never replace the first accepted report.
+func ConsumeModelStreamUsage(ctx context.Context, adapter LlmAdapter, opts GenerateOptions, onAssistant func(StreamChunk) error) (*TokenUsage, error) {
+	result, err := consumeModelStream(ctx, adapter, opts, onAssistant)
+	if !result.usageReported {
+		return nil, err
+	}
+	usage := result.Usage // Do not retain aggregate text/tool buffers through a field pointer.
+	return &usage, err
 }
 
 func validateToolCall(call ToolCall) error {

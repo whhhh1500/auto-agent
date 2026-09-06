@@ -16,6 +16,8 @@
 
 [连续摘要验收](performance/2026-09-06-rolling-summary.md)另做 6 次串行请求，修复多轮替换范围错误、超过 1 KiB 的旧摘要事实丢失及复用工具 ID 的配对问题。合成历史三轮对照均正确，服务/连接池重建前后历史与投影相同；输入/总 token 减少 50.44%/45.09%，耗时增加 11.59%。只验证默认 extractive 的被选中事实连续保留，不涵盖任意长期召回或可选 LLM 摘要。
 
+后续 [LLM 摘要完整计量验收](performance/2026-09-06-llm-summary-accounting.md)再做 9 次串行请求，补齐摘要的工具元数据、有效 usage、Run 身份、trace 和 SQL 统计；普通模型失败后的用量也保留。三个工具来源事实在本地提取/LLM 摘要下均答对，但计入三次摘要调用后，LLM 组总 token 从 4,423 增至 12,990、耗时从 10.05 秒增至 34.18 秒。本地仍为默认；不把普通回答请求变小误写成整段成本降低。
+
 | 模块 | 职责 | 本轮真实验收状态 | 已跑通的边界 / 未覆盖内容 |
 | --- | --- | --- | --- |
 | [M01](#m01) | Agent 循环 | 已验证路径 | 真实模型→工具→模型→终态；含文本与工具循环。 |
@@ -32,7 +34,7 @@
 | [M12](#m12) | FastRouter | 本轮未验 | 未安装 FastRouter，所有场景均进入模型循环。 |
 | [M13](#m13) | Session / 事件 | 已验证路径 | 会话重建后记住随机值；HTTP 历史分页与 SQL 原始事件逐项相等，保留终态。 |
 | [M14](#m14) | 上下文组装 | 发现问题后验证并优化 | 修复兼容别名、Workflow 内部结果和工具 Schema 漏算；最终工具预算先于旧历史选择，自定义 ContextEstimator 已接入；预算超限上游调用为 0。 |
-| [M15](#m15) | 摘要 / 压缩 | 发现问题后验证默认路径 | 120/60 连续三次 extractive 摘要、三个不同历史事实、重建后事件/投影恢复及完整历史对照；合成历史、6 次真实请求。可选 LLM 摘要和无限轮记忆未验。 |
+| [M15](#m15) | 摘要 / 压缩 | 两种策略有明确实测路径 | 120/60 连续三次摘要、不同历史事实、重建后事件/投影恢复；先验本地摘要，后用 9 次请求对照本地/LLM 并计入全部摘要费用。合成历史，无限轮记忆未验。 |
 | [M16](#m16) | 工具保护 / Hook | 已验证路径 | OnBeforeTool 拒绝后模型回答 BLOCKED，工具副作用为 0；未穷举全部策略。 |
 | [M17](#m17) | 人工审批 | 已验证路径 | 真实模型请求工具→持久暂停→替换服务实例→同 Run 恢复；副作用和终态各 1 次。该既有夹具未装 ContextAssembler。 |
 | [M18](#m18) | ToolJournal | 部分验证 | SQL journal 参与工具执行及审批恢复；非幂等崩溃窗口未在本轮注入。 |
@@ -229,7 +231,7 @@ flowchart TD
 
 **扩展：** E1：实现 Provider / Protocol，声明兼容组合、流边界、错误、usage 与 continuation 的语义并注册。当前 Chat Completions 会持久化并回传工具调用 `extra_content`；这不代表所有协议、所有多模态状态都可透明互换。原生 Gemini 协议尚未内置。
 
-**性能：** 既有 `gemini-3.8-flash` 真实验收通过兼容连接完成两次模型请求，完整审批恢复用例约 **4.82 秒**；不是单请求延迟或 TTFT 基准。本次不重提该计费请求。流解析与复制本身未独立压测。
+**性能：** 既有 `gemini-3.8-flash` 完整审批恢复用例约 **4.82 秒**，不是单请求延迟或 TTFT 基准。后续新增 `ConsumeModelStreamUsage` 返回有效报告，普通模型失败不再漏记已报告用量；消费者拒绝 2 MiB chunk 时先回调后聚合，五样本中位 140,701→296.2 ns、约 2 MiB→376 B 分配。见[拒绝路径基准](performance/2026-09-06-llm-summary-accounting.md)，未据此推导正常吞吐、RSS 或整个 Agent 加速比。
 
 **对比 / 取舍：** 厂商原生工具、多模态与协议迭代速度优先时，OpenAI SDK、ADK、LangChain/Eino 对应适配值得优先比较；本项目适合保留统一运行治理并逐个补适配器。[C1](agent-framework-comparison.md#c1)、[C2](agent-framework-comparison.md#c2)、[C4](agent-framework-comparison.md#c4)、[C6](agent-framework-comparison.md#c6)
 
@@ -301,11 +303,11 @@ flowchart TD
 
 **实现 / 状态：** [summarizer.go](../pkg/app/contextassembly/summarizer.go)、[extractive_summarizer.go](../pkg/app/contextassembly/extractive_summarizer.go)通过小接口接入滚动摘要。默认服务安装确定性提取式摘要，`MaxMessages=120`、`KeepTail=60`；KeepTail 是安全范围内保留数量的上限。已修复投影顺序不等于事件序号导致的连续替换错误，归档包含旧摘要来源及其事件，保留尾部不被遮盖。旧摘要使用剩余总预算，工具 ID 完成后可在后续轮次重用。SQL/HTTP 原始事件完整保留，三轮真实回答与重建后投影已验。
 
-**扩展：** E1：实现 `ContextSummarizer`，可按任务分层摘要、引用原始证据或调用 LLM；需要处理失败、取消、输入大小、生成费用和事实丢失。新增摘要器不应把低信任工具输出变成更高优先级指令。
+**扩展：** E1：本地策略实现 `ContextSummarizer`；需要报告费用的策略同时实现 app 的 `MeteredContextSummarizer`，接收 `SummaryRequest` 的当前 Run 身份并返回 `SummaryResult`，有效 usage 在成功或失败时都作为独立增量入库。`LlmSummarizer` 已实现，Gate 与 Telemetry 由宿主显式注入；独立调用用 `SummarizeWithUsage` 读取用量，兼容的 `Summarize` 只返回文本。策略仍需处理失败、取消、预算与事实丢失，不能把工具数据提升成更高优先级指令。
 
 **性能：** [实测记录与七份证据](performance/2026-09-06-rolling-summary.md)：默认本地摘要无额外模型请求，三轮累计输入 7,520→3,727、总 token 8,409→4,617，耗时 10,769→12,017 ms，两个 arm 各 3/3 正确。两组均关闭机械窗口裁剪，只比较完整历史与默认摘要阈值；种子直接写入 SQL，不是 128 轮真实交谈。局部提取中位 1.058 µs / 1,505 B，含事件恢复和投影的路径 193.634 µs / 约 225 KB 分配，不是 RSS。固定单样本不能外推平均收益。
 
-**对比 / 取舍：** 默认仅选最近 4 条 user 目标、旧摘要和工具证据，忽略普通 assistant 叙述；12 KiB 总上限下仍有嵌套增长、整项省略和旧摘要挤掉新记录的风险。本次只证明被选中事实保留三次。可选 `LlmSummarizer` 尚缺完整工具元数据 transcript 和摘要 Usage/telemetry 汇总，未真实验收，不能套用本地摘要的成本结论。语义压缩/结构化长期记忆仍需定制；跨框架优劣要用相同任务和总成本比较。
+**对比 / 取舍：** 默认仅选最近 4 条 user 目标、旧摘要和工具证据，忽略普通 assistant 叙述；12 KiB 上限仍有嵌套增长、整项省略和旧摘要挤掉新记录的风险。后续已补齐 LLM 摘要的工具 JSONL 与 Usage/trace：三轮工具事实对照，两组各 3/3 正确，LLM 普通请求输入虽少 15.53%，计入摘要后总 token 却增加 193.69%、耗时增加 240.17%。详见[完整计量与失败证据](performance/2026-09-06-llm-summary-accounting.md)。仍默认本地提取；这不是无限轮、任意事实或语义任务平均效果的证明。
 
 ## 三、执行保护、恢复与编排
 
@@ -647,6 +649,8 @@ flowchart TD
 
 **真实验收补充：** 已采集真实 Gemini 运行的本地 OTel SDK span，与 HTTP/SQL 聊天事件及父子 delegation link 对照。子 Run 的 parent span 精确指向父 delegate 工具，Workflow 的 2 次模型调用和 3 个工具执行也有完整关联。首轮有[三份脱敏记录](verification/2026-09-06-serial-live-agent-acceptance.md#可直接审核的真实样本)，后续[五份记录](performance/2026-09-06-context-budget-optimization.md)增加了实际 SDK reader 收集的上下文成本指标；尚未验证远端 OTLP、Console 可视化和远端 metrics 平台。
 
+[LLM 摘要验收](performance/2026-09-06-llm-summary-accounting.md)进一步区分普通/摘要模型 span，核对上游报告、持久 usage 增量与 SQL RunStat。已采集三次真实摘要调用；脚本模型另验证报告用量后失败仍保留费用、error span 和唯一失败终态，不写入替换摘要。未报告 usage 与明确 0 分别表示，不将前者当作免费。
+
 **实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。
 
 **扩展：** E1：注入 exporter/telemetry 或日志实现，接现有观测后端；明确采样、敏感内容与属性基数。trace 不是持久审批事实来源，丢采样不能影响运行正确性。
@@ -659,11 +663,11 @@ flowchart TD
 
 ### M44 — 测试、架构边界与性能工具
 
-**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收记录包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium。内核预算约束依赖和公共表面；工具披露修复后实测为 34 个生产文件、8,706 非空物理行、公共表面计数 904，**不是 904 个接口**；本轮仅增加私有恢复逻辑，公共表面相比原评估仍只增加先前的 `ModelContext.Tools` 一个字段。
+**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium，各记录注明执行范围。LLM 摘要计量后 core 实测为 34 个生产文件、8,721 非空物理行、公共表面计数 905，**不是 905 个接口**；最新新增一个复用协议校验器的 usage 消费函数，门禁阈值未放宽，摘要策略/计量扩展位于 app。
 
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 
-**性能：** 本次运行 6 个包、9 个微基准场景、每项 3 样本；没有为文档再跑全仓测试，也没有新跑计费模型。既有全仓通过数与条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)，不把跳过说成已验证。
+**性能：** 初版 6 个包、9 个微基准及历史条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)。后续真实调用与全仓检查分别记在上下文预算、WASM、工具披露、连续摘要和 LLM 摘要记录中；最新补做 9 次真实请求、2 MiB 拒绝路径五样本基准及全仓 PostgreSQL 测试。不能把早期源码评估、离线脚本或被跳过的测试合并成全部真实通过。
 
 **对比 / 取舍：** 现有测试证据支持继续开发，但未提供外部采用规模、长期事故率或跨框架性能优胜证据。应保持小接口和明确合同，优先补真实部署验证，而不是仅增加更多抽象或追求测试数量。
 

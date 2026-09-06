@@ -65,6 +65,11 @@ implementation.
   calls; [three-cycle live verification](performance/2026-09-06-rolling-summary.md)
   covers selected facts and service reconstruction, with explicit finite-budget
   and optional LLM-summary accounting limits.
+  The follow-up [LLM summary accounting audit](performance/2026-09-06-llm-summary-accounting.md)
+  adds an app-level metered policy, current run identity and separately tagged
+  summary model spans. Reported usage is an additive durable event, including
+  failures; core exposes validated stream usage through one optional consumer
+  function. The default remains local extraction after measuring total cost.
 - `pkg/app/modelcontrol` owns immutable catalog/provider/protocol evidence;
   `pkg/adapter/modelruntime` compiles persisted settings through explicit
   provider and protocol plugins.

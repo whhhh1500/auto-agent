@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -63,6 +64,7 @@ func NewExtractiveSummarizer(config ExtractiveSummarizerConfig) (*ExtractiveSumm
 
 type extractiveTool struct {
 	id, name string
+	args     map[string]any
 	result   *core.ChatMessage
 }
 
@@ -107,7 +109,7 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 					continue
 				}
 				byID[call.ID] = len(tools)
-				tools = append(tools, extractiveTool{id: call.ID, name: call.Name})
+				tools = append(tools, extractiveTool{id: call.ID, name: call.Name, args: call.Args})
 			}
 		}
 		if message.Role == core.RoleTool {
@@ -138,6 +140,9 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 	}
 	for _, tool := range tools {
 		call := "tool_call id=" + s.identifier(tool.id) + " name=" + s.identifier(tool.name)
+		if tool.args != nil {
+			call += " args=" + s.toolArgs(tool.args)
+		}
 		if tool.result == nil {
 			builder.record(call + " status=unresolved")
 			continue
@@ -157,6 +162,18 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 		return "", ErrInvalid
 	}
 	return builder.builder.String(), nil
+}
+
+func (s *ExtractiveSummarizer) toolArgs(args map[string]any) string {
+	budget, nodes := s.maxMessageBytes/6, 2048
+	if !summaryJSONFits(args, &budget, &nodes, 0) {
+		return "[omitted arguments]"
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil || len(encoded) > s.maxMessageBytes {
+		return "[omitted arguments]"
+	}
+	return string(encoded)
 }
 
 func appendLatest(messages []core.ChatMessage, message core.ChatMessage, limit int) []core.ChatMessage {

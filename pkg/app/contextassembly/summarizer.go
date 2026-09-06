@@ -2,7 +2,6 @@ package contextassembly
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -63,7 +62,7 @@ func (r *RollingSummarizer) EnsureSummarized(ctx context.Context, session *core.
 	if summariesOnly(archived) {
 		return nil, fmt.Errorf("rolling summarizer cannot make summary progress")
 	}
-	summary, err := r.Summarizer.Summarize(ctx, archived)
+	summary, err := summarizeAndRecordUsage(ctx, r.Summarizer, session, runID, emit, archived)
 	if err != nil {
 		return nil, err
 	}
@@ -157,182 +156,4 @@ func summaryMessageRange(message core.ChatMessage) (int64, int64) {
 		start, end = min(start, p.SourceStart), max(end, p.SourceEnd)
 	}
 	return start, end
-}
-
-// DefaultSummarizerPrompt is used when no custom system prompt is supplied.
-const DefaultSummarizerPrompt = "Summarize the preceding agent conversation for archival. " +
-	"Preserve task intent, confirmed facts, tool results that still matter, open questions, " +
-	"and any constraints. Be terse and factual; do not invent details."
-
-// LlmSummarizer executes bounded summary-only model calls. It is an app-level
-// policy, while core retains only the model stream and proof contracts.
-type LlmSummarizer struct {
-	Adapter          core.LlmAdapter
-	System           string
-	ModelCallGate    core.ModelCallGate
-	RequestIdentity  core.ModelCallRequest
-	MaxInputMessages int
-	MaxInputBytes    int
-	MaxOutputBytes   int
-}
-
-func (s LlmSummarizer) Summarize(ctx context.Context, messages []core.ChatMessage) (string, error) {
-	if s.Adapter == nil {
-		return "", fmt.Errorf("summarizer LLM adapter is nil")
-	}
-	if ctx == nil {
-		return "", fmt.Errorf("summarizer context is nil")
-	}
-	maxMessages, maxInputBytes, maxOutputBytes, err := s.limits()
-	if err != nil {
-		return "", err
-	}
-	acceptedCall := core.AcceptedModelCall{}
-	if s.ModelCallGate != nil {
-		acceptedCall, err = core.PrepareAcceptedModelCall(ctx, s.ModelCallGate, s.RequestIdentity)
-		if err != nil {
-			return "", err
-		}
-	}
-	system := s.System
-	if system == "" {
-		system = DefaultSummarizerPrompt
-	}
-	if len(system) > maxInputBytes || !utf8.ValidString(system) {
-		return "", fmt.Errorf("summarizer system exceeds input budget")
-	}
-	transcript, err := boundedSummaryTranscript(ctx, messages, maxMessages, maxInputBytes-len(system))
-	if err != nil {
-		return "", err
-	}
-	stream, err := streamSummary(ctx, s.Adapter, core.GenerateOptions{
-		Provider: s.RequestIdentity.Provider, Model: s.RequestIdentity.Model, System: system,
-		Messages:  []core.ChatMessage{{Role: core.RoleUser, Content: transcript}},
-		ModelCall: s.RequestIdentity, AcceptedCall: acceptedCall,
-	}, maxOutputBytes)
-	if err != nil {
-		if errors.Is(err, core.ErrAcceptedModelCallRequired) {
-			return "", err
-		}
-		return "", fmt.Errorf("summarizer model call failed")
-	}
-	if stream.toolCalls {
-		return "", fmt.Errorf("summarizer model returned tool calls")
-	}
-	summary := strings.TrimSpace(stream.text)
-	if summary == "" || len(summary) > maxOutputBytes || !utf8.ValidString(summary) {
-		return "", fmt.Errorf("summarizer model returned an invalid or oversized summary")
-	}
-	return summary, nil
-}
-
-func (s LlmSummarizer) limits() (int, int, int, error) {
-	messages, inputBytes, outputBytes := s.MaxInputMessages, s.MaxInputBytes, s.MaxOutputBytes
-	if messages == 0 {
-		messages = defaultSummaryInputMessages
-	}
-	if inputBytes == 0 {
-		inputBytes = defaultSummaryInputBytes
-	}
-	if outputBytes == 0 {
-		outputBytes = maxContextSummaryBytes
-	}
-	if messages <= 0 || messages > maxSummaryInputMessages || inputBytes <= 0 || inputBytes > maxSummaryInputBytes || outputBytes <= 0 || outputBytes > maxContextSummaryBytes {
-		return 0, 0, 0, fmt.Errorf("summarizer limits are outside the bounded range")
-	}
-	return messages, inputBytes, outputBytes, nil
-}
-
-func boundedSummaryTranscript(ctx context.Context, messages []core.ChatMessage, maxMessages, maxBytes int) (string, error) {
-	if maxBytes < 128 {
-		return "", fmt.Errorf("summarizer input budget is too small")
-	}
-	const omissionReserve = 64
-	count := len(messages)
-	if count > maxMessages {
-		count = maxMessages
-	}
-	var transcript strings.Builder
-	initial := maxBytes - omissionReserve
-	if initial > 4096 {
-		initial = 4096
-	}
-	transcript.Grow(initial)
-	omittedMessages := len(messages) - count
-	for i := 0; i < count; i++ {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		message := messages[i]
-		if !utf8.ValidString(message.Content) {
-			return "", fmt.Errorf("summarizer input contains invalid UTF-8")
-		}
-		linePrefix := string(message.Role) + ": "
-		remaining := maxBytes - omissionReserve - transcript.Len()
-		if remaining <= len(linePrefix)+1 {
-			omittedMessages += count - i
-			break
-		}
-		if len(message.Content)+len(linePrefix)+1 <= remaining {
-			transcript.WriteString(linePrefix)
-			transcript.WriteString(message.Content)
-			transcript.WriteByte('\n')
-			continue
-		}
-		marker := fmt.Sprintf("%s[omitted bytes=%d]", linePrefix, len(message.Content))
-		if len(marker)+1 <= remaining {
-			transcript.WriteString(marker)
-			transcript.WriteByte('\n')
-			continue
-		}
-		omittedMessages += count - i
-		break
-	}
-	if omittedMessages > 0 {
-		marker := fmt.Sprintf("[omitted messages=%d]", omittedMessages)
-		if transcript.Len()+len(marker) <= maxBytes {
-			transcript.WriteString(marker)
-		}
-	}
-	if transcript.Len() == 0 {
-		return "", fmt.Errorf("summarizer input is empty after bounding")
-	}
-	return transcript.String(), nil
-}
-
-type summaryStreamResult struct {
-	text      string
-	toolCalls bool
-}
-
-func streamSummary(ctx context.Context, adapter core.LlmAdapter, options core.GenerateOptions, maxBytes int) (result summaryStreamResult, err error) {
-	if adapter == nil {
-		return result, fmt.Errorf("summarizer LLM adapter is nil")
-	}
-	streamCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var text strings.Builder
-	err = core.ConsumeModelStream(streamCtx, adapter, options, func(chunk core.StreamChunk) error {
-		if chunk.Kind == core.StreamKindAssistant {
-			if chunk.ToolCall != nil || len(chunk.ToolCalls) > 0 {
-				result.toolCalls = true
-				cancel()
-				return nil
-			}
-			if len(chunk.Text)+text.Len() > maxBytes {
-				cancel()
-				return nil
-			}
-			text.WriteString(chunk.Text)
-		}
-		return nil
-	})
-	if err != nil {
-		return result, err
-	}
-	if ctx.Err() != nil {
-		return result, ctx.Err()
-	}
-	result.text = text.String()
-	return result, nil
 }

@@ -155,7 +155,8 @@ type AssistantChunkData struct {
 	Text string `json:"text"`
 }
 
-// RunUsageData records aggregated token usage for one run.
+// RunUsageData is an additive usage contribution. Sum a run's events, including
+// summaries and approval checkpoints, to obtain its reported total.
 type RunUsageData struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`

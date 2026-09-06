@@ -326,16 +326,16 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 		}
 
 		stream, failureCode, err := a.callModel(ctx, info, step, messages)
+		if usageErr := addTokenUsage(&a.usage, stream.Usage); usageErr != nil {
+			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("usage_invalid", usageErr, false))
+			return a.fail(info, "usage_invalid", usageErr, false)
+		}
 		if err != nil {
 			if failureCode == "model_gate_rejected" {
 				return a.fail(info, failureCode, err, false)
 			}
 			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData(failureCode, err, isRetryable(err)))
 			return a.fail(info, failureCode, err, isRetryable(err))
-		}
-		if err := addTokenUsage(&a.usage, stream.Usage); err != nil {
-			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("usage_invalid", err, false))
-			return a.fail(info, "usage_invalid", err, false)
 		}
 		text, calls := stream.Text, stream.ToolCalls
 
@@ -692,8 +692,8 @@ func (a *Agent) notifyRunEnd(info RunInfo, status RunStatus) {
 	}
 }
 
-// appendUsage records aggregated token metering once per run when the provider
-// reported any usage.
+// appendUsage records this segment's ordinary model usage. Summarizer usage
+// contributions and approval checkpoints are independent additive events.
 func (a *Agent) appendUsage(runID string) {
 	if a.usage.InputTokens == 0 && a.usage.OutputTokens == 0 {
 		return

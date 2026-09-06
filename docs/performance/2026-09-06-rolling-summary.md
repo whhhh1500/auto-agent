@@ -76,6 +76,8 @@ Windows/amd64、i7-12700K、Go 1.25.13、GOMAXPROCS=20，5 样本、每样本 30
 
 **可选 `LlmSummarizer` 的明确缺口：** 当前 transcript 只记录角色和 Content，没有完整带入工具名、参数及调用 ID；其 summary-only stream 没有把 Usage 返回给 agent run 汇总，也没有单独集成摘要调用的 telemetry。这些来自代码检查，尚未修复或真实验收；本轮所有 token 数字只适用于没有额外摘要模型请求的默认 extractive 路径。将来启用 LLM 摘要时，必须把该调用纳入总费用/trace，再评估收益。
 
+后续状态：以上是本记录形成时的缺口，随后已在 [LLM 摘要完整计量验收](2026-09-06-llm-summary-accounting.md)中补齐并用 9 次真实请求验证；其中总 token 增加的反例完整保留。本记录原始六次请求仍全部属于本地 extractive，不追溯改写为 LLM 摘要证据。
+
 ## 复跑和检查
 
 所有 Go 缓存、编译临时目录与 TEMP 均在 D 盘。离线 PostgreSQL 模型为脚本夹具，不调用端点。真实测试需要显式设置 `HARNESS_ACCEPTANCE_LIVE_SERIAL=1`、模型/URL/key 和 PostgreSQL DSN；凭据只经环境传入。

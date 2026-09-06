@@ -1,0 +1,31 @@
+{
+  "history_usage_sum": {
+    "input_tokens": 2947,
+    "output_tokens": 1494
+  },
+  "reported_model_calls": [
+    {
+      "InputTokens": 1997,
+      "Messages": 1,
+      "OutputTokens": 1085,
+      "ToolNames": [],
+      "Tools": 0
+    },
+    {
+      "InputTokens": 950,
+      "Messages": 60,
+      "OutputTokens": 409,
+      "ToolNames": [],
+      "Tools": 0
+    }
+  ],
+  "run_id": "run_530445d21fa823f6149f48739a6c122e",
+  "sql_run_stat": {
+    "input_tokens": 2947,
+    "output_tokens": 1494
+  },
+  "upstream": {
+    "input_tokens": 2947,
+    "output_tokens": 1494
+  }
+}

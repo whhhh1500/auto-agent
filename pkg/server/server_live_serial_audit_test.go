@@ -111,7 +111,7 @@ type serialSpanEvidence struct {
 	Attributes map[string]string `json:"attributes"`
 }
 
-func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) {
+func serialCollectAudit(t *testing.T, api *serialAuditedAPI, session, runID string) ([]core.SessionEvent, []serialSpanEvidence, map[string]int64) {
 	t.Helper()
 	events := serialAuditHistory(t, api, session)
 	spans := make([]serialSpanEvidence, 0)
@@ -144,11 +144,18 @@ func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) 
 		}
 	}
 	serialWriteAudit(t, runID, map[string]any{"session_id": session, "run_id": runID, "events": events, "spans": spans, "context_metrics_process_cumulative": contextMetrics})
+	return events, spans, contextMetrics
+}
+
+func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) {
+	t.Helper()
+	events, spans, contextMetrics := serialCollectAudit(t, api, session, runID)
 	if contextMetrics[core.MetricModelContextInputBytes] <= 0 || contextMetrics[core.MetricModelContextInputTokens] <= 0 {
 		t.Fatal("OTel reader did not collect model context cost")
 	}
 	var runSpan *serialSpanEvidence
 	modelSpans, steps, users, assistants, ends := 0, 0, 0, 0, 0
+	summarySpans, summaries := 0, 0
 	toolSpans := map[string]bool{}
 	for i := range spans {
 		span := &spans[i]
@@ -159,7 +166,11 @@ func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) 
 		case core.SpanRunSegment:
 			runSpan = span
 		case core.SpanModelCall:
-			modelSpans++
+			if span.Attributes["model.purpose"] == "context_summary" {
+				summarySpans++
+			} else {
+				modelSpans++
+			}
 		case core.SpanToolCall:
 			toolSpans[span.Attributes["call.id"]] = true
 		}
@@ -189,6 +200,8 @@ func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) 
 			continue
 		}
 		switch event.Type {
+		case core.EvContextSummary:
+			summaries++
 		case core.EvStepStart:
 			steps++
 		case core.EvUserMessage:
@@ -217,10 +230,10 @@ func serialAuditRun(t *testing.T, api *serialAuditedAPI, session, runID string) 
 			delete(calls, result.CallID)
 		}
 	}
-	if modelSpans != steps || users != 1 || assistants < 1 || ends != 1 || len(calls) != 0 {
+	if modelSpans != steps || (summarySpans > 0 && summarySpans != summaries) || users != 1 || assistants < 1 || ends != 1 || len(calls) != 0 {
 		t.Fatalf("trace/history mismatch model_spans=%d steps=%d users=%d assistants=%d ends=%d pending_tools=%d", modelSpans, steps, users, assistants, ends, len(calls))
 	}
-	t.Logf("serial trace run=%s trace_id=%s model_spans=%d executed_tool_spans=%d history_audit=pass", runID, runSpan.TraceID, modelSpans, len(toolSpans))
+	t.Logf("serial trace run=%s trace_id=%s model_spans=%d summary_model_spans=%d executed_tool_spans=%d history_audit=pass", runID, runSpan.TraceID, modelSpans, summarySpans, len(toolSpans))
 }
 
 func serialWriteAudit(t *testing.T, runID string, evidence any) {

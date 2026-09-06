@@ -1,0 +1,24 @@
+{
+  "history_usage_sum": {
+    "input_tokens": 23,
+    "output_tokens": 5
+  },
+  "reported_model_calls": [
+    {
+      "InputTokens": 23,
+      "Messages": 1,
+      "OutputTokens": 5,
+      "ToolNames": [],
+      "Tools": 0
+    }
+  ],
+  "run_id": "run_2b75578d2311256f85b566b21beb8671",
+  "sql_run_stat": {
+    "input_tokens": 23,
+    "output_tokens": 5
+  },
+  "upstream": {
+    "input_tokens": 23,
+    "output_tokens": 5
+  }
+}
