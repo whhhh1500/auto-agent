@@ -59,12 +59,12 @@ func (m approvalModel) Stream(_ context.Context, options GenerateOptions, emit f
 	last := options.Messages[len(options.Messages)-1]
 	if last.Role == RoleTool {
 		emit(StreamChunk{Kind: StreamKindAssistant, Text: "approval handled"})
-		emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishStop})
+		emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishStop, Usage: &TokenUsage{InputTokens: 3, OutputTokens: 1}})
 		return nil
 	}
 	call := m.call
 	emit(StreamChunk{Kind: StreamKindAssistant, ToolCall: &call})
-	emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishToolCalls})
+	emit(StreamChunk{Kind: StreamKindFinish, FinishKind: FinishToolCalls, Usage: &TokenUsage{InputTokens: 7, OutputTokens: 2}})
 	return nil
 }
 
@@ -154,6 +154,7 @@ func TestDurableApprovalPausesWithoutTerminalAndResumesSameRun(t *testing.T) {
 	}
 	resumeMetadata["segment.assignment"] = "mutated"
 	var starts, resumes int
+	usageIDs := map[string]bool{}
 	for _, event := range session.Events() {
 		switch event.Type {
 		case EvRunStart:
@@ -168,10 +169,19 @@ func TestDurableApprovalPausesWithoutTerminalAndResumesSameRun(t *testing.T) {
 			if err := json.Unmarshal(event.Data, &data); err != nil || data.Composition == nil || data.Composition.Metadata["segment.assignment"] != "resume" {
 				t.Fatalf("resume composition metadata wrong: %#v err=%v", data, err)
 			}
+		case EvRunUsage:
+			var usage RunUsageData
+			if err := json.Unmarshal(event.Data, &usage); err != nil || usage.InvocationID == "" || usageIDs[usage.InvocationID] {
+				t.Fatalf("usage=%#v err=%v ids=%#v", usage, err, usageIDs)
+			}
+			usageIDs[usage.InvocationID] = true
 		}
 	}
 	if starts != 1 || resumes != 1 {
 		t.Fatalf("composition segment events: starts=%d resumes=%d", starts, resumes)
+	}
+	if len(usageIDs) != 2 {
+		t.Fatalf("approval resume duplicated or lost model usage: %#v", usageIDs)
 	}
 }
 

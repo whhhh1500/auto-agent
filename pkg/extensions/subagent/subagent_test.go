@@ -461,7 +461,8 @@ func TestDurableDelegationFailsClosedForMissingInvocationAndStaleLink(t *testing
 
 type failingDelegationSessionStore struct {
 	*core.MemorySessionStore
-	fail atomic.Bool
+	fail            atomic.Bool
+	commitThenError atomic.Bool
 }
 
 type corruptDelegationLinkStore struct{ link Link }
@@ -480,7 +481,192 @@ func (s *failingDelegationSessionStore) Save(ctx context.Context, session *core.
 	if s.fail.Load() {
 		return errors.New("injected session save failure")
 	}
-	return s.MemorySessionStore.Save(ctx, session, expectedVersion)
+	if err := s.MemorySessionStore.Save(ctx, session, expectedVersion); err != nil {
+		return err
+	}
+	if s.commitThenError.Load() {
+		return errors.New("injected committed save response failure")
+	}
+	return nil
+}
+
+type delegationAppendCall struct {
+	expectedVersion int64
+	events          []core.SessionEvent
+}
+
+// recordingDelegationAppenderStore exercises the optional append fast path.
+// source is the child Session under test; the wrapper delegates durable state
+// to MemorySessionStore only after capturing the suffix requested by the
+// persister.
+type recordingDelegationAppenderStore struct {
+	*core.MemorySessionStore
+
+	mu     sync.Mutex
+	source *core.Session
+	calls  []delegationAppendCall
+
+	conflict atomic.Bool
+}
+
+func (s *recordingDelegationAppenderStore) AppendEvents(ctx context.Context, _ string, expectedVersion int64, events []core.SessionEvent) error {
+	cloned := make([]core.SessionEvent, len(events))
+	for index, event := range events {
+		cloned[index] = event
+		cloned[index].Data = append([]byte(nil), event.Data...)
+	}
+	s.mu.Lock()
+	s.calls = append(s.calls, delegationAppendCall{expectedVersion: expectedVersion, events: cloned})
+	source := s.source
+	conflict := s.conflict.Load()
+	s.mu.Unlock()
+	if conflict {
+		return fmt.Errorf("injected append conflict: %w", core.ErrSessionConflict)
+	}
+	return s.MemorySessionStore.Save(ctx, source, expectedVersion)
+}
+
+func (s *recordingDelegationAppenderStore) appendCalls() []delegationAppendCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]delegationAppendCall, len(s.calls))
+	for index, call := range s.calls {
+		out[index].expectedVersion = call.expectedVersion
+		out[index].events = append([]core.SessionEvent(nil), call.events...)
+	}
+	return out
+}
+
+func durablePersisterSession(t *testing.T, f blackBoxDelegationFixture, id string) *core.Session {
+	t.Helper()
+	scope, err := f.principal.Scope.Child(core.ScopeRef{Kind: core.ScopeSession, ID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := core.NewSession(core.SessionOptions{ID: id, ProfileID: "product.child", Principal: f.principal, Scope: scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return child
+}
+
+func TestChildProgressPersisterPersistsWholeBatchOnceAndKeepsSingleEvents(t *testing.T) {
+	f := newBlackBoxDelegationFixture(t)
+	child := durablePersisterSession(t, f, "sess-child-persister")
+	store := &recordingDelegationAppenderStore{MemorySessionStore: core.NewMemorySessionStore(), source: child}
+	if err := store.Create(context.Background(), child); err != nil {
+		t.Fatal(err)
+	}
+	persister := newChildProgressPersister(store, child)
+	const runID = "run-child-persister"
+	if _, err := child.Append(runID, core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	persister.emit(context.Background(), func() {})
+	if err := persister.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	// This reproduces the callback state after Core atomically appended an
+	// assistant/message + run/usage batch: both entries exist before the first
+	// callback is delivered. The second callback must be an exact no-op.
+	if _, err := child.Append(runID, core.EvAssistantMessage, core.AssistantMessageData{Text: "child answer"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := child.Append(runID, core.EvRunUsage, core.RunUsageData{InputTokens: 3, OutputTokens: 2, InvocationID: "model:1"}); err != nil {
+		t.Fatal(err)
+	}
+	var callbacks sync.WaitGroup
+	for range 2 {
+		callbacks.Add(1)
+		go func() {
+			defer callbacks.Done()
+			persister.emit(context.Background(), func() {})
+		}()
+	}
+	callbacks.Wait()
+	if err := persister.Err(); err != nil {
+		t.Fatal(err)
+	}
+	calls := store.appendCalls()
+	if len(calls) != 2 {
+		t.Fatalf("append calls=%d, want run-start plus one complete batch", len(calls))
+	}
+	if got := calls[1].events; len(got) != 2 || got[0].Type != core.EvAssistantMessage || got[1].Type != core.EvRunUsage {
+		t.Fatalf("batch suffix=%#v, want assistant/message then run/usage", got)
+	}
+	durable, err := store.Load(context.Background(), child.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameSessionEvents(durable.Events(), child.Events()) {
+		t.Fatal("durable child history does not exactly match the complete batch")
+	}
+
+	// A legacy one-event append remains one suffix append and does not require
+	// a batch-aware store implementation.
+	if _, err := child.Append(runID, core.EvStepStart, core.StepData{Index: 0}); err != nil {
+		t.Fatal(err)
+	}
+	persister.emit(context.Background(), func() {})
+	calls = store.appendCalls()
+	if len(calls) != 3 || len(calls[2].events) != 1 || calls[2].events[0].Type != core.EvStepStart {
+		t.Fatalf("single event append calls=%#v", calls)
+	}
+}
+
+func TestChildProgressPersisterConflictDoesNotAdvanceSavedVersion(t *testing.T) {
+	f := newBlackBoxDelegationFixture(t)
+	child := durablePersisterSession(t, f, "sess-child-persister-conflict")
+	store := &recordingDelegationAppenderStore{MemorySessionStore: core.NewMemorySessionStore(), source: child}
+	if err := store.Create(context.Background(), child); err != nil {
+		t.Fatal(err)
+	}
+	store.conflict.Store(true)
+	persister := newChildProgressPersister(store, child)
+	if _, err := child.Append("run-child-persister-conflict", core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	persister.emit(context.Background(), func() {})
+	if err := persister.Err(); !errors.Is(err, core.ErrSessionConflict) {
+		t.Fatalf("persistence error=%v, want session conflict", err)
+	}
+	// A second callback must not blindly retry after an unconfirmed conflict.
+	persister.emit(context.Background(), func() {})
+	if got := len(store.appendCalls()); got != 1 {
+		t.Fatalf("append attempts=%d, want one unconfirmed attempt", got)
+	}
+	durable, err := store.Load(context.Background(), child.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if durable.Version() != 0 {
+		t.Fatalf("conflict unexpectedly advanced durable version to %d", durable.Version())
+	}
+}
+
+func TestDurableDelegationCommitResponseLostConvergesWithoutReplay(t *testing.T) {
+	f := newBlackBoxDelegationFixture(t)
+	sessions := &failingDelegationSessionStore{MemorySessionStore: core.NewMemorySessionStore()}
+	sessions.commitThenError.Store(true)
+	capability, err := NewCapability(f.runtime, "agent.delegate", Options{ProfileID: "product.child", Sessions: sessions, Links: f.links})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := capability.Execute(context.Background(), blackBoxRequest(f, "commit response lost"))
+	if err != nil || !first.OK {
+		t.Fatalf("commit-response-lost delegation failed: %#v err=%v", first, err)
+	}
+	replay, err := capability.Execute(context.Background(), blackBoxRequest(f, "must not replay child"))
+	if err != nil || !replay.OK {
+		t.Fatalf("commit-response-lost replay failed: %#v err=%v", replay, err)
+	}
+	if got := f.model.calls.Load(); got != 2 {
+		t.Fatalf("model calls=%d, want one child turn", got)
+	}
+	if got := f.tool.calls.Load(); got != 1 {
+		t.Fatalf("side effect calls=%d, want one", got)
+	}
 }
 
 func TestDurableDelegationSessionSaveFailureNeverReturnsSuccess(t *testing.T) {

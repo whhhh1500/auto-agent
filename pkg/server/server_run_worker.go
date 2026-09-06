@@ -327,10 +327,10 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	}
 	lease, acquired, err := s.acquireRunLease(runCtx, cancelRun, task.SessionID, task.RunID, task.Generation)
 	if err != nil || !acquired {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
-		claim.stop()
 		if err == nil {
 			err = fmt.Errorf("session lease is unavailable")
 		}
@@ -351,10 +351,10 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 
 	session, err := s.sessions.Load(runCtx, task.SessionID)
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
-		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, nil, nil, false, "session_load_failed", err, false)
 	}
 	if claim.reason.Load() == claimStopLost {
@@ -367,18 +367,18 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	}
 	principal, err := s.resolveQueuedPrincipal(runCtx, task)
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
-		claim.stop()
 		var permanent PermanentRunError
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "principal_resolution_failed", err, errors.As(err, &permanent))
 	}
 	if owner.SubjectID != task.SubjectID || owner.TenantID != task.TenantID || !owner.Scope.Equal(principal.Scope) {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, nil)
 		}
-		claim.stop()
 		err := fmt.Errorf("queued run owner does not match session owner")
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_owner_mismatch", err, true)
 	}
@@ -387,20 +387,20 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	}
 	session, _, err = storage.RepairInterruptedSessionFenced(runCtx, s.sessions, fence, session)
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost || errors.Is(err, storage.ErrSessionWriteFenceLost) {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
-		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_repair_failed", err, false)
 	}
 	if existingStatus, exists := session.RunStatus(task.RunID); exists {
 		if existingStatus == core.RunWaitingApproval {
 			resume = true
 		} else {
+			claim.stop()
 			if claim.reason.Load() == claimStopLost {
 				return s.stopQueuedFencedWriter(cancelRun, claim, nil, nil)
 			}
-			claim.stop()
 			if existingStatus == "" {
 				existingStatus = core.RunFailed
 			}
@@ -415,10 +415,10 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	expectedVersion := session.Version()
 	writer, err := storage.NewFencedWriteBehind(s.sessions, fence, session, expectedVersion, s.maxWriteDelay)
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
-		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "fenced_writer_init_failed", err, true)
 	}
 	writer.SetErrorObserver(func(persistErr error) {
@@ -429,10 +429,10 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	})
 	runRuntime, canary, err := s.runtimeFor(runCtx, principal, session.ProfileID())
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
 		}
-		claim.stop()
 		return s.settleQueuedPreparationFailure(
 			workerCtx, task, workerID, session, &fence, writer, resume, "control_plane_refresh_failed", err, false,
 		)
@@ -448,10 +448,10 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	var compositionMetadata map[string]string
 	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume)
 	if err != nil {
+		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
 		}
-		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "executor_selection_failed", err, true)
 	}
 	seenObsHits := map[string]bool{}
@@ -628,17 +628,20 @@ func (s *Server) monitorQueuedRunClaim(runCtx context.Context, cancelRun context
 			requested, renewErr = s.runQueue.RunCancelRequested(opCtx, task.RunID)
 		}
 		cancel()
-		if ctx.Err() != nil {
-			return nil
-		}
 		if requested {
 			monitor.reason.CompareAndSwap(claimStopNone, claimStopCancelled)
 			cancelRun()
 			return nil
 		}
 		if renewErr != nil || !renewed {
+			if ctx.Err() != nil && (errors.Is(renewErr, context.Canceled) || errors.Is(renewErr, context.DeadlineExceeded)) {
+				return nil
+			}
 			monitor.reason.CompareAndSwap(claimStopNone, claimStopLost)
 			return fmt.Errorf("queued run claim renewal failed")
+		}
+		if ctx.Err() != nil {
+			return nil
 		}
 		return nil
 	}, func() {
@@ -947,22 +950,41 @@ func (s *Server) recordRunStat(ctx context.Context, session *core.Session, runID
 	if s.runStats == nil {
 		return
 	}
-	inputTokens, outputTokens := int64(0), int64(0)
-	for _, event := range session.Events() {
-		if event.Type == core.EvRunUsage && event.RunID == runID {
-			var usage core.RunUsageData
-			if json.Unmarshal(event.Data, &usage) == nil {
-				inputTokens += usage.InputTokens
-				outputTokens += usage.OutputTokens
-			}
+	usage, err := sumRunUsageEvents(session.Events(), runID)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.ErrorContext(ctx, "run usage total overflow", slog.String("run", runID))
 		}
+		return
 	}
 	stat := storage.RunStat{
 		RunID: runID, SessionID: session.ID(), TenantID: principal.TenantID,
-		Status: string(status), InputTokens: inputTokens, OutputTokens: outputTokens,
+		Status: string(status), InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
 		DurationMS: time.Since(started).Milliseconds(),
 	}
 	if err := s.runStats.RecordRunStat(ctx, stat); err != nil && s.logger != nil {
 		s.logger.ErrorContext(ctx, "run stat record failed", slog.String("run", runID), slog.String("error", err.Error()))
 	}
+}
+
+// sumRunUsageEvents preserves legacy additive accounting while refusing to
+// emit a wrapped metric when malformed historical input would overflow int64.
+// Session append and restore already reject new overflowed histories; this is
+// a final defensive boundary before an external stats projection is written.
+func sumRunUsageEvents(events []core.SessionEvent, runID string) (core.TokenUsage, error) {
+	total := core.TokenUsage{}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	for _, event := range events {
+		if event.Type == core.EvRunUsage && event.RunID == runID {
+			var usage core.RunUsageData
+			if json.Unmarshal(event.Data, &usage) == nil {
+				if usage.InputTokens > maxInt64-total.InputTokens || usage.OutputTokens > maxInt64-total.OutputTokens {
+					return core.TokenUsage{}, fmt.Errorf("run usage total overflows")
+				}
+				total.InputTokens += usage.InputTokens
+				total.OutputTokens += usage.OutputTokens
+			}
+		}
+	}
+	return total, nil
 }

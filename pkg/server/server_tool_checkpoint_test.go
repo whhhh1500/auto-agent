@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -54,9 +55,10 @@ func (t checkpointTestTool) Execute(context.Context, core.CapabilityRequest) (co
 }
 
 type durableToolCallJournal struct {
-	db         *sql.DB
-	attempts   atomic.Int32
-	wasDurable atomic.Bool
+	db          *sql.DB
+	attempts    atomic.Int32
+	wasDurable  atomic.Bool
+	modelPrefix bool
 }
 
 type countingToolJournal struct{ begins atomic.Int32 }
@@ -76,28 +78,81 @@ func (*countingToolJournal) MarkToolInvocationUncertain(context.Context, core.To
 
 type failingCheckpointStore struct {
 	*storage.SQLSessionStore
-	err      error
-	attempts atomic.Int32
+	err           error
+	attempts      atomic.Int32
+	usageAttempts atomic.Int32
+	mu            sync.Mutex
+	toolCallBatch []core.SessionEvent
 }
 
 func (s *failingCheckpointStore) AppendEvents(ctx context.Context, sessionID string, expectedVersion int64, events []core.SessionEvent) error {
-	for _, event := range events {
-		if event.Type == core.EvToolCall {
-			s.attempts.Add(1)
-			return s.err
-		}
+	if err := s.checkpointError(events); err != nil {
+		return err
 	}
 	return s.SQLSessionStore.AppendEvents(ctx, sessionID, expectedVersion, events)
 }
 
 func (s *failingCheckpointStore) AppendEventsFenced(ctx context.Context, fence storage.SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
+	if err := s.checkpointError(events); err != nil {
+		return err
+	}
+	return s.SQLSessionStore.AppendEventsFenced(ctx, fence, expectedVersion, events)
+}
+
+func (s *failingCheckpointStore) checkpointError(events []core.SessionEvent) error {
 	for _, event := range events {
+		if event.Type == core.EvRunUsage {
+			s.usageAttempts.Add(1)
+		}
 		if event.Type == core.EvToolCall {
+			s.attempts.Add(1)
+			s.mu.Lock()
+			s.toolCallBatch = append([]core.SessionEvent(nil), events...)
+			s.mu.Unlock()
+			return s.err
+		}
+	}
+	return nil
+}
+
+func (s *failingCheckpointStore) attemptedToolCallBatch() []core.SessionEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]core.SessionEvent(nil), s.toolCallBatch...)
+}
+
+// commitThenErrorCheckpointStore simulates a transport failure after SQLite
+// has durably committed the checkpoint. It must not cause the writer to retry
+// the same usage identity or cross the tool side-effect boundary.
+type commitThenErrorCheckpointStore struct {
+	*storage.SQLSessionStore
+	err      error
+	returned atomic.Bool
+	attempts atomic.Int32
+}
+
+func (s *commitThenErrorCheckpointStore) AppendEvents(ctx context.Context, sessionID string, expectedVersion int64, events []core.SessionEvent) error {
+	if err := s.SQLSessionStore.AppendEvents(ctx, sessionID, expectedVersion, events); err != nil {
+		return err
+	}
+	return s.responseLost(events)
+}
+
+func (s *commitThenErrorCheckpointStore) AppendEventsFenced(ctx context.Context, fence storage.SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
+	if err := s.SQLSessionStore.AppendEventsFenced(ctx, fence, expectedVersion, events); err != nil {
+		return err
+	}
+	return s.responseLost(events)
+}
+
+func (s *commitThenErrorCheckpointStore) responseLost(events []core.SessionEvent) error {
+	for _, event := range events {
+		if event.Type == core.EvToolCall && s.returned.CompareAndSwap(false, true) {
 			s.attempts.Add(1)
 			return s.err
 		}
 	}
-	return s.SQLSessionStore.AppendEventsFenced(ctx, fence, expectedVersion, events)
+	return nil
 }
 
 func (j *durableToolCallJournal) BeginToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
@@ -107,6 +162,7 @@ func (j *durableToolCallJournal) BeginToolInvocation(ctx context.Context, invoca
 		return core.ToolInvocationRecord{}, "", err
 	}
 	defer rows.Close()
+	var events []core.SessionEvent
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
@@ -114,20 +170,86 @@ func (j *durableToolCallJournal) BeginToolInvocation(ctx context.Context, invoca
 		}
 		for _, line := range strings.Split(payload, "\n") {
 			var event core.SessionEvent
-			if json.Unmarshal([]byte(line), &event) != nil || event.RunID != invocation.RunID || event.Type != core.EvToolCall {
+			if json.Unmarshal([]byte(line), &event) != nil || event.RunID != invocation.RunID {
 				continue
 			}
-			var call core.ToolCallData
-			if json.Unmarshal(event.Data, &call) == nil && call.CallID == invocation.CallID && call.Name == invocation.CapabilityID {
-				j.wasDurable.Store(true)
-				return core.ToolInvocationRecord{ToolInvocation: invocation, State: core.ToolInvocationStarted}, core.ToolInvocationExecuteNew, nil
-			}
+			events = append(events, event)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return core.ToolInvocationRecord{}, "", err
 	}
-	return core.ToolInvocationRecord{}, "", fmt.Errorf("tool call %s was not durable before journal begin", invocation.CallID)
+	if j.modelPrefix {
+		if err := validateDurableModelToolPrefix(events, invocation.CallID, invocation.CapabilityID); err != nil {
+			return core.ToolInvocationRecord{}, "", err
+		}
+	} else if err := validateNoDurableModelUsage(events); err != nil {
+		return core.ToolInvocationRecord{}, "", err
+	}
+	j.wasDurable.Store(true)
+	return core.ToolInvocationRecord{ToolInvocation: invocation, State: core.ToolInvocationStarted}, core.ToolInvocationExecuteNew, nil
+}
+
+func validateDurableModelToolPrefix(events []core.SessionEvent, callID, capabilityID string) error {
+	for index, event := range events {
+		if event.Type != core.EvToolCall {
+			continue
+		}
+		var call core.ToolCallData
+		if json.Unmarshal(event.Data, &call) != nil || call.CallID != callID || call.Name != capabilityID {
+			continue
+		}
+		if index < 2 || events[index-2].Type != core.EvAssistantMessage || events[index-1].Type != core.EvRunUsage {
+			return fmt.Errorf("tool call %s lacks durable assistant/usage prefix", callID)
+		}
+		var assistant core.AssistantMessageData
+		var usage core.RunUsageData
+		if json.Unmarshal(events[index-2].Data, &assistant) != nil || json.Unmarshal(events[index-1].Data, &usage) != nil || !strings.HasPrefix(usage.InvocationID, "model:") {
+			return fmt.Errorf("tool call %s has invalid durable usage", callID)
+		}
+		matches := assistant.ToolCalls
+		if assistant.ToolCall != nil && len(matches) == 0 {
+			matches = []core.ToolCall{*assistant.ToolCall}
+		}
+		matched := false
+		for _, candidate := range matches {
+			if candidate.ID == call.CallID && candidate.Name == call.Name {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("tool call %s lacks matching durable assistant call", callID)
+		}
+		count := 0
+		for _, prior := range events {
+			if prior.Type != core.EvRunUsage {
+				continue
+			}
+			var candidate core.RunUsageData
+			if json.Unmarshal(prior.Data, &candidate) == nil && candidate.InvocationID == usage.InvocationID {
+				count++
+			}
+		}
+		if count != 1 {
+			return fmt.Errorf("tool call %s usage identity appears %d times", callID, count)
+		}
+		return nil
+	}
+	return fmt.Errorf("tool call %s was not durable before journal begin", callID)
+}
+
+func validateNoDurableModelUsage(events []core.SessionEvent) error {
+	for _, event := range events {
+		if event.Type != core.EvRunUsage {
+			continue
+		}
+		var usage core.RunUsageData
+		if json.Unmarshal(event.Data, &usage) == nil && strings.HasPrefix(usage.InvocationID, "model:") {
+			return fmt.Errorf("fast-router run persisted model usage %q", usage.InvocationID)
+		}
+	}
+	return nil
 }
 
 func (*durableToolCallJournal) CompleteToolInvocation(_ context.Context, invocation core.ToolInvocation, result core.CapabilityResult) (core.ToolInvocationRecord, error) {
@@ -155,7 +277,7 @@ func enableCheckpointTool(t *testing.T, fixture *runWorkerFixture) (*atomic.Int3
 	fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
 		return checkpointTestModel{calls: &modelCalls}, nil
 	})
-	journal := &durableToolCallJournal{db: fixture.db}
+	journal := &durableToolCallJournal{db: fixture.db, modelPrefix: true}
 	fixture.server.runtime.ToolJournal = journal
 	return &calls, &modelCalls, journal
 }
@@ -163,6 +285,7 @@ func enableCheckpointTool(t *testing.T, fixture *runWorkerFixture) (*atomic.Int3
 func enableCheckpointFastRouter(t *testing.T, fixture *runWorkerFixture) (*atomic.Int32, *atomic.Int32, *durableToolCallJournal) {
 	t.Helper()
 	calls, modelCalls, journal := enableCheckpointTool(t, fixture)
+	journal.modelPrefix = false
 	fixture.server.runtime.FastRouters = core.FastRouterResolverFunc(func(context.Context, *core.AgentProfileSnapshot) (*core.FastRouter, error) {
 		router := &core.FastRouter{}
 		router.Add(core.FastRule{
@@ -377,8 +500,11 @@ func TestQueuedCheckpointFailureCancelsRunBeforeAnotherModelCall(t *testing.T) {
 
 func assertCheckpointFailure(t *testing.T, fixture *runWorkerFixture, store *failingCheckpointStore, inner *countingToolJournal, toolCalls, modelCalls *atomic.Int32) {
 	t.Helper()
-	if store.attempts.Load() != 1 || inner.begins.Load() != 0 || toolCalls.Load() != 0 || modelCalls.Load() != 1 {
-		t.Fatalf("checkpoint failure crossed side-effect boundary: writes=%d begins=%d tools=%d models=%d", store.attempts.Load(), inner.begins.Load(), toolCalls.Load(), modelCalls.Load())
+	if store.attempts.Load() != 1 || store.usageAttempts.Load() != 1 || inner.begins.Load() != 0 || toolCalls.Load() != 0 || modelCalls.Load() != 1 {
+		t.Fatalf("checkpoint failure crossed side-effect boundary: writes=%d usage=%d begins=%d tools=%d models=%d", store.attempts.Load(), store.usageAttempts.Load(), inner.begins.Load(), toolCalls.Load(), modelCalls.Load())
+	}
+	if err := validateDurableModelToolPrefix(store.attemptedToolCallBatch(), "call-checkpoint", "checkpoint.write"); err != nil {
+		t.Fatalf("checkpoint writer did not receive one complete assistant/usage/tool-call batch: %v", err)
 	}
 	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
 	if err != nil {
@@ -387,4 +513,91 @@ func assertCheckpointFailure(t *testing.T, fixture *runWorkerFixture, store *fai
 	if persisted.Version() != 0 || len(persisted.Events()) != 0 {
 		t.Fatalf("failed checkpoint left partial durable history: version=%d events=%#v", persisted.Version(), persisted.Events())
 	}
+}
+
+func TestCheckpointCommitResponseLostDoesNotDuplicateDurableUsage(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		run  func(t *testing.T, fixture *runWorkerFixture, checkpointErr error) string
+	}{
+		{
+			name: "sync",
+			run: func(t *testing.T, fixture *runWorkerFixture, checkpointErr error) string {
+				t.Helper()
+				request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+fixture.session.ID()+"/runs", strings.NewReader(`{"message":"write"}`))
+				request.Header.Set("Content-Type", "application/json")
+				response := httptest.NewRecorder()
+				fixture.server.Handler().ServeHTTP(response, request)
+				if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "event: store/error") || !strings.Contains(response.Body.String(), checkpointErr.Error()) {
+					t.Fatalf("sync response=%d body=%s", response.Code, response.Body.String())
+				}
+				runs, err := fixture.queue.ListRuns(context.Background(), fixture.session.ID(), 10)
+				if err != nil || len(runs) != 1 || runs[0].Status != string(core.RunFailed) || runs[0].ErrorCode != "store_error" {
+					t.Fatalf("sync run control=%#v err=%v", runs, err)
+				}
+				return runs[0].RunID
+			},
+		},
+		{
+			name: "queued",
+			run: func(t *testing.T, fixture *runWorkerFixture, checkpointErr error) string {
+				t.Helper()
+				record := enqueueRunHTTP(t, fixture, "write")
+				claimed, err := fixture.server.RunWorkerOnce(context.Background(), "checkpoint-response-lost-worker")
+				if !claimed || !errors.Is(err, checkpointErr) {
+					t.Fatalf("queued claimed=%t err=%v", claimed, err)
+				}
+				terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+				if err != nil || terminal.Status != string(core.RunFailed) || terminal.ErrorCode != "store_error" {
+					t.Fatalf("queued run control=%#v err=%v", terminal, err)
+				}
+				return record.RunID
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRunWorkerFixture(t)
+			toolCalls, modelCalls, _ := enableCheckpointTool(t, fixture)
+			checkpointErr := errors.New("checkpoint response lost")
+			store := &commitThenErrorCheckpointStore{SQLSessionStore: fixture.sessions, err: checkpointErr}
+			inner := &countingToolJournal{}
+			fixture.server.sessions = store
+			fixture.server.runtime.ToolJournal = inner
+
+			runID := test.run(t, fixture, checkpointErr)
+			if store.attempts.Load() != 1 || inner.begins.Load() != 0 || toolCalls.Load() != 0 || modelCalls.Load() != 1 {
+				t.Fatalf("commit-response-lost crossed side-effect boundary: writes=%d begins=%d tools=%d models=%d", store.attempts.Load(), inner.begins.Load(), toolCalls.Load(), modelCalls.Load())
+			}
+			first, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateDurableModelToolPrefix(eventsForRun(first.Events(), runID), "call-checkpoint", "checkpoint.write"); err != nil {
+				t.Fatalf("first durable reload is missing the exact checkpoint prefix: %v", err)
+			}
+			second, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			durableEvents := eventsForRun(second.Events(), runID)
+			if err := validateDurableModelToolPrefix(durableEvents, "call-checkpoint", "checkpoint.write"); err != nil {
+				t.Fatalf("second durable reload duplicated or lost usage identity: %v", err)
+			}
+			for _, event := range durableEvents {
+				if event.Type == core.EvRunError || event.Type == core.EvRunEnd {
+					t.Fatalf("store-error path persisted a second terminal suffix after an unknown checkpoint response: %#v", event)
+				}
+			}
+		})
+	}
+}
+
+func eventsForRun(events []core.SessionEvent, runID string) []core.SessionEvent {
+	filtered := make([]core.SessionEvent, 0, len(events))
+	for _, event := range events {
+		if event.RunID == runID {
+			filtered = append(filtered, event)
+		}
+	}
+	return filtered
 }

@@ -30,9 +30,12 @@ func TestRollingLlmSummaryPersistsReportedUsageOnSuccessAndFailure(t *testing.T)
 			t.Fatalf("wrong error: %v", err)
 		}
 		usages, summaries := 0, 0
+		usageSeq, summarySeq := int64(-1), int64(-1)
+		usageID := ""
 		for _, event := range session.Events() {
 			if event.Type == core.EvContextSummary {
 				summaries++
+				summarySeq = event.Seq
 			}
 			if event.Type == core.EvRunUsage {
 				usages++
@@ -40,12 +43,79 @@ func TestRollingLlmSummaryPersistsReportedUsageOnSuccessAndFailure(t *testing.T)
 				if json.Unmarshal(event.Data, &usage) != nil || usage.InputTokens != 17 || usage.OutputTokens != 3 {
 					t.Fatal("incorrect summary usage")
 				}
+				usageID = usage.InvocationID
+				usageSeq = event.Seq
 			}
 		}
 		if usages != 1 || (!fail && summaries != 1) || (fail && summaries != 0) {
 			t.Fatalf("failure=%t usage_events=%d summary_events=%d", fail, usages, summaries)
 		}
+		if !strings.HasPrefix(usageID, "summary:") {
+			t.Fatalf("summary usage id=%q", usageID)
+		}
+		if !fail && usageSeq >= summarySeq {
+			t.Fatalf("summary order usage=%d summary=%d", usageSeq, summarySeq)
+		}
 	}
+}
+
+func TestSummaryUsageRetriesUseDistinctPreCallIdentities(t *testing.T) {
+	session, _ := rollingTestSession(t)
+	if _, err := session.Append("summary-run", core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	policy := LlmSummarizer{Adapter: summaryAdapterFunc(func(_ context.Context, _ core.GenerateOptions, emit func(core.StreamChunk)) error {
+		calls++
+		emit(core.StreamChunk{Kind: core.StreamKindAssistant, Text: "summary"})
+		emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishStop, Usage: &core.TokenUsage{InputTokens: 2, OutputTokens: 1}})
+		return nil
+	})}
+	for range 2 {
+		if _, err := summarizeAndRecordUsage(context.Background(), policy, session, "summary-run", nil, []core.ChatMessage{{Role: core.RoleUser, Content: "history"}}, 3, 4); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ids []string
+	for _, event := range session.Events() {
+		if event.Type == core.EvRunUsage {
+			var usage core.RunUsageData
+			if err := json.Unmarshal(event.Data, &usage); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, usage.InvocationID)
+		}
+	}
+	if calls != 2 || strings.Join(ids, ",") != "summary:3:4:1,summary:3:4:2" {
+		t.Fatalf("calls=%d identities=%v", calls, ids)
+	}
+}
+
+func TestMeteredSummaryRecordsZeroUsageIdentity(t *testing.T) {
+	session, _ := rollingTestSession(t)
+	for i := 0; i < 3; i++ {
+		rollingAppend(t, session, i)
+	}
+	r := &RollingSummarizer{MaxMessages: 4, KeepTail: 2, Summarizer: LlmSummarizer{Adapter: summaryAdapterFunc(func(_ context.Context, _ core.GenerateOptions, emit func(core.StreamChunk)) error {
+		emit(core.StreamChunk{Kind: core.StreamKindAssistant, Text: "summary"})
+		emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishStop})
+		return nil
+	})}}
+	messages, _ := session.DeriveMessages()
+	if _, err := r.EnsureSummarized(context.Background(), session, "summary-run", nil, messages); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range session.Events() {
+		if event.Type != core.EvRunUsage {
+			continue
+		}
+		var usage core.RunUsageData
+		if json.Unmarshal(event.Data, &usage) != nil || usage.InvocationID == "" || usage.InputTokens != 0 || usage.OutputTokens != 0 {
+			t.Fatalf("zero summary ledger=%#v", usage)
+		}
+		return
+	}
+	t.Fatal("missing zero summary usage ledger")
 }
 
 type summaryGateFunc func(context.Context, core.ModelCallRequest) error

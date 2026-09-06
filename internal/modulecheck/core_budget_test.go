@@ -31,9 +31,10 @@ const (
 	coreProductionFileBaseline = 34
 	// The HEAD public surface had consumed all three compatibility slots above
 	// the 902 baseline. This reviewed optional reader adds one interface and one
-	// method, so the accepted surface is 907 with no unused public API slot.
-	corePublicAPIBaseline = 907
-	corePublicAPILimit    = 907
+	// method, and the usage ledger adds one durable identity field. The accepted
+	// surface is 908 with no unused public API slot.
+	corePublicAPIBaseline = 908
+	corePublicAPILimit    = 908
 	// 128 lines is the maximum total headroom above this accepted baseline.
 	coreProductionLineHardLimit = 8743
 	coreProductionFileHardLimit = 36

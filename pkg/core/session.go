@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,8 @@ const MaxSessionEvents = 16384
 type eventType = SessionEventType
 
 const MaxRuntimeErrorMessageBytes = 16 << 10
+
+const maxRunUsageInvocationIDBytes = 96
 
 const (
 	MaxRunCompositionMetadataItems      = 32
@@ -52,8 +55,7 @@ const (
 	EvContextSummary    SessionEventType = "context/summary"
 )
 
-// RunStatus is the current durable state reported by an Agent turn. Most
-// values are terminal; RunWaitingApproval is a resumable suspension.
+// RunStatus is the durable state of an Agent turn.
 type RunStatus string
 
 const (
@@ -64,12 +66,7 @@ const (
 	RunWaitingApproval RunStatus = "waiting_approval"
 )
 
-// RunCompositionData is the durable, provider-neutral recipe selected for one
-// run. It makes the run auditable after registries change: the resolved profile,
-// filtered capability declarations, effective grants, model selection and
-// limits are recorded without embedding provider objects or credential values.
-// External provider state still requires its own versioned artifact for exact
-// behavioral replay.
+// RunCompositionData is the durable, provider-neutral recipe selected for one run.
 type RunCompositionData struct {
 	Profile              AgentProfileSnapshot `json:"profile"`
 	Capabilities         []SnapshotCapability `json:"capabilities"`
@@ -90,8 +87,6 @@ type RunStartData struct {
 	Composition          *RunCompositionData `json:"composition,omitempty"`
 }
 
-// RunResumeData records the freshly resolved recipe for one approval-resumed
-// execution segment. A Run has one run/start and may have multiple resumes.
 type RunResumeData struct {
 	ProfileSnapshotID    string              `json:"profile_snapshot_id,omitempty"`
 	CapabilitySnapshotID string              `json:"capability_snapshot_id,omitempty"`
@@ -100,8 +95,6 @@ type RunResumeData struct {
 	Composition          *RunCompositionData `json:"composition,omitempty"`
 }
 
-// RunCompositionEvidence is the stable cross-system link for one execution
-// segment. It contains no arbitrary metadata payload, only digests.
 type RunCompositionEvidence struct {
 	CompositionRevision string `json:"composition_revision,omitempty"`
 	AssignmentRevision  string `json:"assignment_revision,omitempty"`
@@ -140,31 +133,25 @@ type UserMessageData struct {
 	Text string `json:"text"`
 }
 
-// AssistantMessageData records one complete model message. ToolCalls carries
-// every model-requested call; ToolCall mirrors the first call so older
-// consumers keep reading a stable field.
+// AssistantMessageData records one complete model message and its tool calls.
 type AssistantMessageData struct {
 	Text      string     `json:"text"`
 	ToolCall  *ToolCall  `json:"tool_call,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// AssistantChunkData records one streamed text delta. Chunk events preserve UI
-// and replay fidelity; model history projection uses only complete messages.
 type AssistantChunkData struct {
 	Text string `json:"text"`
 }
 
-// RunUsageData is an additive usage contribution. Sum a run's events, including
-// summaries and approval checkpoints, to obtain its reported total.
+// RunUsageData is one reported model or summary usage contribution. Empty
+// InvocationID preserves legacy additive events; new IDs are unique per run.
 type RunUsageData struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	InvocationID string `json:"invocation_id,omitempty"`
 }
 
-// ContextSummaryData archives a seq range of the model-visible history into
-// one durable summary. It is a surface replacement, not a deletion: the
-// covered events stay in the log and the projection shadows them.
 type ContextSummaryData struct {
 	Op      string `json:"op"`    // always "replace"
 	Start   int64  `json:"start"` // first shadowed event seq (inclusive)
@@ -185,10 +172,6 @@ type ToolResultData struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// ApprovalRequestedData is a durable continuation checkpoint. ToolCall is the
-// exact call requiring approval; ResumeCall is the outer guarded call to rerun
-// after a decision (the same call for non-composite tools). RemainingCalls are
-// model calls from the same step that have not started yet.
 type ApprovalRequestedData struct {
 	ApprovalID     string     `json:"approval_id"`
 	ToolCall       ToolCall   `json:"tool_call"`
@@ -207,7 +190,6 @@ type ApprovalResolvedData struct {
 	ResolvedBy string           `json:"resolved_by,omitempty"`
 }
 
-// SessionEvent is a JSON-stable append-only fact.
 type SessionEvent struct {
 	Seq   int64            `json:"seq"`
 	Time  time.Time        `json:"time"`
@@ -216,33 +198,24 @@ type SessionEvent struct {
 	Data  json.RawMessage  `json:"data,omitempty"`
 }
 
-// Session contains durable metadata plus an ordered event log.
 type Session struct {
-	mu        sync.RWMutex
-	id        string
-	profileID string
-	principal Principal
-	scope     ScopePath
-	metadata  map[string]string
-	events    []SessionEvent
-	runStarts map[string]bool
-	runIndex  map[string]*runIndexEntry
-	maxEvents int
-	// summaryEvents is maintained as append-only event state so a cached
-	// projection does not need to rescan the entire log just to establish that
-	// no summary invalidated it.
+	mu            sync.RWMutex
+	id            string
+	profileID     string
+	principal     Principal
+	scope         ScopePath
+	metadata      map[string]string
+	events        []SessionEvent
+	runStarts     map[string]bool
+	runIndex      map[string]*runIndexEntry
+	maxEvents     int
 	summaryEvents int
-
-	// Projection cache: valid while the event count and summary count are
-	// unchanged. Messages are read-only after projection.
 	projCount     int
 	projSummaries int
 	projCache     []ChatMessage
 	projValid     bool
 }
 
-// runIndexEntry contains only small identifiers and event positions; payloads
-// remain in the canonical event log and are decoded only when requested.
 type runIndexEntry struct {
 	started     bool
 	status      RunStatus
@@ -250,9 +223,22 @@ type runIndexEntry struct {
 	pending     map[string]int64
 	toolCalls   map[string]int64
 	toolResults map[string]int64
+	usage       TokenUsage
+	usageIDs    map[string]struct{}
 }
 
-// SessionOptions contains immutable session ownership and composition metadata.
+type sessionAppendEntry struct {
+	runID string
+	kind  SessionEventType
+	data  any
+	raw   json.RawMessage
+}
+
+type usageIndexState struct {
+	total TokenUsage
+	ids   map[string]struct{}
+}
+
 type SessionOptions struct {
 	ID        string
 	ProfileID string
@@ -261,7 +247,6 @@ type SessionOptions struct {
 	Metadata  map[string]string
 }
 
-// NewSession creates an empty session owned by one principal.
 func NewSession(options SessionOptions) (*Session, error) {
 	if err := ValidateSessionID(options.ID); err != nil {
 		return nil, err
@@ -294,7 +279,6 @@ func NewSession(options SessionOptions) (*Session, error) {
 	}, nil
 }
 
-// RestoreSession validates and restores a stored event sequence.
 func RestoreSession(options SessionOptions, events []SessionEvent) (*Session, error) {
 	session, err := NewSession(options)
 	if err != nil {
@@ -303,13 +287,15 @@ func RestoreSession(options SessionOptions, events []SessionEvent) (*Session, er
 	if len(events) > session.eventCap() {
 		return nil, fmt.Errorf("session %q exceeds maximum of %d events", options.ID, session.eventCap())
 	}
-	// Restored events bypass Append; the empty-session cache does not cover them.
 	session.projValid = len(events) == 0
 	for index, event := range events {
 		if event.Seq != int64(index) {
 			return nil, fmt.Errorf("session %q event sequence is discontinuous at %d", options.ID, index)
 		}
 		if err := validateSessionEvent(event); err != nil {
+			return nil, fmt.Errorf("session %q event %d: %w", options.ID, index, err)
+		}
+		if err := session.validateAppendLocked([]sessionAppendEntry{{runID: event.RunID, kind: event.Type, raw: event.Data}}); err != nil {
 			return nil, fmt.Errorf("session %q event %d: %w", options.ID, index, err)
 		}
 		copyOf := event
@@ -347,14 +333,12 @@ func (s *Session) Metadata() map[string]string {
 	return out
 }
 
-// Version is the next event sequence and the optimistic persistence version.
 func (s *Session) Version() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return int64(len(s.events))
 }
 
-// Events returns a deep copy suitable for persistence or transport.
 func (s *Session) Events() []SessionEvent {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -366,72 +350,128 @@ func (s *Session) Events() []SessionEvent {
 	return out
 }
 
-// Append serializes and commits one event after the operation succeeds.
 func (s *Session) Append(runID string, eventType SessionEventType, data any) (SessionEvent, error) {
-	if err := ValidateRunID(runID); err != nil {
+	events, err := s.appendBatch([]sessionAppendEntry{{runID: runID, kind: eventType, data: data}})
+	if err != nil {
 		return SessionEvent{}, err
 	}
-	var raw json.RawMessage
-	if data != nil {
-		encoded, err := json.Marshal(data)
-		if err != nil {
-			return SessionEvent{}, fmt.Errorf("encode %s event: %w", eventType, err)
-		}
-		if len(encoded) > MaxSessionEventDataBytes {
-			return SessionEvent{}, fmt.Errorf("encode %s event: payload exceeds %d bytes", eventType, MaxSessionEventDataBytes)
-		}
-		raw = encoded
+	return events[0], nil
+}
+
+func (s *Session) appendBatch(entries []sessionAppendEntry) ([]SessionEvent, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("session append batch is empty")
 	}
-	if typed, err := validateSessionEventValue(eventType, data); typed {
-		if err != nil {
-			return SessionEvent{}, err
+	prepared := make([]sessionAppendEntry, len(entries))
+	for i, entry := range entries {
+		if err := ValidateRunID(entry.runID); err != nil {
+			return nil, err
 		}
-	} else {
-		if err := validateSessionEvent(SessionEvent{RunID: runID, Type: eventType, Data: raw}); err != nil {
-			return SessionEvent{}, err
+		var raw json.RawMessage
+		if entry.data != nil {
+			encoded, err := json.Marshal(entry.data)
+			if err != nil {
+				return nil, fmt.Errorf("encode %s event: %w", entry.kind, err)
+			}
+			if len(encoded) > MaxSessionEventDataBytes {
+				return nil, fmt.Errorf("encode %s event: payload exceeds %d bytes", entry.kind, MaxSessionEventDataBytes)
+			}
+			raw = encoded
 		}
+		if typed, err := validateSessionEventValue(entry.kind, entry.data); typed {
+			if err != nil {
+				return nil, err
+			}
+		} else if err := validateSessionEvent(SessionEvent{RunID: entry.runID, Type: entry.kind, Data: raw}); err != nil {
+			return nil, err
+		}
+		entry.raw = raw
+		prepared[i] = entry
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if eventType == EvRunStart {
-		if s.runStarts == nil {
-			s.runStarts = map[string]bool{}
-		}
-		if s.runStarts[runID] {
-			return SessionEvent{}, fmt.Errorf("run id %q already exists in session %q", runID, s.id)
-		}
-		s.runStarts[runID] = true
-	} else if eventType == EvRunResume && !s.runStarts[runID] {
-		return SessionEvent{}, fmt.Errorf("run id %q has not started in session %q", runID, s.id)
+	if err := s.validateAppendLocked(prepared); err != nil {
+		return nil, err
 	}
-	event := SessionEvent{
-		Seq: int64(len(s.events)), Time: time.Now().UTC(), RunID: runID,
-		Type: eventType, Data: raw,
-	}
-	if len(s.events) >= s.eventCap() {
-		if eventType == EvRunStart {
-			delete(s.runStarts, runID)
+	events := make([]SessionEvent, len(prepared))
+	for i, prepared := range prepared {
+		event := SessionEvent{Seq: int64(len(s.events)), Time: time.Now().UTC(), RunID: prepared.runID, Type: prepared.kind, Data: prepared.raw}
+		if event.Type == EvRunStart {
+			if s.runStarts == nil {
+				s.runStarts = map[string]bool{}
+			}
+			s.runStarts[event.RunID] = true
 		}
-		return SessionEvent{}, fmt.Errorf("session %q exceeds maximum of %d events", s.id, s.eventCap())
-	}
-	s.events = append(s.events, event)
-	s.indexEvent(event, data)
-	if event.Type == EvContextSummary {
-		s.summaryEvents++
-		s.projValid = false
-		s.projCache = nil
-		s.projCount = 0
-	} else if s.projValid {
-		if message, ok, applicable := projectCommittedData(event.Type, data, event.Seq); ok {
-			s.projCache = append(s.projCache, message)
-		} else if applicable {
-			s.projValid = false
-			s.projCache = nil
-			s.projCount = 0
+		s.events, events[i] = append(s.events, event), event
+		s.indexEvent(event, prepared.data)
+		if event.Type == EvContextSummary {
+			s.summaryEvents++
+			s.projValid, s.projCache, s.projCount = false, nil, 0
+		} else if s.projValid {
+			if message, ok, applicable := projectCommittedData(event.Type, prepared.data, event.Seq); ok {
+				s.projCache = append(s.projCache, message)
+			} else if applicable {
+				s.projValid, s.projCache, s.projCount = false, nil, 0
+			}
+			s.projCount = len(s.events)
 		}
-		s.projCount = len(s.events)
 	}
-	return event, nil
+	return events, nil
+}
+
+func (s *Session) validateAppendLocked(events []sessionAppendEntry) error {
+	if len(s.events)+len(events) > s.eventCap() {
+		return fmt.Errorf("session %q exceeds maximum of %d events", s.id, s.eventCap())
+	}
+	starts, usage := map[string]bool{}, map[string]usageIndexState{}
+	for _, event := range events {
+		if event.kind == EvRunStart {
+			if s.runStarts[event.runID] || starts[event.runID] {
+				return fmt.Errorf("run id %q already exists in session %q", event.runID, s.id)
+			}
+			starts[event.runID] = true
+		} else if event.kind == EvRunResume && !s.runStarts[event.runID] && !starts[event.runID] {
+			return fmt.Errorf("run id %q has not started in session %q", event.runID, s.id)
+		}
+		if event.kind == EvRunUsage {
+			data, ok := eventData[RunUsageData](event.data, event.raw)
+			if !ok {
+				return fmt.Errorf("decode run/usage event")
+			}
+			if err := s.validateRunUsageLocked(event.runID, data, usage); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Session) validateRunUsageLocked(runID string, data RunUsageData, pending map[string]usageIndexState) error {
+	state, found := pending[runID]
+	if !found {
+		if entry := s.runIndex[runID]; entry != nil {
+			state.total = entry.usage
+		}
+	}
+	if data.InvocationID != "" {
+		if entry := s.runIndex[runID]; entry != nil {
+			if _, exists := entry.usageIDs[data.InvocationID]; exists {
+				return fmt.Errorf("run %q repeats usage invocation %q", runID, data.InvocationID)
+			}
+		}
+		if state.ids == nil {
+			state.ids = map[string]struct{}{}
+		}
+		if _, exists := state.ids[data.InvocationID]; exists {
+			return fmt.Errorf("run %q repeats usage invocation %q", runID, data.InvocationID)
+		}
+		state.ids[data.InvocationID] = struct{}{}
+	}
+	if err := addUsageTotal(&state.total, data.InputTokens, data.OutputTokens); err != nil {
+		return err
+	}
+	pending[runID] = state
+	return nil
 }
 
 func (s *Session) indexEvent(event SessionEvent, typed any) {
@@ -480,7 +520,27 @@ func (s *Session) indexEvent(event SessionEvent, typed any) {
 				entry.toolResults[data.CallID] = event.Seq
 			}
 		}
+	case EvRunUsage:
+		if data, ok := eventData[RunUsageData](typed, event.Data); ok {
+			entry.usage.InputTokens += data.InputTokens
+			entry.usage.OutputTokens += data.OutputTokens
+			if data.InvocationID != "" {
+				if entry.usageIDs == nil {
+					entry.usageIDs = map[string]struct{}{}
+				}
+				entry.usageIDs[data.InvocationID] = struct{}{}
+			}
+		}
 	}
+}
+
+func (s *Session) runUsageTotal(runID string) TokenUsage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if entry := s.runIndex[runID]; entry != nil {
+		return entry.usage
+	}
+	return TokenUsage{}
 }
 
 func (s *Session) eventCap() int {
@@ -490,8 +550,6 @@ func (s *Session) eventCap() int {
 	return MaxSessionEvents
 }
 
-// canonicalEventValue recognizes runtime value/pointer forms. RestoreSession
-// always validates stored bytes through the strict wire path.
 func canonicalEventValue[T any](value any) (T, bool) {
 	if typed, ok := value.(T); ok {
 		return typed, true
@@ -561,7 +619,62 @@ func validateRuntimeErrorData(eventType eventType, data RuntimeErrorData) error 
 	return invalidEvent(strings.TrimSpace(data.Code) == "" || strings.TrimSpace(data.Message) == "", "%s requires code and message", eventType)
 }
 func validateRunUsageData(_ eventType, data RunUsageData) error {
-	return invalidEvent(data.InputTokens < 0 || data.OutputTokens < 0, "run/usage contains negative token counts")
+	if data.InputTokens < 0 || data.OutputTokens < 0 {
+		return fmt.Errorf("run/usage contains negative token counts")
+	}
+	if data.InvocationID == "" {
+		return nil
+	}
+	if len(data.InvocationID) > maxRunUsageInvocationIDBytes || !validRunUsageInvocationID(data.InvocationID) {
+		return fmt.Errorf("run/usage has an invalid invocation id")
+	}
+	return invalidEvent(data.InputTokens > MaxReportedTokensPerCall || data.OutputTokens > MaxReportedTokensPerCall, "run/usage invocation exceeds the per-call limit")
+}
+
+func validRunUsageInvocationID(value string) bool {
+	parts := strings.Split(value, ":")
+	want := 2
+	if parts[0] == "summary" {
+		want = 4
+	} else if parts[0] != "model" {
+		return false
+	}
+	if len(parts) != want {
+		return false
+	}
+	var start, end int64
+	for index, part := range parts[1:] {
+		if part == "" || len(part) > 1 && part[0] == '0' {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+		parsed, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return false
+		}
+		if parts[0] == "summary" {
+			if index == 0 {
+				start = parsed
+			} else if index == 1 {
+				end = parsed
+			}
+		}
+	}
+	return parts[0] != "summary" || start <= end
+}
+
+func addUsageTotal(total *TokenUsage, input, output int64) error {
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if total == nil || input < 0 || output < 0 || input > maxInt64-total.InputTokens || output > maxInt64-total.OutputTokens {
+		return fmt.Errorf("run token usage overflows")
+	}
+	total.InputTokens += input
+	total.OutputTokens += output
+	return nil
 }
 func validateStepData(eventType eventType, data StepData) error {
 	return invalidEvent(data.Index < -1, "%s has invalid step index %d", eventType, data.Index)
@@ -725,9 +838,7 @@ func validateRunCompositionEvidence(composition *RunCompositionData, composition
 	return nil
 }
 
-// ValidateRunCompositionMetadata enforces a small, string-only durable audit
-// envelope. Product adapters define their own namespaced keys; the kernel only
-// owns size and character safety.
+// ValidateRunCompositionMetadata validates the bounded durable audit envelope.
 func ValidateRunCompositionMetadata(metadata map[string]string) error {
 	if len(metadata) > MaxRunCompositionMetadataItems {
 		return fmt.Errorf("run composition metadata exceeds %d items", MaxRunCompositionMetadataItems)
@@ -750,8 +861,7 @@ func ValidateRunCompositionMetadata(metadata map[string]string) error {
 	return nil
 }
 
-// CompositionMetadataRevision returns a stable digest for adapter-defined
-// assignment metadata. Empty metadata returns an empty revision.
+// CompositionMetadataRevision returns a stable digest for assignment metadata.
 func CompositionMetadataRevision(metadata map[string]string) (string, error) {
 	if len(metadata) == 0 {
 		return "", nil
@@ -767,9 +877,7 @@ func CompositionMetadataRevision(metadata map[string]string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// CompositionRevision returns a stable digest for the provider-neutral Run
-// Composition. Ephemeral profile creation time is excluded; assignment
-// metadata remains part of the full composition digest.
+// CompositionRevision returns a stable digest for one run composition.
 func CompositionRevision(composition *RunCompositionData) (string, error) {
 	if composition == nil {
 		return "", nil
@@ -787,9 +895,7 @@ func CompositionRevision(composition *RunCompositionData) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ExtractRunCompositionEvidence returns the latest valid Composition segment
-// for a run. Approval resumes intentionally supersede the initial run/start
-// evidence because the runtime may have been re-resolved while suspended.
+// ExtractRunCompositionEvidence returns the latest valid composition segment.
 func ExtractRunCompositionEvidence(events []SessionEvent, runID string) (RunCompositionEvidence, bool, error) {
 	if err := ValidateRunID(runID); err != nil {
 		return RunCompositionEvidence{}, false, err
@@ -869,8 +975,7 @@ func cloneRunCompositionMetadata(metadata map[string]string) map[string]string {
 	return out
 }
 
-// ValidateRunID checks the durable run-id vocabulary used by event logs and
-// run-scoped capability paths.
+// ValidateRunID checks the durable run-id vocabulary.
 func ValidateRunID(runID string) error {
 	if !runIDPattern.MatchString(runID) {
 		return fmt.Errorf("run id %q must be 1-128 characters using letters, digits, '.', '_', ':' or '-'", runID)
@@ -878,8 +983,7 @@ func ValidateRunID(runID string) error {
 	return nil
 }
 
-// ValidateSessionID checks identifiers embedded in session scope paths and
-// persistence keys.
+// ValidateSessionID checks durable session identifiers.
 func ValidateSessionID(sessionID string) error {
 	if !runIDPattern.MatchString(sessionID) {
 		return fmt.Errorf("session id %q must be 1-128 characters using letters, digits, '.', '_', ':' or '-'", sessionID)
@@ -887,21 +991,8 @@ func ValidateSessionID(sessionID string) error {
 	return nil
 }
 
-// DeriveMessages projects all model-visible messages from the event log.
-// A context/summary event shadows the model-visible messages in its seq range
-// and projects to one summary message positioned at the start of that range,
-// where the archived context used to live. Shadowing is additive: every
-// recorded range applies, and a summary whose own seq falls inside a later,
-// wider range is itself shadowed.
-//
-// The projection is cached incrementally: appending new events only projects
-// the delta, so per-step cost is O(new events) instead of O(log). The
-// returned messages are independent deep copies and may be safely mutated by
-// adapters or compactors without corrupting the session projection cache.
+// DeriveMessages projects model-visible events and shadowing summaries.
 func (s *Session) DeriveMessages() ([]ChatMessage, error) {
-	// The cached projection is immutable after construction. Use a read lock on
-	// the common path so concurrent model preparations do not serialize while
-	// each caller makes its own defensive result copy.
 	s.mu.RLock()
 	if s.projValid && s.projCount == len(s.events) && s.projSummaries == s.summaryEvents {
 		out := cloneChatMessages(s.projCache)
@@ -915,17 +1006,11 @@ func (s *Session) DeriveMessages() ([]ChatMessage, error) {
 
 	summaryCount := s.summaryEvents
 
-	// Fast path: nothing new since the cached projection.
 	if s.projValid && s.projCount == len(s.events) && s.projSummaries == summaryCount {
 		return cloneChatMessages(s.projCache), nil
 	}
-	// Incremental path: only appends and no new summaries — old projections
-	// and shadow ranges stay valid, so project just the delta.
 	if s.projValid && s.projSummaries == summaryCount && s.projCount > 0 && s.projCount < len(s.events) {
 		delta := s.events[s.projCount:]
-		// Equal summary counts prove the append-only delta has no summary, so
-		// its old shadow ranges remain valid. The cache is private and immutable;
-		// a shallow slice copy is enough while extending it with fresh projections.
 		out := append([]ChatMessage(nil), s.projCache...)
 		for _, event := range delta {
 			if message, ok := projectEvent(event); ok {
@@ -937,7 +1022,6 @@ func (s *Session) DeriveMessages() ([]ChatMessage, error) {
 		return cloneChatMessages(out), nil
 	}
 
-	// Full rebuild.
 	type summaryRange struct {
 		start, end, seq int64
 		data            ContextSummaryData
@@ -1004,9 +1088,6 @@ func (s *Session) DeriveMessages() ([]ChatMessage, error) {
 			out = append(out, message)
 		}
 	}
-	// Seq is append-only but may be non-contiguous after restore/import. Emit
-	// every remaining summary explicitly instead of assuming len(events)+1 is
-	// beyond all valid summary starts.
 	for nextSummary < len(ranges) {
 		r := ranges[nextSummary]
 		nextSummary++
@@ -1016,9 +1097,6 @@ func (s *Session) DeriveMessages() ([]ChatMessage, error) {
 		out = append(out, ChatMessage{Role: RoleUser, SourceSeq: r.seq, Content: fmt.Sprintf("[conversation summary of events %d–%d]\n%s", r.data.Start, r.data.End, r.data.Summary), Provenance: &ContextProvenance{Kind: "summary", SourceStart: r.data.Start, SourceEnd: r.data.End, Revision: fmt.Sprintf("%d", r.seq)}})
 	}
 
-	// out contains only freshly decoded/projected values and has not crossed a
-	// public boundary, so retain it as the private immutable cache. Callers get
-	// the single defensive deep copy below.
 	s.projCache = out
 	s.projCount = len(s.events)
 	s.projSummaries = summaryCount
@@ -1026,14 +1104,6 @@ func (s *Session) DeriveMessages() ([]ChatMessage, error) {
 	return cloneChatMessages(out), nil
 }
 
-// deriveRecentCompactedMessages fuses the default no-summary projection with
-// RecentTurnsCompactor. It is deliberately private and does not populate or
-// change the full projection cache: the append-only event log remains the
-// source of truth, while Agent can avoid materializing messages that the
-// default compactor would immediately discard.
-//
-// The boolean is false when summary shadowing is present, so callers retain
-// the complete DeriveMessages then Compact path for that richer semantics.
 func (s *Session) deriveRecentCompactedMessages(compactor RecentTurnsCompactor) ([]ChatMessage, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1045,12 +1115,6 @@ func (s *Session) deriveRecentCompactedMessages(compactor RecentTurnsCompactor) 
 	firstEvent := 0
 	keptMessages := len(s.events)
 	if compactor.MaxMessages > 0 {
-		// Scan backwards until the suffix exceeds the requested window. The
-		// earliest fitting user boundary is the last boundary encountered while
-		// the visible suffix is <= MaxMessages. This avoids a full-history count
-		// pass for the common small-window case; the selected suffix is then
-		// projected once below. Non-visible events are deliberately ignored in
-		// the count, matching RecentTurnsCompactor's message semantics.
 		seen := 0
 		latestBoundary := -1
 		candidate := -1
@@ -1087,9 +1151,6 @@ func (s *Session) deriveRecentCompactedMessages(compactor RecentTurnsCompactor) 
 		}
 		keptMessages = compactor.MaxMessages
 	}
-	// Reuse the append-maintained projection when it covers the complete log.
-	// SourceSeq filtering preserves non-contiguous event sequences and skips
-	// non-model events without rescanning/decoding their payloads.
 	if s.projValid && s.projCount == len(s.events) && s.projSummaries == 0 {
 		startSeq := int64(-1)
 		if firstEvent < len(s.events) {
@@ -1123,8 +1184,6 @@ func (s *Session) deriveRecentCompactedMessages(compactor RecentTurnsCompactor) 
 		if !ok {
 			continue
 		}
-		// projectEvent decodes fresh values, but detach ToolCall maps exactly as
-		// DeriveMessages does before returning messages to an adapter.
 		message = cloneChatMessage(message)
 		if message.Role == RoleUser {
 			lastUser = len(out)
@@ -1254,8 +1313,6 @@ func cloneToolCalls(in []ToolCall) []ToolCall {
 	return out
 }
 
-// projectEvent projects one non-summary event into a message, if it is
-// model-visible. Shared helper for the cached and rebuild paths.
 func projectEvent(event SessionEvent) (ChatMessage, bool) {
 	switch event.Type {
 	case EvUserMessage:
@@ -1284,8 +1341,6 @@ func projectEvent(event SessionEvent) (ChatMessage, bool) {
 	return ChatMessage{}, false
 }
 
-// EventsFrom deep-copies the event suffix starting at version, for stores
-// that persist append-only deltas without copying the whole log.
 func (s *Session) EventsFrom(version int64) []SessionEvent {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1316,8 +1371,7 @@ func (s *Session) LastAssistantText(runID string) string {
 	return ""
 }
 
-// RunStatus reports whether a run has started and returns either its final
-// status or RunWaitingApproval for an unresolved durable checkpoint.
+// RunStatus returns a run's final or waiting-approval status.
 func (s *Session) RunStatus(runID string) (RunStatus, bool) {
 	if ValidateRunID(runID) != nil {
 		return "", false
@@ -1339,8 +1393,7 @@ func (s *Session) RunStatus(runID string) (RunStatus, bool) {
 
 func (entry *runIndexEntry) isStarted() bool { return entry != nil && entry.started }
 
-// PendingApproval returns the most recent unresolved approval checkpoint for
-// one run. The returned value is detached from the Session log.
+// PendingApproval returns the latest unresolved approval checkpoint.
 func (s *Session) PendingApproval(runID string) (ApprovalRequestedData, bool, error) {
 	if err := ValidateRunID(runID); err != nil {
 		return ApprovalRequestedData{}, false, err
@@ -1384,8 +1437,7 @@ func (s *Session) HasToolCall(runID, callID string) (bool, error) {
 	return ok && entry != nil && entry.toolCalls != nil && func() bool { _, exists := entry.toolCalls[callID]; return exists }(), nil
 }
 
-// ToolResult returns a prior result for one logical call ID. Composite
-// capabilities use it during durable resume to replay completed child steps.
+// ToolResult returns a prior result for one logical call ID.
 func (s *Session) ToolResult(runID, callID string) (CapabilityResult, bool, error) {
 	if err := ValidateRunID(runID); err != nil {
 		return CapabilityResult{}, false, err

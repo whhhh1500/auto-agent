@@ -100,6 +100,48 @@ type blockingRunWorkerModel struct {
 	release <-chan struct{}
 }
 
+// blockingFencedAppendStore pauses the first fenced append that contains a
+// model usage ledger entry. It lets the test replace the queue generation
+// while a real WriteBehind background flush is in flight.
+type blockingFencedAppendStore struct {
+	*storage.SQLSessionStore
+	entered chan<- struct{}
+	release <-chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	batch   []core.SessionEvent
+}
+
+func (s *blockingFencedAppendStore) AppendEventsFenced(ctx context.Context, fence storage.SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
+	block := false
+	for _, event := range events {
+		if event.Type == core.EvRunUsage {
+			s.once.Do(func() {
+				block = true
+				s.mu.Lock()
+				s.batch = append([]core.SessionEvent(nil), events...)
+				s.mu.Unlock()
+				s.entered <- struct{}{}
+			})
+			break
+		}
+	}
+	if block {
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.SQLSessionStore.AppendEventsFenced(ctx, fence, expectedVersion, events)
+}
+
+func (s *blockingFencedAppendStore) blockedBatch() []core.SessionEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]core.SessionEvent(nil), s.batch...)
+}
+
 type approvalWorkerTool struct{ calls *atomic.Int32 }
 
 func (approvalWorkerTool) Manifest() core.CapabilityManifest {
@@ -125,12 +167,12 @@ func (approvalWorkerModel) Stream(_ context.Context, options core.GenerateOption
 	last := options.Messages[len(options.Messages)-1]
 	if last.Role == core.RoleTool {
 		emit(core.StreamChunk{Kind: core.StreamKindAssistant, Text: "released"})
-		emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishStop})
+		emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishStop, Usage: &core.TokenUsage{InputTokens: 3, OutputTokens: 1}})
 		return nil
 	}
 	call := core.ToolCall{ID: "call-release", Name: "payment.release", Args: map[string]any{"amount": 10}}
 	emit(core.StreamChunk{Kind: core.StreamKindAssistant, ToolCall: &call})
-	emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishToolCalls})
+	emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishToolCalls, Usage: &core.TokenUsage{InputTokens: 7, OutputTokens: 2}})
 	return nil
 }
 
@@ -521,8 +563,117 @@ func TestQueuedFenceLossFromBackgroundFlushStopsOldWorkerWithoutTerminalPollutio
 				if event.RunID == record.RunID && (event.Type == core.EvRunError || event.Type == core.EvRunEnd) {
 					t.Fatalf("stale worker persisted terminal event after fence loss: %#v", event)
 				}
+				if event.RunID == record.RunID && event.Type == core.EvRunUsage {
+					t.Fatalf("stale worker persisted usage after fence loss: %#v", event)
+				}
 			}
 		})
+	}
+}
+
+func TestQueuedBackgroundFlushFenceLossRollsBackUsageAndLeavesSuccessorClean(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	fixture.server.maxWriteDelay = 10 * time.Millisecond
+	fixture.server.runWorkerClaimTTL = 5 * time.Second
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	store := &blockingFencedAppendStore{
+		SQLSessionStore: fixture.sessions,
+		entered:         entered,
+		release:         release,
+	}
+	fixture.server.sessions = store
+	fixture.server.runtime.Hooks = &core.RunHooksFuncs{
+		OnAfterStepFn: func(ctx context.Context, _ core.RunInfo) {
+			<-ctx.Done()
+		},
+	}
+
+	record := enqueueRunHTTP(t, fixture, "background usage fence loss")
+	result := make(chan error, 1)
+	go func() {
+		_, err := fixture.server.RunWorkerOnce(context.Background(), "worker-background-usage")
+		result <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background fenced append did not begin")
+	}
+	assertBackgroundUsageBatch(t, store.blockedBatch(), record.RunID)
+	if _, err := fixture.db.ExecContext(context.Background(), "UPDATE run_queue SET lease_expires_at = 1 WHERE run_id = ?", record.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if requeued, failed, err := fixture.queue.RecoverExpiredRunClaims(context.Background(), time.Now().UTC()); err != nil || requeued != 1 || failed != 0 {
+		t.Fatalf("requeue old claim: requeued=%d failed=%d err=%v", requeued, failed, err)
+	}
+	close(release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, errRunClaimLost) || !errors.Is(err, storage.ErrSessionWriteFenceLost) {
+			t.Fatalf("old worker error=%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("old worker did not stop after background fence loss")
+	}
+	var chunks int
+	if err := fixture.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM event_chunks WHERE session_id = ?", fixture.session.ID()).Scan(&chunks); err != nil {
+		t.Fatal(err)
+	}
+	if chunks != 0 {
+		t.Fatalf("stale background writer persisted %d event chunks", chunks)
+	}
+	control, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || control.Status != storage.RunStatusQueued || control.ErrorCode != "worker_lost_retry" || !control.CompletedAt.IsZero() {
+		t.Fatalf("old worker polluted queue state: %#v err=%v", control, err)
+	}
+
+	fixture.server.runtime.Hooks = nil
+	fixture.server.maxWriteDelay = -1
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-background-usage-successor"); err != nil || !claimed {
+		t.Fatalf("successor claimed=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) {
+		t.Fatalf("successor terminal=%#v err=%v", terminal, err)
+	}
+	loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageIDs := map[string]bool{}
+	for _, event := range loaded.Events() {
+		if event.RunID != record.RunID || event.Type != core.EvRunUsage {
+			continue
+		}
+		var usage core.RunUsageData
+		if err := json.Unmarshal(event.Data, &usage); err != nil || !strings.HasPrefix(usage.InvocationID, "model:") || usageIDs[usage.InvocationID] {
+			t.Fatalf("successor durable usage=%#v ids=%#v err=%v", usage, usageIDs, err)
+		}
+		usageIDs[usage.InvocationID] = true
+	}
+	if len(usageIDs) != 1 {
+		t.Fatalf("successor durable usage ids=%#v", usageIDs)
+	}
+}
+
+func assertBackgroundUsageBatch(t *testing.T, events []core.SessionEvent, runID string) {
+	t.Helper()
+	usageIndex := -1
+	for index, event := range events {
+		if event.RunID == runID && event.Type == core.EvRunUsage {
+			usageIndex = index
+		}
+		if event.RunID == runID && event.Type == core.EvRunEnd {
+			t.Fatalf("blocked background flush already included a terminal event: %#v", event)
+		}
+	}
+	if usageIndex < 1 || events[usageIndex-1].RunID != runID || events[usageIndex-1].Type != core.EvAssistantMessage {
+		t.Fatalf("blocked background flush lacks assistant/usage batch: %#v", events)
+	}
+	var usage core.RunUsageData
+	if err := json.Unmarshal(events[usageIndex].Data, &usage); err != nil || !strings.HasPrefix(usage.InvocationID, "model:") {
+		t.Fatalf("blocked background usage=%#v err=%v", usage, err)
 	}
 }
 
@@ -1407,6 +1558,20 @@ func TestAsyncApprovalReleasesWorkerAndResumesSameRun(t *testing.T) {
 	}
 	if status, exists := loaded.RunStatus(record.RunID); !exists || status != core.RunCompleted {
 		t.Fatalf("resumed session status=%q exists=%t", status, exists)
+	}
+	usageIDs := map[string]bool{}
+	for _, event := range loaded.Events() {
+		if event.RunID != record.RunID || event.Type != core.EvRunUsage {
+			continue
+		}
+		var usage core.RunUsageData
+		if json.Unmarshal(event.Data, &usage) != nil || !strings.HasPrefix(usage.InvocationID, "model:") || usageIDs[usage.InvocationID] {
+			t.Fatalf("approval usage=%#v ids=%#v", usage, usageIDs)
+		}
+		usageIDs[usage.InvocationID] = true
+	}
+	if len(usageIDs) != 2 {
+		t.Fatalf("approval pause/resume usage ids=%#v", usageIDs)
 	}
 }
 

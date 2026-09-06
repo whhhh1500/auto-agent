@@ -43,45 +43,31 @@ type AgentOptions struct {
 	Composition          *RunCompositionData
 	OnEvent              func(event SessionEvent)
 	Fast                 *FastRouter
-	// Hooks run automatic guardrail checks around the run. Optional.
+	// Hooks are optional run guardrails.
 	Hooks RunHooks
-	// Approver gates tool calls whose manifest declares RequiresApproval.
-	// A required approval without an approver is denied (fail-closed). Optional.
+	// Approver gates required tool approval; nil denies (fail-closed).
 	Approver Approver
-	// RateLimiter bounds per-tenant per-capability call frequency across
-	// runs. Optional; denials return a stable rate-limited refusal.
+	// RateLimiter optionally bounds per-tenant capability calls.
 	RateLimiter CallRateLimiter
-	// ToolJournal durably fences provider side effects and replays completed
-	// results for the same run/call identity. Optional.
+	// ToolJournal optionally fences provider side effects and replays results.
 	ToolJournal ToolInvocationJournal
-	// ModelCallGate authorizes each model adapter call. Nil preserves legacy
-	// behavior and deliberately mints no AcceptedModelCall.
+	// ModelCallGate optionally authorizes model calls.
 	ModelCallGate ModelCallGate
-	// Telemetry records bounded runtime spans and metrics without coupling the
-	// kernel to an observability SDK. Optional.
+	// Telemetry optionally records bounded runtime observations.
 	Telemetry Telemetry
-	// Compactor reduces the projected history before each model request.
-	// Optional; nil sends the full projection.
+	// Compactor optionally reduces history before a model request.
 	Compactor ContextCompactor
-	// Summarizer durably archives an over-budget history prefix into a
-	// context/summary event before the mechanical compactor runs. Optional.
+	// Summarizer optionally archives over-budget history before compaction.
 	Summarizer RunSummarizer
-	// ContextAssembler makes one bounded, ephemeral selection after summary and
-	// compaction but before every model call. Nil preserves the legacy payload.
+	// ContextAssembler optionally selects bounded model context.
 	ContextAssembler ModelContextAssembler
-	// StreamChunks persists assistant/chunk events for streamed text so
-	// transport adapters can render token-level output. Optional; chunk events
-	// are excluded from model history projection.
+	// StreamChunks persists UI chunks excluded from model history.
 	StreamChunks bool
-	// DiscloseTools replaces non-hot snapshot tools with the optional tool
-	// library discovery protocol. It is disabled by default so existing model
-	// tool schemas and direct-call behavior remain unchanged.
+	// DiscloseTools enables optional tool-library discovery.
 	DiscloseTools bool
 }
 
-// TurnInput identifies one append-only run in an existing session. RunCapabilities
-// are optional one-shot bindings mounted at <session-scope>/run/<run-id> for
-// this resolve only (product doc §5.8); they disappear from later runs.
+// TurnInput identifies one append-only run in an existing session.
 type TurnInput struct {
 	RunID                string
 	Text                 string
@@ -91,15 +77,13 @@ type TurnInput struct {
 	CompositionMetadata  map[string]string
 }
 
-// ResumeInput identifies one approval-resumed execution segment. Metadata is
-// persisted on run/resume with the newly resolved recipe.
+// ResumeInput identifies an approval-resumed execution segment.
 type ResumeInput struct {
 	RunID               string
 	CompositionMetadata map[string]string
 }
 
-// TurnResult is the current state returned to an interface adapter. A waiting
-// approval result is non-terminal and resumes under the same Run ID.
+// TurnResult is the current state returned to an interface adapter.
 type TurnResult struct {
 	RunID  string    `json:"run_id"`
 	Status RunStatus `json:"status"`
@@ -114,7 +98,6 @@ type Agent struct {
 	runID               string
 	counts              map[string]int
 	toolCalls           int
-	usage               TokenUsage
 	approvalResolutions map[string]ApprovalResolution
 	resumeCallIDs       map[string]bool
 	compositionRevision string
@@ -160,16 +143,11 @@ func NewAgent(opts AgentOptions) (*Agent, error) {
 		opts: opts, counts: map[string]int{}, approvalResolutions: map[string]ApprovalResolution{},
 		resumeCallIDs: map[string]bool{},
 	}
-	// One guarded funnel enforces validation, hooks, approval, and budgets for
-	// every consumer — the model loop and deterministic fast routes alike.
 	agent.tools = &guardedToolRuntime{agent: agent, inner: opts.Tools}
 	return agent, nil
 }
 
-// RunTurn appends one run to the existing session. It may return
-// RunWaitingApproval before run/end; ResumeTurn continues that same Run ID.
-// Calls on the same Agent are serialized because its guarded tool runtime uses
-// run-scoped state.
+// RunTurn appends one serialized run and may return RunWaitingApproval.
 func (a *Agent) RunTurn(ctx context.Context, input TurnInput) (turnResult TurnResult, turnErr error) {
 	if ctx == nil {
 		return TurnResult{}, fmt.Errorf("run context is nil")
@@ -203,7 +181,6 @@ func (a *Agent) RunTurn(ctx context.Context, input TurnInput) (turnResult TurnRe
 	a.runID = input.RunID
 	a.counts = make(map[string]int)
 	a.toolCalls = 0
-	a.usage = TokenUsage{}
 	a.approvalResolutions = map[string]ApprovalResolution{}
 	a.resumeCallIDs = map[string]bool{}
 	info := RunInfo{
@@ -278,6 +255,9 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 	session := a.opts.Session
 	for step := startStep; step < a.opts.MaxSteps; step++ {
 		info.Step = step
+		if usageLimitReached(session.runUsageTotal(info.RunID)) {
+			return a.complete(info, RunLimited)
+		}
 		if a.opts.Hooks != nil {
 			if err := safeCallError("run hook OnBeforeStep panicked", func() error { return a.opts.Hooks.OnBeforeStep(ctx, info) }); err != nil {
 				return a.fail(info, "step_rejected", err, false)
@@ -286,6 +266,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 		if err := a.append(info.RunID, EvStepStart, StepData{Index: step}); err != nil {
 			return a.fail(info, "event_append_failed", err, false)
 		}
+		stepStartSeq := session.Version() - 1
 
 		var (
 			messages []ChatMessage
@@ -311,6 +292,9 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 					_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("summarization_failed", err, isRetryable(err)))
 					return a.fail(info, "summarization_failed", err, isRetryable(err))
 				}
+				if usageLimitReached(session.runUsageTotal(info.RunID)) {
+					return a.completeStep(ctx, info, RunLimited)
+				}
 			}
 			if a.opts.Compactor != nil {
 				messages, err = safeCallValueError("context compactor panicked", func() ([]ChatMessage, error) {
@@ -324,11 +308,12 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 		}
 
 		stream, failureCode, err := a.callModel(ctx, info, step, messages)
-		if usageErr := addTokenUsage(&a.usage, stream.Usage); usageErr != nil {
-			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("usage_invalid", usageErr, false))
-			return a.fail(info, "usage_invalid", usageErr, false)
-		}
 		if err != nil {
+			if stream.usageReported {
+				if usageErr := a.appendModelUsage(info.RunID, stepStartSeq, stream.Usage); usageErr != nil {
+					err = errors.Join(err, usageErr)
+				}
+			}
 			if failureCode == "model_gate_rejected" {
 				return a.fail(info, failureCode, err, false)
 			}
@@ -337,10 +322,13 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 		}
 		text, calls := stream.Text, stream.ToolCalls
 
-		if err := a.append(info.RunID, EvAssistantMessage, AssistantMessageData{
+		if err := a.appendAssistantUsage(info.RunID, stepStartSeq, AssistantMessageData{
 			Text: text, ToolCall: firstCall(calls), ToolCalls: calls,
-		}); err != nil {
+		}, stream.Usage); err != nil {
 			return a.fail(info, "event_append_failed", err, false)
+		}
+		if usageLimitReached(session.runUsageTotal(info.RunID)) {
+			return a.completeStep(ctx, info, RunLimited)
 		}
 		if len(calls) == 0 {
 			if err := a.append(info.RunID, EvStepEnd, StepData{Index: step}); err != nil {
@@ -373,12 +361,8 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 				}
 				if errors.Is(executeErr, context.Canceled) || errors.Is(executeErr, context.DeadlineExceeded) {
 					if ctx.Err() != nil {
-						// The caller revoked the run: continuing would start
-						// new model work the caller already cancelled.
 						return a.fail(info, "tool_cancelled", executeErr, false)
 					}
-					// A per-tool timeout under a live run context is a tool
-					// result the model can see and react to.
 				}
 				result = CapabilityResult{Content: boundedText(executeErr.Error(), DefaultMaxCapabilityOutputBytes), OK: false}
 			}
@@ -402,10 +386,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 	return a.complete(info, RunLimited)
 }
 
-// ResumeTurn continues one run suspended at an approval checkpoint. It does
-// not append a second run/start or user/message. The pending outer call is
-// rerun through the current guard funnel; completed nested calls replay from
-// the Session/Tool Journal, and the approved call executes exactly once.
+// ResumeTurn continues one run suspended at an approval checkpoint.
 func (a *Agent) ResumeTurn(ctx context.Context, runID string) (turnResult TurnResult, turnErr error) {
 	if ctx == nil {
 		return TurnResult{}, fmt.Errorf("run context is nil")
@@ -525,7 +506,6 @@ func (a *Agent) restoreRunState(runID string) {
 	a.runID = runID
 	a.counts = map[string]int{}
 	a.toolCalls = 0
-	a.usage = TokenUsage{}
 	a.approvalResolutions = map[string]ApprovalResolution{}
 	a.resumeCallIDs = map[string]bool{}
 	seen := map[string]bool{}
@@ -618,16 +598,23 @@ func (a *Agent) resumeApproval(ctx context.Context, info RunInfo, pending Approv
 }
 
 func (a *Agent) append(runID string, eventType SessionEventType, data any) error {
-	event, err := a.opts.Session.Append(runID, eventType, data)
+	return a.appendBatch([]sessionAppendEntry{{runID: runID, kind: eventType, data: data}})
+}
+
+func (a *Agent) appendBatch(entries []sessionAppendEntry) error {
+	events, err := a.opts.Session.appendBatch(entries)
 	if err != nil {
 		return err
 	}
+	var first error
 	if a.opts.OnEvent != nil {
-		if err := safeEventCallback(a.opts.OnEvent, event); err != nil {
-			return err
+		for _, event := range events {
+			if err := safeEventCallback(a.opts.OnEvent, event); err != nil && first == nil {
+				first = err
+			}
 		}
 	}
-	return nil
+	return first
 }
 
 func (g *guardedToolRuntime) recordFastToolCall(call ToolCall) error {
@@ -637,8 +624,7 @@ func (g *guardedToolRuntime) recordFastToolCall(call ToolCall) error {
 	return nil
 }
 
-// emit forwards an already-appended event (for example a summary event
-// appended by the RunSummarizer) to the run's event consumer.
+// emit forwards an already-appended event to the run consumer.
 func (a *Agent) emit(event SessionEvent) {
 	if a.opts.OnEvent != nil {
 		_ = safeEventCallback(a.opts.OnEvent, event)
@@ -656,9 +642,6 @@ func safeEventCallback(callback func(SessionEvent), event SessionEvent) (err err
 }
 
 func (a *Agent) complete(info RunInfo, status RunStatus) (TurnResult, error) {
-	if err := a.appendUsage(info.RunID); err != nil {
-		return TurnResult{}, err
-	}
 	if err := a.append(info.RunID, EvRunEnd, RunEndData{Status: status}); err != nil {
 		return TurnResult{}, err
 	}
@@ -673,9 +656,6 @@ func (a *Agent) fail(info RunInfo, code string, cause error, retryable bool) (Tu
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		status = RunCancelled
 	}
-	if usageErr := a.appendUsage(info.RunID); usageErr != nil {
-		cause = errors.Join(cause, usageErr)
-	}
 	_ = a.append(info.RunID, EvRunError, NewRuntimeErrorData(code, cause, retryable))
 	_ = a.append(info.RunID, EvRunEnd, RunEndData{Status: status})
 	if a.opts.Hooks != nil {
@@ -684,9 +664,7 @@ func (a *Agent) fail(info RunInfo, code string, cause error, retryable bool) (Tu
 	return TurnResult{RunID: info.RunID, Status: status, Answer: a.opts.Session.LastAssistantText(info.RunID)}, cause
 }
 
-// notifyRunEnd keeps an observational hook from blocking the terminal run
-// result forever. A hook that ignores cancellation may outlive the timeout,
-// but it cannot hold the caller open.
+// notifyRunEnd bounds observational hooks at the terminal boundary.
 func (a *Agent) notifyRunEnd(info RunInfo, status RunStatus) {
 	ctx, cancel := context.WithTimeout(context.Background(), terminalHookTimeout)
 	defer cancel()
@@ -701,23 +679,29 @@ func (a *Agent) notifyRunEnd(info RunInfo, status RunStatus) {
 	}
 }
 
-// appendUsage records this segment's ordinary model usage. Summarizer usage
-// contributions and approval checkpoints are independent additive events.
-func (a *Agent) appendUsage(runID string) error {
-	if a.usage.InputTokens == 0 && a.usage.OutputTokens == 0 {
-		return nil
-	}
-	return a.append(runID, EvRunUsage, RunUsageData{
-		InputTokens: a.usage.InputTokens, OutputTokens: a.usage.OutputTokens,
-	})
+func (a *Agent) appendModelUsage(runID string, stepStartSeq int64, usage TokenUsage) error {
+	return a.append(runID, EvRunUsage, RunUsageData{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, InvocationID: fmt.Sprintf("model:%d", stepStartSeq)})
 }
 
-func (a *Agent) checkpointUsage(runID string) error {
-	if err := a.appendUsage(runID); err != nil {
+func (a *Agent) appendAssistantUsage(runID string, stepStartSeq int64, assistant AssistantMessageData, usage TokenUsage) error {
+	if err := a.appendBatch([]sessionAppendEntry{{runID: runID, kind: EvAssistantMessage, data: assistant}, {runID: runID, kind: EvRunUsage, data: RunUsageData{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, InvocationID: fmt.Sprintf("model:%d", stepStartSeq)}}}); err != nil {
 		return err
 	}
-	a.usage = TokenUsage{}
 	return nil
+}
+
+func usageLimitReached(usage TokenUsage) bool {
+	return usage.InputTokens >= MaxReportedTokensPerRun || usage.OutputTokens >= MaxReportedTokensPerRun
+}
+
+func (a *Agent) completeStep(ctx context.Context, info RunInfo, status RunStatus) (TurnResult, error) {
+	if err := a.append(info.RunID, EvStepEnd, StepData{Index: info.Step}); err != nil {
+		return a.fail(info, "event_append_failed", err, false)
+	}
+	if a.opts.Hooks != nil {
+		safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+	}
+	return a.complete(info, status)
 }
 
 func (a *Agent) appendApprovalResolutions(runID string) error {
@@ -774,9 +758,6 @@ func (a *Agent) pauseForApproval(info RunInfo, pending *ApprovalPendingError, re
 		}
 		return TurnResult{RunID: info.RunID, Status: RunWaitingApproval}, nil
 	}
-	if err := a.checkpointUsage(info.RunID); err != nil {
-		return TurnResult{}, err
-	}
 	if err := a.append(info.RunID, EvApprovalRequested, ApprovalRequestedData{
 		ApprovalID: pending.Resolution.ApprovalID, ToolCall: pending.Request.ToolCall,
 		ResumeCall: resumeCall, RemainingCalls: remaining, Step: info.Step,
@@ -794,19 +775,6 @@ func isRetryable(err error) bool {
 	type retryableError interface{ Retryable() bool }
 	var retryable retryableError
 	return errors.As(err, &retryable) && retryable.Retryable()
-}
-
-func addTokenUsage(total *TokenUsage, delta TokenUsage) error {
-	if total == nil || delta.InputTokens < 0 || delta.OutputTokens < 0 {
-		return fmt.Errorf("token usage is invalid")
-	}
-	if delta.InputTokens > MaxReportedTokensPerRun-total.InputTokens ||
-		delta.OutputTokens > MaxReportedTokensPerRun-total.OutputTokens {
-		return fmt.Errorf("run token usage exceeds the hard limit")
-	}
-	total.InputTokens += delta.InputTokens
-	total.OutputTokens += delta.OutputTokens
-	return nil
 }
 
 func containsCall(calls []ToolCall, call ToolCall) bool {

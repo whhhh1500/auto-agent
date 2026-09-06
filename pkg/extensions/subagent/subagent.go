@@ -2,9 +2,11 @@
 package subagent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,6 +32,115 @@ var durableLocks = struct {
 	sync.Mutex
 	entries map[string]*durableLockEntry
 }{entries: map[string]*durableLockEntry{}}
+
+// childProgressPersister makes the runtime's per-event callback compatible
+// with Session batches. A callback is a notification that the child may have
+// advanced; it is not evidence that exactly one event was appended. The
+// persister therefore saves the complete suffix from its last durable version
+// through the child's current version, then treats later notifications for the
+// same suffix as no-ops.
+//
+// One durable delegation execution owns one instance. Its mutex serializes
+// callbacks without holding any Session lock while the store is called: Clone
+// and EventsFrom take their own short Session locks before persistence begins.
+type childProgressPersister struct {
+	store core.SessionStore
+	child *core.Session
+
+	mu           sync.Mutex
+	savedVersion int64
+	err          error
+}
+
+func newChildProgressPersister(store core.SessionStore, child *core.Session) *childProgressPersister {
+	return &childProgressPersister{store: store, child: child, savedVersion: child.Version()}
+}
+
+func (p *childProgressPersister) emit(ctx context.Context, cancel context.CancelFunc) {
+	if err := p.persist(ctx); err != nil {
+		cancel()
+	}
+}
+
+func (p *childProgressPersister) Err() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.err
+}
+
+func (p *childProgressPersister) persist(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return p.err
+	}
+
+	// Take an immutable snapshot before entering an adapter. This lets the
+	// Save fallback persist a coherent full snapshot even if a later callback
+	// appends while the adapter is in flight.
+	snapshot, err := p.child.Clone()
+	if err != nil {
+		p.err = fmt.Errorf("clone child session for persistence: %w", err)
+		return p.err
+	}
+	targetVersion := snapshot.Version()
+	if targetVersion == p.savedVersion {
+		return nil
+	}
+	if targetVersion < p.savedVersion {
+		p.err = fmt.Errorf("child session version regressed from %d to %d", p.savedVersion, targetVersion)
+		return p.err
+	}
+	pending := snapshot.EventsFrom(p.savedVersion)
+	if int64(len(pending)) != targetVersion-p.savedVersion {
+		p.err = fmt.Errorf("child session pending suffix is incomplete")
+		return p.err
+	}
+
+	if appender, ok := p.store.(core.SessionAppender); ok {
+		err = appender.AppendEvents(ctx, snapshot.ID(), p.savedVersion, pending)
+	} else {
+		err = p.store.Save(ctx, snapshot, p.savedVersion)
+	}
+	if err != nil {
+		if convergeErr := p.confirmPersisted(ctx, snapshot); convergeErr == nil {
+			p.savedVersion = targetVersion
+			return nil
+		} else {
+			p.err = errors.Join(fmt.Errorf("persist child session: %w", err), convergeErr)
+			return p.err
+		}
+	}
+	p.savedVersion = targetVersion
+	return nil
+}
+
+// confirmPersisted handles the only safe retry convergence case: the adapter
+// reported an error, but a reload proves it already committed this exact child
+// snapshot. A conflicting or merely longer history is never accepted because
+// it could belong to another execution owner.
+func (p *childProgressPersister) confirmPersisted(ctx context.Context, expected *core.Session) error {
+	durable, err := p.store.Load(ctx, expected.ID())
+	if err != nil {
+		return fmt.Errorf("reload child session after persistence error: %w", err)
+	}
+	if durable.Version() != expected.Version() || !sameSessionEvents(durable.Events(), expected.Events()) {
+		return fmt.Errorf("child session persistence outcome is not an exact durable match")
+	}
+	return nil
+}
+
+func sameSessionEvents(left, right []core.SessionEvent) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index].Seq != right[index].Seq || !left[index].Time.Equal(right[index].Time) || left[index].RunID != right[index].RunID || left[index].Type != right[index].Type || !bytes.Equal(left[index].Data, right[index].Data) {
+			return false
+		}
+	}
+	return true
+}
 
 // lockDurable serializes one parent replay (or one child continuation) across
 // Capability instances while allowing nested delegation with a different key.
@@ -278,17 +389,12 @@ func (s *Capability) executeDurable(ctx context.Context, request core.Capability
 		case core.RunWaitingApproval:
 			childCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			var saveErr error
+			persister := newChildProgressPersister(s.opts.Sessions, child)
 			emit := func(core.SessionEvent) {
-				if saveErr == nil {
-					saveErr = s.opts.Sessions.Save(childCtx, child, child.Version()-1)
-					if saveErr != nil {
-						cancel()
-					}
-				}
+				persister.emit(childCtx, cancel)
 			}
 			result, resumeErr := s.runtime.ResumeTurn(childCtx, owner, child, core.ResumeInput{RunID: link.ChildRunID}, emit)
-			if saveErr != nil {
+			if persister.Err() != nil {
 				return support.DeniedResult("delegation_store_unavailable", "child progress could not be persisted"), nil
 			}
 			if resumeErr != nil {
@@ -308,17 +414,12 @@ func (s *Capability) executeDurable(ctx context.Context, request core.Capability
 	}
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var saveErr error
+	persister := newChildProgressPersister(s.opts.Sessions, child)
 	emit := func(core.SessionEvent) {
-		if saveErr == nil {
-			saveErr = s.opts.Sessions.Save(childCtx, child, child.Version()-1)
-			if saveErr != nil {
-				cancel()
-			}
-		}
+		persister.emit(childCtx, cancel)
 	}
 	result, runErr := s.runtime.RunTurn(childCtx, owner, child, core.TurnInput{RunID: link.ChildRunID, Text: prompt, MaxToolCallsOverride: quota}, emit)
-	if saveErr != nil {
+	if persister.Err() != nil {
 		return support.DeniedResult("delegation_store_unavailable", "child progress could not be persisted"), nil
 	}
 	if runErr != nil {
@@ -382,17 +483,12 @@ func (s *Capability) continueDurableChild(ctx context.Context, request core.Capa
 	}
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var saveErr error
+	persister := newChildProgressPersister(s.opts.Sessions, child)
 	emit := func(core.SessionEvent) {
-		if saveErr == nil {
-			saveErr = s.opts.Sessions.Save(childCtx, child, child.Version()-1)
-			if saveErr != nil {
-				cancel()
-			}
-		}
+		persister.emit(childCtx, cancel)
 	}
 	result, runErr := s.runtime.RunTurn(childCtx, owner, child, core.TurnInput{RunID: runID, Text: followup, MaxToolCallsOverride: quota}, emit)
-	if saveErr != nil || runErr != nil {
+	if persister.Err() != nil || runErr != nil {
 		return support.DeniedResult("delegation_store_unavailable", "child continuation failed closed"), nil
 	}
 	return core.CapabilityResult{Content: result.Answer, OK: result.Status == core.RunCompleted, Metadata: delegationMetadata(Link{ParentSessionID: link.ParentSessionID, ParentRunID: link.ParentRunID, ParentCallID: link.ParentCallID, ChildSessionID: link.ChildSessionID, ChildRunID: runID, Depth: depth + 1}, result.Status)}, nil

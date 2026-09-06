@@ -131,13 +131,13 @@ flowchart TD
 
 ### M01 — Agent 循环与 Runtime
 
-**实现 / 状态：** [runtime.go](../pkg/core/runtime.go)、[agent.go](../pkg/core/agent.go)负责 Run 初始化、组合解析、模型调用、工具反馈与终态事件；默认 `general` 使用顺序模型—工具循环。内核只依赖标准库，不直接管理 HTTP、SQL 或厂商 SDK。
+**实现 / 状态：** [runtime.go](../pkg/core/runtime.go)、[agent.go](../pkg/core/agent.go)负责 Run 初始化、组合解析、模型调用、工具反馈与终态事件；默认 `general` 使用顺序模型—工具循环。每个已观察到完成的模型调用在 Session 中写一条带 canonical `model:<step-start-seq>` identity 的 usage ledger；即使上游没有报告 usage，也写 `0/0` 表示“结果已观察、未报告计量”。assistant/message 与该 usage 先作为一个内存 batch 进入 Session，随后才写 tool/call；因此 journal Begin 前的 checkpoint 能得到完整 prefix。usage 不进入后续 prompt 投影，既不按 chunk 写入，也不增加模型上下文 token。内核只依赖标准库，不直接管理 HTTP、SQL 或厂商 SDK。
 
 **扩展：** E1：向 `Runtime` 注入模型解析器、策略、Hooks、上下文与持久调用组件；编排器通过 [RunExecutor](../pkg/app/runexecutor/runexecutor.go) 的 `RunTurn` / `ResumeTurn` 接入。改变默认循环的并行、消息或重放语义属于 E3，不能仅增加一个 `kind` 实现。
 
 **性能：** 尚无跨框架循环基准。端到端延迟由模型、工具、数据库、队列与恢复共同组成；顺序工具阶段会累计工具耗时。Go 实现和无厂商依赖有利于部署与边界管理，不能直接推出模型任务更快。
 
-**对比 / 取舍：** 与 LangChain `create_agent`、OpenAI SDK 的运行循环职责相近。本项目的服务治理集成更贴合现有需求；快速使用广泛工具生态，优先评估这些 SDK。复杂分支应比较图引擎，而不是扩写这个循环。[C1](agent-framework-comparison.md#c1)、[C2](agent-framework-comparison.md#c2)
+**对比 / 取舍：** Usage ledger 通过每 Run 小型 identity map 换取 Append/Restore 的精确去重与跨 approval/resume 的 total 重建；它不增加 SQL 表、索引或 prompt 字段。模型请求已发出、但 assistant/usage batch 尚未 durable 时，仍无法证明上游是否执行或计费；需要单独的 model-invocation journal，不能把本 ledger 说成端到端计费 exactly-once。completed-result 自动续跑也仍未实现。与 LangChain `create_agent`、OpenAI SDK 的运行循环职责相近。本项目的服务治理集成更贴合现有需求；快速使用广泛工具生态，优先评估这些 SDK。复杂分支应比较图引擎，而不是扩写这个循环。[C1](agent-framework-comparison.md#c1)、[C2](agent-framework-comparison.md#c2)
 
 <a id="m02"></a>
 
@@ -305,7 +305,7 @@ flowchart TD
 
 **实现 / 状态：** [summarizer.go](../pkg/app/contextassembly/summarizer.go)、[extractive_summarizer.go](../pkg/app/contextassembly/extractive_summarizer.go)通过小接口接入滚动摘要。默认服务安装确定性提取式摘要，`MaxMessages=120`、`KeepTail=60`；KeepTail 是安全范围内保留数量的上限。已修复投影顺序不等于事件序号导致的连续替换错误，归档包含旧摘要来源及其事件，保留尾部不被遮盖。旧摘要使用剩余总预算，工具 ID 完成后可在后续轮次重用。SQL/HTTP 原始事件完整保留，三轮真实回答与重建后投影已验。
 
-**扩展：** E1：本地策略实现 `ContextSummarizer`；需要报告费用的策略同时实现 app 的 `MeteredContextSummarizer`，接收 `SummaryRequest` 的当前 Run 身份并返回 `SummaryResult`，有效 usage 在成功或失败时都作为独立增量入库。`LlmSummarizer` 已实现，Gate 与 Telemetry 由宿主显式注入；独立调用用 `SummarizeWithUsage` 读取用量，兼容的 `Summarize` 只返回文本。策略仍需处理失败、取消、预算与事实丢失，不能把工具数据提升成更高优先级指令。
+**扩展：** E1：本地策略实现 `ContextSummarizer`；需要报告费用的策略同时实现 app 的 `MeteredContextSummarizer`，接收 `SummaryRequest` 的当前 Run 身份并返回 `SummaryResult`。每个已观察到的 metered summary 以 `summary:<range-start>:<range-end>:<pre-call-session-version>` identity 写一条 usage，和主模型共享 Run total；成功但未报告 usage 记 `0/0`，失败且未报告时不伪造免费计量。`LlmSummarizer` 已实现，Gate 与 Telemetry 由宿主显式注入；独立调用用 `SummarizeWithUsage` 读取用量，兼容的 `Summarize` 只返回文本。策略仍需处理失败、取消、预算与事实丢失，不能把工具数据提升成更高优先级指令。
 
 **性能：** [实测记录与七份证据](performance/2026-09-06-rolling-summary.md)：默认本地摘要无额外模型请求，三轮累计输入 7,520→3,727、总 token 8,409→4,617，耗时 10,769→12,017 ms，两个 arm 各 3/3 正确。两组均关闭机械窗口裁剪，只比较完整历史与默认摘要阈值；种子直接写入 SQL，不是 128 轮真实交谈。局部提取中位 1.058 µs / 1,505 B，含事件恢复和投影的路径 193.634 µs / 约 225 KB 分配，不是 RSS。固定单样本不能外推平均收益。
 
@@ -549,7 +549,7 @@ flowchart TD
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
-**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史。Pre-tool durable checkpoint 的局部开销见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)；其中分位数为 batch-normalized，并非单请求 tail，且 Memory/SQLite 结果不能替代 PostgreSQL。另已在 PostgreSQL 17.6 实测 fenced append 的 stale-generation 拒绝、最终 ownership recheck 的事务回滚、predecessor repair 与 claim-renew 并发锁序；这不是 CI PostgreSQL 16、远端 PG 压测、数据库大小增长或长期锁竞争的替代。
+**性能：** 增量追加可减少整份会话写放大。writer 打开时，`WriteBehind.Checkpoint` 是可重复同步操作，之后的 MarkDirty 仍能后台批量持久化；`Flush` 会排空当前待写前缀并终结关闭，后续 MarkDirty / Checkpoint 不再持久化新事件或重新调度。每个已完成 model/summary invocation 最多新增一条小 usage event；batch callback 由 consumer 保存完整 suffix，durable subagent 用 saved version、SessionAppender 优先和 exact-reload response-lost 收敛，较长或不同 history 一律 fail closed。工具边界只在 journal Begin 前强制一次 append，并没有逐 stream chunk 写。异常退出验收已核对硬杀前 version 5 的 exact prefix 与恢复后 9 条历史。Pre-tool durable checkpoint 的局部开销见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)；其中分位数为 batch-normalized，并非单请求 tail，且 Memory/SQLite 结果不能替代 PostgreSQL。另已在 PostgreSQL 17.6 实测 fenced append 的 stale-generation 拒绝、最终 ownership recheck 的事务回滚、predecessor repair 与 claim-renew 并发锁序；这不是 CI PostgreSQL 16、远端 PG 压测、数据库大小增长或长期锁竞争的替代。本次 usage-ledger 验证没有启动 PostgreSQL，默认 PG 用例仍是 skip。
 
 **对比 / 取舍：** 本项目自带的服务级存储范围较广，代价是 migration 与多 Store 一致性维护。LangGraph/Eino 的 checkpoint 后端聚焦编排恢复，不能直接当作整个 SaaS 数据层替代品；也不能据此说它们缺少持久化。
 

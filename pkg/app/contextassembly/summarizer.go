@@ -62,7 +62,7 @@ func (r *RollingSummarizer) EnsureSummarized(ctx context.Context, session *core.
 	if summariesOnly(archived) {
 		return nil, fmt.Errorf("rolling summarizer cannot make summary progress")
 	}
-	summary, err := summarizeAndRecordUsage(ctx, r.Summarizer, session, runID, emit, archived)
+	summary, err := summarizeAndRecordUsage(ctx, r.Summarizer, session, runID, emit, archived, start, end)
 	if err != nil {
 		return nil, err
 	}

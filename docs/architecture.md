@@ -67,9 +67,13 @@ implementation.
   and optional LLM-summary accounting limits.
   The follow-up [LLM summary accounting audit](performance/2026-09-06-llm-summary-accounting.md)
   adds an app-level metered policy, current run identity and separately tagged
-  summary model spans. Reported usage is an additive durable event, including
-  failures; core exposes validated stream usage through one optional consumer
-  function. The default remains local extraction after measuring total cost.
+  summary model spans. The current ledger writes one bounded, unique
+  `summary:<range-start>:<range-end>:<pre-call-session-version>` usage event for
+  each observed metered summary outcome; successful outcomes with no upstream
+  report record zero usage, while failed requests with no report do not pretend
+  to be free. Model and summary entries share the Session per-Run total, remain
+  outside prompt projection, and are not written per stream chunk. The default
+  remains local extraction after measuring total cost.
 - `pkg/app/modelcontrol` owns immutable catalog/provider/protocol evidence;
   `pkg/adapter/modelruntime` compiles persisted settings through explicit
   provider and protocol plugins.
@@ -227,6 +231,18 @@ to the adapter configuration, outside the core contract.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or
   duplicate terminal/usage frames, invalid tool calls and adapter panics fail
   the run instead of producing partial ambiguous state.
+- A `run/usage` event is a durable Session ledger contribution. Empty
+  `invocation_id` preserves old additive history; new model and summary IDs are
+  canonical and unique per Run, so Append and Restore reject duplicate identities
+  and usage-total overflow. Agent commits an observed model response's
+  `assistant/message` and `run/usage` as one in-memory Session batch before a
+  subsequent `tool/call`; callbacks happen after the entire batch, and append
+  consumers persist the suffix from their saved durable version. This makes the
+  synchronous pre-tool checkpoint observe the complete assistant/usage/call
+  prefix without writing one event for every stream chunk or adding usage to the
+  next model prompt. It does not make a model request safe to replay if a process
+  dies before an assistant/usage outcome is durable: there is no model-invocation
+  journal yet.
 - Tool providers execute behind panic isolation, JSON argument/result metadata
   boundaries and optional `OutputSchema` validation.
 - Tool providers optionally execute behind a durable invocation journal. The
@@ -241,7 +257,7 @@ to the adapter configuration, outside the core contract.
   drains the pending prefix, closes background scheduling, and later `MarkDirty`
   or `Checkpoint` calls neither persist new events nor reopen the writer. A
   shallow copy of that Run's `Runtime` privately wraps
-  its journal and checkpoints the already appended assistant/tool-call prefix
+  its journal and checkpoints the already appended assistant/usage/tool-call prefix
   before `BeginToolInvocation`; a failed checkpoint cancels the Run before the
   inner journal begin, tool provider, or second model call. The shared server
   Runtime is not mutated. This cancellation is internal stop control: synchronous

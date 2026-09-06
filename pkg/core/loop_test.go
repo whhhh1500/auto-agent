@@ -159,8 +159,8 @@ func TestAgentRejectsInvalidLimitsAndNilContext(t *testing.T) {
 }
 
 func TestRunTokenUsageOverflowIsRejected(t *testing.T) {
-	total := TokenUsage{InputTokens: MaxReportedTokensPerRun}
-	if err := addTokenUsage(&total, TokenUsage{InputTokens: 1}); err == nil {
+	total := TokenUsage{InputTokens: int64(^uint64(0) >> 1)}
+	if err := addUsageTotal(&total, 1, 0); err == nil {
 		t.Fatal("run token usage overflow was accepted")
 	}
 }
@@ -336,7 +336,10 @@ func TestAgentRunTurnResetsRunScopedStateWhenReused(t *testing.T) {
 			if err := json.Unmarshal(event.Data, &usage); err != nil {
 				t.Fatal(err)
 			}
-			usageByRun[event.RunID] = usage
+			total := usageByRun[event.RunID]
+			total.InputTokens += usage.InputTokens
+			total.OutputTokens += usage.OutputTokens
+			usageByRun[event.RunID] = total
 		case EvToolResult:
 			if event.RunID == "run-b" {
 				if err := json.Unmarshal(event.Data, &secondToolResult); err != nil {
@@ -357,8 +360,8 @@ func TestAgentRunTurnResetsRunScopedStateWhenReused(t *testing.T) {
 	if len(toolRunIDs) != 2 || toolRunIDs[0] != "run-a" || toolRunIDs[1] != "run-b" {
 		t.Fatalf("guarded tool runtime observed stale run ids: %#v", toolRunIDs)
 	}
-	if agent.runID != "run-b" || agent.counts["market.quote"] != 1 || agent.usage.InputTokens != 4 || agent.usage.OutputTokens != 3 {
-		t.Fatalf("agent retained incorrect run-scoped state: run=%q counts=%#v usage=%#v", agent.runID, agent.counts, agent.usage)
+	if usage := session.runUsageTotal("run-b"); agent.runID != "run-b" || agent.counts["market.quote"] != 1 || usage != (TokenUsage{InputTokens: 4, OutputTokens: 3}) {
+		t.Fatalf("agent retained incorrect run-scoped state: run=%q counts=%#v usage=%#v", agent.runID, agent.counts, usage)
 	}
 }
 

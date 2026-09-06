@@ -44,6 +44,26 @@ HTTP 审批恢复、Graph 示例，以及用户指定的 `gemini-3.8-flash` 模�
    测试当成该 PG 证据。该实测为 PostgreSQL 17.6，不能替代 CI PostgreSQL 16 镜像的版本
    矩阵；CI 仍须独立运行。completed-result 自动续跑仍未实现，恢复继续 fail closed。
 
+8. 同日增加 Session durable usage ledger：`RunUsageData.invocation_id` 保持旧空字段
+   additive 兼容，新事件使用唯一且 canonical 的 `model:<step-start-seq>` 或
+   `summary:<range-start>:<range-end>:<pre-call-session-version>`。Append / Restore
+   拒绝重复 identity、非规范 ID、每调用超限和 `int64` total overflow；完成但未报告
+   usage 的模型或 metered summary 记录 `0/0`，失败且未报告时不伪造免费计量。普通模型
+   路径在 `tool/call` 前以一个内存 Session batch 写入
+   `assistant/message → run/usage → tool/call`，因而 checkpoint journal 的 Begin
+   直接从 SQLite durable `event_chunks` 复核这条完整顺序。batch callback 在全部事件
+   已进入 Session 后才投递；subagent delegation 用 saved-version suffix persistence
+   适配它，优先 `SessionAppender`，且仅在 exact reload 已证明完整 snapshot 提交时收敛
+   response-lost，任何更长或不同的 child history 均 fail closed。
+
+   SQLite 定向/高风险 race 覆盖同步、queued、custom sequential executor、FastRouter
+   回归、checkpoint failure、commit-response-lost、approval pause/resume、background
+   generation loss、subagent 并发 callback 与 stats overflow；所有默认全仓门禁通过。
+   本批未启动 PostgreSQL，缺 `HARNESS_TEST_PG_DSN` 的 opt-in PG 用例保持 skip，不能把
+   SQLite 覆盖表述为本批 PostgreSQL 验收。该 ledger 不解决“模型请求已发出、但
+   assistant/usage 尚未 durable”的上游计费/结果未知窗口，未来需要 model-invocation
+   journal；completed ToolJournal result 自动续跑也仍未实现，当前恢复保持 fail closed。
+
 恢复逻辑现在先使非空 Session 的投影缓存失效。工具调用新增可选、最多 64 KiB 的
 `continuation` 字符串，由外层协议适配器解释，原样随对应 assistant 工具调用持久化和
 返回；上下文与请求预算包含该字段。未知协议状态被拒绝，不作为工具参数或授权信息。

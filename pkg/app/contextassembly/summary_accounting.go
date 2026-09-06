@@ -28,7 +28,7 @@ type MeteredContextSummarizer interface {
 	SummarizeWithUsage(context.Context, SummaryRequest) (SummaryResult, error)
 }
 
-func summarizeAndRecordUsage(ctx context.Context, policy ContextSummarizer, session *core.Session, runID string, emit func(core.SessionEvent), messages []core.ChatMessage) (string, error) {
+func summarizeAndRecordUsage(ctx context.Context, policy ContextSummarizer, session *core.Session, runID string, emit func(core.SessionEvent), messages []core.ChatMessage, start, end int64) (string, error) {
 	metered, ok := policy.(MeteredContextSummarizer)
 	if !ok {
 		return policy.Summarize(ctx, messages)
@@ -47,12 +47,16 @@ func summarizeAndRecordUsage(ctx context.Context, policy ContextSummarizer, sess
 		}
 	}
 	identity.Deadline, _ = ctx.Deadline()
+	requestVersion := session.Version()
 	result, err := metered.SummarizeWithUsage(ctx, SummaryRequest{Identity: identity, Messages: messages})
-	if usage := result.Usage; usage != nil {
+	if usage := result.Usage; usage != nil || err == nil {
+		if usage == nil {
+			usage = &core.TokenUsage{}
+		}
 		if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.InputTokens > core.MaxReportedTokensPerCall || usage.OutputTokens > core.MaxReportedTokensPerCall {
 			return "", fmt.Errorf("summarizer reported invalid token usage")
 		}
-		event, appendErr := session.Append(runID, core.EvRunUsage, core.RunUsageData{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens})
+		event, appendErr := session.Append(runID, core.EvRunUsage, core.RunUsageData{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, InvocationID: fmt.Sprintf("summary:%d:%d:%d", start, end, requestVersion)})
 		if appendErr != nil {
 			return "", appendErr
 		}
