@@ -71,6 +71,16 @@ type ToolInvocationJournal interface {
 	MarkToolInvocationUncertain(ctx context.Context, invocation ToolInvocation, errorCode string) error
 }
 
+// ToolInvocationReader is an optional, read-only companion to
+// ToolInvocationJournal. GetToolInvocation must never create a started record
+// or otherwise mutate durable journal state. found is true only when the
+// complete immutable invocation identity matches exactly. Missing records,
+// cross-principal requests, and same-key identity conflicts are
+// indistinguishable as found=false; callers must fail closed.
+type ToolInvocationReader interface {
+	GetToolInvocation(ctx context.Context, invocation ToolInvocation) (record ToolInvocationRecord, found bool, err error)
+}
+
 // NewToolInvocation builds a validated journal identity and a deterministic
 // SHA-256 digest over the JSON arguments. encoding/json sorts string map keys,
 // making the digest stable across process restarts.

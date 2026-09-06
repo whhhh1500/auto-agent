@@ -29,9 +29,11 @@ const (
 	// still counted/excluded respectively, while blank formatting is not.
 	coreProductionLineBaseline = 8615
 	coreProductionFileBaseline = 34
-	// AST public-surface baseline measured on the same date.
-	corePublicAPIBaseline = 902
-	corePublicAPILimit    = 905 // three compatibility-fix slots beyond the accepted baseline
+	// The HEAD public surface had consumed all three compatibility slots above
+	// the 902 baseline. This reviewed optional reader adds one interface and one
+	// method, so the accepted surface is 907 with no unused public API slot.
+	corePublicAPIBaseline = 907
+	corePublicAPILimit    = 907
 	// 128 lines is the maximum total headroom above this accepted baseline.
 	coreProductionLineHardLimit = 8743
 	coreProductionFileHardLimit = 36

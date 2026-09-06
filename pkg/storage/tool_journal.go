@@ -17,6 +17,8 @@ import (
 // argument fingerprints turn unsafe identity reuse into an explicit conflict.
 const MaxToolInvocations = 8192
 
+var errToolInvocationNotFound = errors.New("tool invocation not found")
+
 type SQLToolInvocationJournal struct {
 	db             *sql.DB
 	dialect        SQLDialect
@@ -32,6 +34,12 @@ var (
 		capability_id, args_digest, idempotent, state, result_json, error_code,
 		started_at, updated_at, completed_at
 		FROM tool_invocations WHERE session_id = ? AND run_id = ? AND call_id = ?`}
+	sqlSelectToolInvocationForReader = sqlQuery{`SELECT tenant_id, subject_id, session_id, run_id, call_id,
+		capability_id, args_digest, idempotent, state, result_json, error_code,
+		started_at, updated_at, completed_at
+		FROM tool_invocations
+		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ? AND call_id = ?
+		AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
 	sqlCompleteToolInvocation = sqlQuery{`UPDATE tool_invocations
 		SET state = 'completed', result_json = ?, error_code = '', updated_at = ?, completed_at = ?
 		WHERE session_id = ? AND run_id = ? AND call_id = ?
@@ -75,7 +83,7 @@ func (s *SQLToolInvocationJournal) BeginToolInvocation(ctx context.Context, invo
 		if getErr == nil {
 			return existingToolInvocationDecision(record, invocation)
 		}
-		if !strings.Contains(getErr.Error(), "not found") {
+		if !errors.Is(getErr, errToolInvocationNotFound) {
 			return core.ToolInvocationRecord{}, "", getErr
 		}
 		return core.ToolInvocationRecord{}, "", fmt.Errorf("tool invocations exceed maximum of %d", s.invocationCap())
@@ -202,6 +210,29 @@ func (s *SQLToolInvocationJournal) MarkToolInvocationUncertain(ctx context.Conte
 	return fmt.Errorf("tool invocation could not be marked uncertain")
 }
 
+// GetToolInvocation reads an exact durable journal identity without invoking
+// Begin or creating a started row. The SQL predicate includes every immutable
+// identity field. Missing rows, cross-principal requests, and same-key identity
+// conflicts are deliberately indistinguishable: all return found=false and no
+// record. This prevents a recovery caller from using the reader to discover a
+// different capability, argument digest, state, or completed result.
+func (s *SQLToolInvocationJournal) GetToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, bool, error) {
+	if err := core.ValidateToolInvocation(invocation); err != nil {
+		return core.ToolInvocationRecord{}, false, err
+	}
+	record, err := scanToolInvocation(s.db.QueryRowContext(ctx, sqlSelectToolInvocationForReader.bind(s.dialect),
+		invocation.TenantID, invocation.SubjectID, invocation.SessionID, invocation.RunID, invocation.CallID,
+		invocation.CapabilityID, invocation.ArgsDigest, boolInt(invocation.Idempotent),
+	))
+	if err != nil {
+		if errors.Is(err, errToolInvocationNotFound) {
+			return core.ToolInvocationRecord{}, false, nil
+		}
+		return core.ToolInvocationRecord{}, false, err
+	}
+	return core.CloneToolInvocationRecord(record), true, nil
+}
+
 func (s *SQLToolInvocationJournal) getToolInvocation(ctx context.Context, sessionID, runID, callID string) (core.ToolInvocationRecord, error) {
 	return scanToolInvocation(s.db.QueryRowContext(ctx, sqlSelectToolInvocation.bind(s.dialect), sessionID, runID, callID))
 }
@@ -218,19 +249,43 @@ func scanToolInvocation(scanner runScanner) (core.ToolInvocationRecord, error) {
 		&record.ErrorCode, &startedMillis, &updatedMillis, &completedMillis,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return core.ToolInvocationRecord{}, fmt.Errorf("tool invocation not found")
+		return core.ToolInvocationRecord{}, errToolInvocationNotFound
 	}
 	if err != nil {
 		return core.ToolInvocationRecord{}, err
 	}
+	if idempotent != 0 && idempotent != 1 {
+		return core.ToolInvocationRecord{}, fmt.Errorf("invalid tool invocation idempotency value %d", idempotent)
+	}
 	record.Idempotent = idempotent != 0
 	record.State = core.ToolInvocationState(state)
+	if err := core.ValidateToolInvocation(record.ToolInvocation); err != nil {
+		return core.ToolInvocationRecord{}, fmt.Errorf("validate tool invocation record: %w", err)
+	}
+	if startedMillis <= 0 || updatedMillis <= 0 {
+		return core.ToolInvocationRecord{}, fmt.Errorf("tool invocation has invalid timestamps")
+	}
+	switch record.State {
+	case core.ToolInvocationStarted, core.ToolInvocationUncertain:
+		if resultJSON != "" || completedMillis != 0 {
+			return core.ToolInvocationRecord{}, fmt.Errorf("non-completed tool invocation has a durable result")
+		}
+	case core.ToolInvocationCompleted:
+		if resultJSON == "" || completedMillis <= 0 {
+			return core.ToolInvocationRecord{}, fmt.Errorf("completed tool invocation has no durable result")
+		}
+	default:
+		return core.ToolInvocationRecord{}, fmt.Errorf("unknown tool invocation state %q", record.State)
+	}
 	record.StartedAt = time.UnixMilli(startedMillis).UTC()
 	record.UpdatedAt = time.UnixMilli(updatedMillis).UTC()
 	if completedMillis > 0 {
 		record.CompletedAt = time.UnixMilli(completedMillis).UTC()
 	}
 	if resultJSON != "" {
+		if strings.TrimSpace(resultJSON) == "null" {
+			return core.ToolInvocationRecord{}, fmt.Errorf("decode tool invocation result: null is not a capability result")
+		}
 		var result core.CapabilityResult
 		if err := json.Unmarshal([]byte(resultJSON), &result); err != nil {
 			return core.ToolInvocationRecord{}, fmt.Errorf("decode tool invocation result: %w", err)
@@ -258,3 +313,4 @@ func boolInt(value bool) int {
 }
 
 var _ core.ToolInvocationJournal = (*SQLToolInvocationJournal)(nil)
+var _ core.ToolInvocationReader = (*SQLToolInvocationJournal)(nil)
