@@ -10,6 +10,10 @@ in plugins, providers, profiles, and examples.
 > API status: pre-GA. Package paths and public APIs may change without a
 > compatibility facade until the first stable release.
 
+详细技术评估：[Agent 模块实现、性能与扩展点](docs/agent-module-assessment.md)
+（44 个逻辑模块、74 个 Go 包）、[与主流框架的差异及选型](docs/agent-framework-comparison.md)、
+[本地性能实测与证据边界](docs/performance/2026-09-06-module-benchmarks.md)。
+
 ## Zero-configuration local start
 
 在仓库根目录打开 PowerShell，并确认已安装 Go 1.25.13 或更高版本：
@@ -220,6 +224,11 @@ err = mounted.Close(ctx)
 ```
 
 Plugins do not receive permission to mutate the runtime kernel. Untrusted tenant or user code should be implemented through an out-of-process provider, WASM, container, microVM, MCP server, HTTP service, or private runner.
+
+These execution options have different assurance and resource boundaries. The
+current WASM adapter still needs explicit runtime memory and execution-cancellation
+configuration before it can promise those limits; see the
+[WASM assessment](docs/agent-module-assessment.md#m27).
 
 ### Sessions and runs
 

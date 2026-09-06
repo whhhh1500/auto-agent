@@ -3,6 +3,13 @@
 Harness Core uses a one-way dependency graph. The kernel is deliberately
 unaware of transport, databases, model vendors and optional product features.
 
+For the detailed implementation and extension audit, see the
+[44-module Agent assessment](agent-module-assessment.md), including a complete
+74-package coverage index. The companion
+[framework comparison](agent-framework-comparison.md) explains scenario-based
+tradeoffs, and the [2026-09-06 benchmarks](performance/2026-09-06-module-benchmarks.md)
+separate measured local costs from historical integration evidence and unmeasured claims.
+
 ```text
                          +------------------+
                          |    cmd/server    |
@@ -97,6 +104,8 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | Linux local sandbox | Existing `bwrap`/`prlimit` provider; required confinement dependencies must be available | Native Linux tests; not validated by a Windows test pass |
 | E2B sandbox | No bundled provider, E2B API client, or E2B-compatible server endpoint | A separate adapter can implement `sandbox.Provider` / `Session` and register exact provider/version metadata |
 | MCP | Outbound stdio tool integration | No inbound MCP server endpoint |
+| WASM execution | Module/argument/output bounds exist; current adapter does not configure a tighter linear-memory limit or opt into context-driven execution termination | [Detailed WASM assessment](agent-module-assessment.md#m27); resource/termination acceptance remains to be added |
+| Default model context budget | Bounds System and message history with conservative estimates; tool schemas are attached after this assembly step | [Context budget boundary](agent-module-assessment.md#m14); not a complete provider-token accounting guarantee |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking
