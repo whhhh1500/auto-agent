@@ -10,6 +10,8 @@
 
 下表的“已验证路径”只承诺右侧具体路径，不表示整个模块的全部功能均已验收。没有执行的模块直接写明没有执行。源码实现、单元测试通过和真实模型验收是三种不同证据。
 
+随后补做 [WASM 资源与缓存验收](performance/2026-09-06-wasm-resource-and-cache.md)：新增 2 次串行真实请求，模型→Go WASI→模型得到 116，trace 与持久历史一致；离线实测取消、内存拒绝和错误 span。重复执行同一计算模块的热缓存耗时从约 528 ms 降到约 19.8 ms，累计分配字节减半；该比例不覆盖冷启动、整体 RSS 或 token。
+
 | 模块 | 职责 | 本轮真实验收状态 | 已跑通的边界 / 未覆盖内容 |
 | --- | --- | --- | --- |
 | [M01](#m01) | Agent 循环 | 已验证路径 | 真实模型→工具→模型→终态；含文本与工具循环。 |
@@ -38,7 +40,7 @@
 | [M24](#m24) | 工具目录 / 搜索 | 本轮未验 | 没有要求模型调用工具目录 search / describe。 |
 | [M25](#m25) | MCP | 本轮未验 | 未启动真实 MCP server；LLM 工具调用不等于 MCP 通路验证。 |
 | [M26](#m26) | HTTP 执行工具 | 本轮未验 | 使用 HTTP 模型端点不等于通用 HTTP capability executor 通过。 |
-| [M27](#m27) | WASM | 本轮未验 | 未运行真实模型发起的 WASM 工具；已有资源治理缺口仍保留。 |
+| [M27](#m27) | WASM | 已验证路径 | 真实 Gemini→Go WASI argv/stdout→回复，并审核 trace/持久历史；取消、内存、输出和缓存隔离有真实模块回归，整个进程硬资源隔离未覆盖。 |
 | [M28](#m28) | Sandbox 合同 | 本轮未验 | 这些业务夹具没有请求操作系统沙箱。 |
 | [M29](#m29) | Windows Basic | 本轮未复验 | 另有原生 Basic 验收记录；本轮不把普通工具执行当作沙箱验收。 |
 | [M30](#m30) | Linux / E2B | 未实现项仍未实现 | 内置 E2B 客户端和 E2B 兼容服务端 API 均不存在；本轮没有 Linux / E2B 环境测试。 |
@@ -65,7 +67,7 @@
 
 复杂图编排、现成模型与数据连接器、跨 Agent 标准协议、多模态、云沙箱接入，是与成熟生态对比时最需要补齐的部分。Graph 已有实现与持久化，但默认服务中的 Graph 适配器只包裹一个 `core-turn` 节点。Windows 沙箱只提供 Basic；**没有内置 E2B 客户端，也不提供 E2B 兼容服务端 API**。
 
-后续优化已修复默认上下文估算漏掉工具 Schema 的问题（M14），但默认值仍是可替换的保守成本模型，不能声称等于任意厂商的精确 tokenizer。WASM 执行器未显式收紧线性内存或开启运行中 context 终止检查（M27）的边界仍在，不能由“有 WASM 执行”推导充分的资源治理。
+后续优化已修复默认上下文估算漏掉工具 Schema 的问题（M14），但默认值仍是可替换的保守成本模型，不能声称等于任意厂商的精确 tokenizer。WASM 已补可配置线性内存、运行中取消和编译复用（M27），但 guest 内存限制不等于整个宿主 RSS 上限，guest 中断也不是编译/文件读取阶段的操作系统硬抢占。
 
 “可自行扩展”有四种不同含义：
 
@@ -443,13 +445,13 @@ flowchart TD
 
 ### M27 — WASM 执行
 
-**实现 / 状态：** [wazero.go](../pkg/execution/wazero.go)使用 wazero 执行 WASI 模块，限制模块文件、参数和捕获输出；每次调用创建新的 runtime。当前使用 `wazero.NewRuntime(ctx)`，没有显式设置 `WithMemoryLimitPages` 或 `WithCloseOnContextDone(true)`。所用 v1.12.0 的文档说明，执行中 context 终止检查默认关闭，线性内存未被模块自身限制时默认允许到 4 GiB。因此当前实现不能承诺任意不可信计算循环可按 context 及时终止，也不能把模块文件大小上限说成运行内存上限。[wazero RuntimeConfig](https://pkg.go.dev/github.com/tetratelabs/wazero@v1.12.0#RuntimeConfig)
+**实现 / 状态：** [wazero.go](../pkg/execution/wazero.go)使用 wazero 执行已注册的本地 WASI 模块，每次创建新 runtime / 实例。默认线性内存 128 MiB、时限 30 s、强制执行中取消检查；保持模块 32 MiB、argv、stdout 1 MiB 边界，关闭 runtime 不依赖被取消的 context。旧版无限循环不响应 deadline/cancel 的缺陷已由有硬超时的测试子进程复现并修复；现在两种情况约 0.11 s 结束。真实 Gemini 已执行 Go WASI 计算，工具结果/最终答案均为 116，trace 与 SQL/HTTP 历史一致。内存拒绝有真实 WASM、脚本模型和 SQL 错误 span 验收。见[实测与证据](performance/2026-09-06-wasm-resource-and-cache.md)。
 
-**扩展：** E1：用兼容工具链编译模块，按现有调用 ABI 接入；新增 host function / WASI 能力会扩大可访问面，需逐项声明。适合可编译为 WASM 的确定性计算，不能直接运行任意带本机依赖的 Python 项目。
+**扩展：** E1：用兼容工具链编译模块，按现有 WASI argv/stdout ABI 接入；在外层设置 `WazeroExecutor.MemoryLimitPages`、`Timeout` 和宿主管理的 `CompilationCache`，无需更改 core。缓存仅复用编译代码，宿主管理有限模块集合与生命周期，每次仍有新 guest 状态。资源策略进入 ArtifactRevision。新增 host function / WASI 能力需要逐项声明；不能直接运行任意带本机依赖的 Python 项目。默认服务器不会因为接口存在就自动安装 WASM 工具或共享缓存。
 
-**性能：** 每次新 runtime 与实例化使重复调用承担读取/编译等成本，当前没有共享编译缓存；未测冷/热延迟或与原生实现的同计算基准。先补资源与终止配置并用有界验收验证，再评估缓存复用；不能把源码注释中的“微秒”当作本项目实测。
+**性能：** 同一 2.50 MB Go WASI 模块、5 样本中位数，完整 Run 无缓存 528.27 ms、冷缓存 530.02 ms、热缓存 19.80 ms；热缓存累计分配从 65.46 MB/op 降到 32.60 MB/op。缓存最初未生效的问题已通过基准发现并修正编译代码的关闭时机。结果含读取/解析/实例化/执行/清理，不含模块构建；缓存保留内存、整体 RSS、多租户和跨框架尚未测，不能把热缓存收益用于首次调用。
 
-**对比 / 取舍：** 适合继续建设为嵌入式计算选项，但当前资源治理有具体待补项；完整操作系统工具链更适合容器/远程沙箱。CrewAI 的可选 Docker 代码执行、OpenAI Sandbox Agents 属于不同粒度，不能直接按“都有 sandbox”判断相同。[C2](agent-framework-comparison.md#c2)、[C5](agent-framework-comparison.md#c5)
+**对比 / 取舍：** 已具备可实测的嵌入式计算和复用路径。线性内存不覆盖所有宿主分配，执行时限不承诺文件读取/编译任意阶段可硬抢占；若需要整个进程的硬资源隔离或完整操作系统工具链，仍使用独立受限执行环境。CrewAI 的可选 Docker 代码执行、OpenAI Sandbox Agents 属于不同粒度，不能直接按“都有 sandbox”判断相同。[C2](agent-framework-comparison.md#c2)、[C5](agent-framework-comparison.md#c5)
 
 <a id="m28"></a>
 
@@ -676,12 +678,12 @@ flowchart TD
 | 完整语义 RAG 生产管道 | 有 Index 合同与关键词实现 | M33 接成熟检索服务/组件 | 知识问答质量成为主要瓶颈时 |
 | Windows 强网络隔离 | Basic 明确不提供 | 新 provider，保持 Basic 合同 | 需要满足更高保障等级时 |
 | 厂商精确请求 token 预算 | 默认已计入工具声明，但仍是保守估算，非厂商精确 tokenizer | M14 的 ContextEstimator 扩展点 | 需要利用更多模型上下文容量或支持特殊协议包装时 |
-| WASM 显式运行内存与计算中断 | 当前未配置相关 runtime 选项 | M27 外层执行器 | 接受不可信或耗时 WASM 模块前 |
+| WASM 整个宿主资源隔离与缓存容量治理 | 已限制 guest 线性内存/取消；尚无宿主整体 RSS 硬限额或项目自有缓存 LRU | M27 外层执行器 / 独立执行环境 | 大量不可信模块或严格进程配额需要时 |
 | 跨框架速度/质量领先 | 没有对等实测 | M39/M44 对照评测 | 决定自研投入或迁移之前 |
 
 ## 扩展的建议顺序
 
-1. **继续补已确认的边界缺口。** 工具 Schema 预算漏算与上下文指标丢失已修复并真实验收；下一步仍需处理 WASM 资源/中断选项，以及厂商协议成本模型的更精确接入。不能将本次局部性能收益当作整体优化完成。
+1. **继续补已确认的边界缺口。** 工具 Schema 预算漏算、上下文指标丢失与 WASM guest 资源/中断已修复并验收；继续验证工具按需披露的总 token 成本、长历史/任务恢复，以及厂商协议成本模型的更精确接入。不能将局部性能收益当作整体优化完成。
 2. **沿用现有治理主线。** 业务工具优先 E2；新模型、检索和云沙箱优先 E1 adapters。产品领域行为留在应用或 examples，避免扩大 `pkg/core`。
 3. **按实际需求补连接器。** 若首要需求是 E2B，先定义要“调用云端”还是“兼容其服务端 API”；若首要需求是 RAG，接成熟检索组件通常比自建全套 ingestion/embedding/ANN 更直接。
 4. **图能力先做选型试验。** 用一个包含分支、人工审批、重启恢复和外部副作用的真实业务，同时评估现有 Graph 与 LangGraph/Eino/ADK。没有需求驱动时不必把 ModuleHost、Workflow、Graph 再合并成更大的总抽象。

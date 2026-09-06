@@ -195,4 +195,4 @@ VectorStoreIndex 文档涵盖文档/节点索引、ingestion pipeline 与向量�
 5. 对审批等待、重启、强杀、工具已执行但结果未落库、租约丢失与重复回调做故障试验；单独验证权限与副作用次数。
 6. 按任务成功且合同满足时的总开发/运维成本选型；即使局部微基准更快，也不能抵消连接器缺失或质量下降。
 
-**对当前项目的投入建议：** 保留已有 Go 服务治理与小接口方向。[工具 Schema 预算漏算](performance/2026-09-06-context-budget-optimization.md)已修复并有真实 token 对照，接下来继续补[WASM 资源/终止配置](agent-module-assessment.md#m27)、更精确的协议成本模型和外层集成验证。复杂编排与 RAG 通过原型决定复用或自研，避免用一个总分掩盖各模块的不同成熟度。
+**对当前项目的投入建议：** 保留已有 Go 服务治理与小接口方向。[工具 Schema 预算漏算](performance/2026-09-06-context-budget-optimization.md)已修复并有真实 token 对照，[WASM 资源/终止配置与编译复用](performance/2026-09-06-wasm-resource-and-cache.md)也已补充真实模块和模型验收。接下来继续验证工具按需披露、长任务恢复、更精确的协议成本模型与跨框架对等任务集。复杂编排与 RAG 通过原型决定复用或自研，避免用一个总分掩盖各模块的不同成熟度。

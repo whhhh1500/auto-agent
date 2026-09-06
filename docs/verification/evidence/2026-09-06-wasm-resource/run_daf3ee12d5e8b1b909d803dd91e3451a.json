@@ -1,0 +1,374 @@
+{
+  "context_metrics_process_cumulative": {
+    "harness.model.context.dropped_groups": 0,
+    "harness.model.context.input_bytes": 1782,
+    "harness.model.context.input_tokens": 1360
+  },
+  "events": [
+    {
+      "data": {
+        "assignment_revision": "3aeabb4a3276cece593f9f4eb5a4278154b23b22703a5e3d07924ccdab645397",
+        "capability_snapshot_id": "75fc5531dc042ad1e4dec6782e9efaf232453e5dbf5e3036a052b4f4198cb3c8",
+        "composition": {
+          "capabilities": [
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "execution": {
+                  "entrypoint": "D:\\cc\\auto_agent\\harness-core\\.tmp-wasm-resource-20260906\\calc.wasm",
+                  "runtime": "wazero",
+                  "sandbox": {
+                    "Mode": ""
+                  }
+                },
+                "id": "serial.wasm_sum",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "inputs": {
+                      "items": {
+                        "type": "integer"
+                      },
+                      "maxItems": 8,
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "inputs"
+                  ],
+                  "type": "object"
+                },
+                "kind": "computation",
+                "name": "WASM integer sum",
+                "tool": {
+                  "description": "Sum the integer inputs in an actual WASI computation module.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "inputs": {
+                        "items": {
+                          "type": "integer"
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "inputs"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "provider_revision": "sha256:59a82bb53ffaa8fa323408fcb15153cc0db029c82160117c3fc70441eba14052",
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            }
+          ],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 8,
+          "metadata": {
+            "harness.executor.id": "sequential",
+            "harness.executor.implementation_revision": "core-runtime-v1",
+            "harness.executor.version": "1"
+          },
+          "model": {
+            "model": "serial-offline-fixture",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": [
+              "serial.wasm_sum"
+            ],
+            "created_at": "2026-09-06T06:13:42.3856329Z",
+            "fragments": [
+              {
+                "content": "Use serial.wasm_sum exactly once with the user's integer inputs. Return only its exact result. Never calculate the result yourself.",
+                "id": "serial.wasm.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "1248579a5bbb57786c884fc8bc8d65e413427d6f937f00eb365a06f00d45e479",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "serial-offline-fixture",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.wasm",
+            "profile_id": "serial.wasm",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_6195c3964c8b6c1d970192d299a7e096",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "88428f600ea65e7de50ccd291cb115d0f515ccd11d34629760e731a7b2648901",
+        "profile_snapshot_id": "1248579a5bbb57786c884fc8bc8d65e413427d6f937f00eb365a06f00d45e479"
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 0,
+      "time": "2026-09-06T06:13:42.3856329Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "Use the sum tool with 137, -29 and 8 and report its result."
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 1,
+      "time": "2026-09-06T06:13:42.3856329Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 2,
+      "time": "2026-09-06T06:13:42.3856329Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "",
+        "tool_call": {
+          "args": {
+            "inputs": [
+              137,
+              -29,
+              8
+            ]
+          },
+          "id": "wasm-fixture-call",
+          "name": "serial.wasm_sum"
+        },
+        "tool_calls": [
+          {
+            "args": {
+              "inputs": [
+                137,
+                -29,
+                8
+              ]
+            },
+            "id": "wasm-fixture-call",
+            "name": "serial.wasm_sum"
+          }
+        ]
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 3,
+      "time": "2026-09-06T06:13:42.3856329Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "args": {
+          "inputs": [
+            137,
+            -29,
+            8
+          ]
+        },
+        "call_id": "wasm-fixture-call",
+        "name": "serial.wasm_sum"
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 4,
+      "time": "2026-09-06T06:13:42.3856329Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "call_id": "wasm-fixture-call",
+        "content": "wazero: compile module: section memory: min 36 pages (2 Mi) over limit of 1 pages (64 Ki)",
+        "ok": false
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 5,
+      "time": "2026-09-06T06:13:42.3896045Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 6,
+      "time": "2026-09-06T06:13:42.3896045Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 7,
+      "time": "2026-09-06T06:13:42.3896045Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "wazero: compile module: section memory: min 36 pages (2 Mi) over limit of 1 pages (64 Ki)"
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 8,
+      "time": "2026-09-06T06:13:43.3862148Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "wazero: compile module: section memory: min 36 pages (2 Mi) over limit of 1 pages (64 Ki)"
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 9,
+      "time": "2026-09-06T06:13:43.3862148Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 10,
+      "time": "2026-09-06T06:13:43.3862148Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+      "seq": 11,
+      "time": "2026-09-06T06:13:43.3862148Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+  "session_id": "sess_6195c3964c8b6c1d970192d299a7e096",
+  "spans": [
+    {
+      "attributes": {
+        "claim.outcome": "claimed",
+        "run.id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+        "session.id": "sess_6195c3964c8b6c1d970192d299a7e096",
+        "worker.id": "serial-acceptance"
+      },
+      "duration_ms": 0,
+      "name": "harness.queue.claim",
+      "parent_id": "0000000000000000",
+      "span_id": "63d58845d5127434",
+      "status": "Unset",
+      "trace_id": "d6fb6ed171e536eb84c23c0eb0fe6b26"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "689",
+        "model.context.input_tokens": "591",
+        "model.finish": "tool-calls",
+        "model.name": "serial-offline-fixture",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.wasm",
+        "run.id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+        "run.step": "0",
+        "session.id": "sess_6195c3964c8b6c1d970192d299a7e096"
+      },
+      "duration_ms": 0,
+      "name": "harness.model.call",
+      "parent_id": "0e59d02bdfed64f3",
+      "span_id": "f866d839c8c527eb",
+      "status": "Unset",
+      "trace_id": "37f17281186c024cb2ffed89917672bb"
+    },
+    {
+      "attributes": {
+        "call.id": "wasm-fixture-call",
+        "capability.id": "serial.wasm_sum",
+        "run.id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+        "session.id": "sess_6195c3964c8b6c1d970192d299a7e096",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "error"
+      },
+      "duration_ms": 1,
+      "name": "harness.tool.call",
+      "parent_id": "0e59d02bdfed64f3",
+      "span_id": "6ab8be380324fa6b",
+      "status": "Error",
+      "trace_id": "37f17281186c024cb2ffed89917672bb"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "1093",
+        "model.context.input_tokens": "769",
+        "model.finish": "stop",
+        "model.name": "serial-offline-fixture",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.wasm",
+        "run.id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+        "run.step": "1",
+        "session.id": "sess_6195c3964c8b6c1d970192d299a7e096"
+      },
+      "duration_ms": 996,
+      "name": "harness.model.call",
+      "parent_id": "0e59d02bdfed64f3",
+      "span_id": "9e00964f59300599",
+      "status": "Unset",
+      "trace_id": "37f17281186c024cb2ffed89917672bb"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.wasm",
+        "run.id": "run_daf3ee12d5e8b1b909d803dd91e3451a",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_6195c3964c8b6c1d970192d299a7e096",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 1000,
+      "name": "harness.run.segment",
+      "parent_id": "0000000000000000",
+      "span_id": "0e59d02bdfed64f3",
+      "status": "Unset",
+      "trace_id": "37f17281186c024cb2ffed89917672bb"
+    }
+  ]
+}

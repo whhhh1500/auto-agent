@@ -51,6 +51,7 @@ func TestLiveModelSerialModuleAcceptance(t *testing.T) {
 		{"tool_hook_denial", serialToolHookDenial},
 		{"trace_history_restore", serialTraceHistoryRestore},
 		{"tool_budget_history", serialToolBudgetHistory},
+		{"wasm_computation", serialWASMComputation},
 	} {
 		if !t.Run(tc.name, func(t *testing.T) {
 			model.test = t
