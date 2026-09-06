@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	DefaultMaxEvents              = 4096
-	DefaultMaxTextBytes           = 8 << 20
-	DefaultMaxToolCalls           = 128
-	DefaultMaxToolArgBytes        = 8 << 20
-	DefaultMaxRequestBytes  int64 = 16 << 20
-	DefaultMaxResponseBytes int64 = 32 << 20
+	DefaultMaxEvents                  = 4096
+	DefaultMaxTextBytes               = 8 << 20
+	DefaultMaxToolCalls               = 128
+	DefaultMaxToolArgBytes            = 8 << 20
+	DefaultMaxContinuationBytes       = 64 << 10
+	DefaultMaxRequestBytes      int64 = 16 << 20
+	DefaultMaxResponseBytes     int64 = 32 << 20
 )
 
 var (
@@ -41,9 +42,10 @@ type Message struct {
 
 // ToolCall preserves the model's call identity and full JSON arguments.
 type ToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments []byte `json:"arguments"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Arguments    []byte `json:"arguments"`
+	Continuation string `json:"continuation,omitempty"`
 }
 
 // Tool describes a callable capability using a canonical JSON Schema object.
@@ -88,6 +90,8 @@ type ToolCallDelta struct {
 	ID                string `json:"id,omitempty"`
 	Name              string `json:"name,omitempty"`
 	ArgumentsFragment []byte `json:"arguments_fragment,omitempty"`
+	// Continuation is one complete opaque value, never a text fragment.
+	Continuation string `json:"continuation,omitempty"`
 }
 
 // Usage is provider-normalized metering for one request.
@@ -227,7 +231,7 @@ func validateRequest(r Request) error {
 			return fmt.Errorf("%w: message bounds", ErrInvalidRequest)
 		}
 		for _, call := range message.ToolCalls {
-			if invalidIdentifier(call.ID) || invalidIdentifier(call.Name) || len(call.Arguments) > DefaultMaxToolArgBytes || !jsonObject(call.Arguments) || addRequestBytes(&total, len(call.ID), len(call.Name), len(call.Arguments)) != nil {
+			if invalidIdentifier(call.ID) || invalidIdentifier(call.Name) || len(call.Arguments) > DefaultMaxToolArgBytes || !jsonObject(call.Arguments) || len(call.Continuation) > DefaultMaxContinuationBytes || !utf8Valid(call.Continuation) || addRequestBytes(&total, len(call.ID), len(call.Name), len(call.Arguments), len(call.Continuation)) != nil {
 				return fmt.Errorf("%w: tool call", ErrInvalidRequest)
 			}
 		}

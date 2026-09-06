@@ -176,8 +176,8 @@ try {
     Push-Location $projectRoot
     $locationPushed = $true
     try {
-      & go test ./pkg/storage -run '^TestPostgres' -count=1 -timeout 180s
-      if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL storage tests failed' }
+      & go run ./scripts/test-postgres -log (Join-Path $smokeRoot 'postgres-test.jsonl')
+      if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL integration gate failed' }
 
       & go build -o $serverBinary ./cmd/server
       if ($LASTEXITCODE -ne 0) { throw 'server build failed' }

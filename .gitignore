@@ -21,6 +21,7 @@ coverage*.out
 /.tmp*/
 /*.log
 /*.pprof
+/postgres-test.jsonl
 
 # Local PowerShell profiling output.
 /$maxCpu

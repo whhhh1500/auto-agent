@@ -90,6 +90,9 @@ func messageBlocks(message modelexecution.Message) ([]any, string, error) {
 			blocks = append(blocks, map[string]any{"type": "text", "text": message.Content})
 		}
 		for _, call := range message.ToolCalls {
+			if call.Continuation != "" {
+				return nil, "", fmt.Errorf("anthropic cannot replay this tool continuation")
+			}
 			var input any
 			if err := json.Unmarshal(call.Arguments, &input); err != nil {
 				return nil, "", fmt.Errorf("anthropic tool arguments: %w", err)

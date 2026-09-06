@@ -220,6 +220,9 @@ func ConsumeModelStream(ctx context.Context, adapter LlmAdapter, opts GenerateOp
 }
 
 func validateToolCall(call ToolCall) error {
+	if len(call.Continuation) > 64<<10 || strings.ToValidUTF8(call.Continuation, "") != call.Continuation {
+		return fmt.Errorf("model tool continuation is invalid or exceeds 64 KiB")
+	}
 	if err := validateToolCallID(call.ID); err != nil {
 		return err
 	}

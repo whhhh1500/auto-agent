@@ -29,9 +29,9 @@ independent database dump for every integer version.
 | v34 -> v35 | `TestSQLiteRuntimeHostStateSchemaV35FreshHistoricalRepeatAndFutureRefusal` verifies ownership and Fence tables on fresh/historical/repeat open; future-version refusal explicitly proves both v35 tables remain absent before DDL | `TestPostgresRuntimeHostStateSchemaV35FreshHistoricalRepeatAndFutureRefusal` passed with an isolated disposable schema; `TestPostgresFenceJournalFreshSchemaAndMonotonicDecisions`, `TestPostgresFenceJournalFreshHandlesHaveOneExecutor`, and `TestPostgresCompositionStoreOwnershipGenerationFence` verify the PostgreSQL v35 ownership/Fence adapter behavior |
 | v35 -> v36 | `TestSQLiteArtifactMigrationSchemaV36FreshHistoricalRepeatAndFutureRefusal` verifies artifact migration/journal tables on fresh, historical, repeat, and future-refusal paths | `TestPostgresArtifactMigrationSchemaV36FreshHistoricalRepeatAndFutureRefusal` passed against an isolated PostgreSQL 17.6 cluster on 2026-09-04 |
 | v36 -> v37 | `TestSQLiteGraphCheckpointSchemaV37FreshHistoricalRepeatAndFutureRefusal` verifies Graph checkpoint/transition tables on fresh, historical, repeat, and future-refusal paths | `TestPostgresGraphCheckpointSchemaV37FreshHistoricalRepeatAndFutureRefusal` plus adapter CAS/replay tests passed against an isolated PostgreSQL 17.6 cluster on 2026-09-04; no skip |
-| v37 -> v38 | `notification_targets` and `notification_targets_tenant_enabled` are created by the cumulative opener; target adapter tests cover encrypted configuration and metadata-only list/read behavior | Requires `HARNESS_TEST_PG_DSN`; no PostgreSQL v38 fixture has been run in this environment, so absent DSN is an explicit skip |
-| v38 -> v39 | `graph_segment_leases` is created by the cumulative opener; adapter tests cover acquire conflict, expiry takeover, generation fencing, stale lease rejection, release idempotency, and context cancellation | Requires `HARNESS_TEST_PG_DSN`; no PostgreSQL v39 fixture has been run in this environment, so absent DSN is an explicit skip |
-| v39 -> v40 | `TestSQLiteSchemaV39ToV40IndexesAndReopen` verifies both current indexes after historical upgrade and repeat open | `TestPostgresSchemaV40Indexes` requires `HARNESS_TEST_PG_DSN`; absent DSN is an explicit skip |
+| v37 -> v38 | `notification_targets` and `notification_targets_tenant_enabled` are created by the cumulative opener; target adapter tests cover encrypted configuration and metadata-only list/read behavior | `TestPostgresStoreTenantCASAndOpaqueConfig` passed on PostgreSQL 17.6 on 2026-09-06; fresh-schema adapter evidence, not an isolated historical v37 row fixture |
+| v38 -> v39 | `graph_segment_leases` is created by the cumulative opener; adapter tests cover acquire conflict, expiry takeover, generation fencing, stale lease rejection, release idempotency, and context cancellation | `TestPostgresGraphSegmentSemantic` passed on PostgreSQL 17.6 on 2026-09-06; fresh-schema adapter evidence, not an isolated historical v38 row fixture |
+| v39 -> v40 | `TestSQLiteSchemaV39ToV40IndexesAndReopen` verifies both current indexes after historical upgrade and repeat open | `TestPostgresSchemaV40Indexes` passed on PostgreSQL 17.6 on 2026-09-06 |
 | v40 -> v41 | `TestSQLiteGraphCheckpointHistorySchemaV41FreshAndV40Upgrade` verifies fresh `graph_checkpoint_versions`, strict v40 current-head backfill as one `migration_floor`, no fabricated earlier revision, corrupt-document rollback, and marker stability | `TestPostgresGraphCheckpointHistorySchemaV41FreshAndV40Upgrade` passed against a live local PostgreSQL 17 instance; the same final pass also covered PostgreSQL atomic rollback, replay, and competing CAS |
 | v35 historical repeat open | The v35 historical fixture repeats open and verifies the schema marker and ownership/Fence tables remain stable after cumulative opening | PG v35 repeat-open evidence passed with an isolated disposable schema and administrator-capable `HARNESS_TEST_PG_DSN`; this does not establish v36/v37 interoperability |
 | future version | `TestSQLFutureSchemaIsRefusedBeforeCurrentDDL` and feature-specific refusal tests | `TestPostgresSchemaMigrationAndFutureRefusal/future_version_no_ddl` and feature-specific refusal tests |
@@ -50,9 +50,9 @@ independent database dump for every integer version.
   v29 -> v30 runner-row fixture for both dialects. PostgreSQL v35 ownership and
   Fence-specific verification is covered by the disposable-schema tests above;
   PostgreSQL v36/v37 now have isolated-cluster evidence recorded below. PostgreSQL
-  v38-v41 remain unverified unless the DSN-specific tests are run. In
-  particular, the v41 PostgreSQL history-upgrade test must be confirmed by the
-  main session before this matrix can claim real execution evidence.
+  v38-v41 DSN-specific tests passed in the 2026-09-06 all-package gate below.
+  The v38/v39 adapter checks do not add isolated historical row-migration
+  fixtures beyond the specific boundaries listed in the table.
   These are deliberately listed as gaps instead of being represented by a
   rewound version marker on a fully current schema.
 
@@ -69,9 +69,24 @@ do not record that DSN in source control or logs:
 
 ```powershell
 $env:HARNESS_TEST_PG_DSN = '<provided-out-of-band>'
-go test ./pkg/storage -run '^TestPostgres|^TestSQL.*Postgres'
+go run ./scripts/test-postgres -log postgres-test.jsonl
 Remove-Item Env:HARNESS_TEST_PG_DSN
 ```
+
+The runner selects all `TestPostgres` tests in `./...`, including SQL adapters,
+examples and service integration. It fails on a missing DSN, any selected skip,
+zero executed tests, invalid output or test failure. CI uses the same runner.
+
+## All-package PostgreSQL execution record (2026-09-06)
+
+An owned, disposable PostgreSQL 17.6 cluster on loopback port 55436 ran the gate:
+57 top-level tests, 21 subtests, 10 packages, zero skips and zero failures.
+This includes storage and all seven SQL adapter packages previously omitted by
+the storage-only CI command, plus the Graph example and HTTP service tests.
+The v41 history-upgrade test was executed in this gate. This is local Windows
+PostgreSQL 17.6 evidence; CI remains configured for PostgreSQL 16 and was not
+triggered remotely. See the [integration acceptance report](../verification/2026-09-06-assessment-closure.md)
+for commands and evidence limits.
 
 ## Phase 0 execution record (2026-09-02)
 

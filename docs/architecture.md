@@ -45,9 +45,13 @@ implementation.
 - `pkg/execution` implements remote and isolated capability execution; its
   Graph executor is experimental and selected only by an explicit orchestrator
   choice.
-- `pkg/execution/sandbox` defines fail-closed sandbox contracts. Its local
-  provider is real Linux `bwrap`/`prlimit` execution when available and reports
-  unavailable on Windows; it never falls back to ordinary host execution.
+- `pkg/execution/sandbox` defines fail-closed sandbox contracts. Linux uses
+  `bwrap`/`prlimit` when available. Windows supports current-user Basic:
+  an ordinary Medium source creates a restricted child in a server-owned
+  workspace, with bounded output and Job Object process-tree cleanup.
+  Windows admits one active session per process and reports `NetworkHost`,
+  `NetworkIsolation=false`; strict network-isolation requests and elevated
+  source processes are rejected. Neither provider falls back to host execution.
 - `pkg/extensions/*` contains optional capability consumers.
 - `pkg/storage` implements persistence and SQL-backed operational stores.
 - `pkg/control` owns control-plane orchestration such as restorable profile releases, evaluation-gated durable canaries, and revision-driven shared-store synchronization.
@@ -73,6 +77,31 @@ selection. Its current server-facing adapter wraps one core `RunTurn` node,
 not an arbitrary multi-node business graph. The crypto example remains
 confined to `examples/crypto` and
 `cmd/demo`.
+
+The independent [graph-review example](../examples/graph-review/README.md)
+assembles three nodes with SQL checkpoints and segment leases. Its approval
+authority is injected by the embedding application. It does not widen the
+generic server registration or add business concepts to the kernel.
+
+## Support matrix
+
+All public APIs remain pre-GA; "implemented" is not a stable compatibility promise.
+
+| Surface | Current boundary | Verification entry |
+| --- | --- | --- |
+| Core sequential runtime, HTTP/JSON and SSE | Implemented; runtime contracts remain provider-neutral | `go test ./pkg/core ./pkg/server ./pkg/integration` and OpenAPI gate |
+| SQLite and PostgreSQL stores/adapters | Implemented; PostgreSQL requires an explicit test database | `go run ./scripts/test-postgres` selects every `TestPostgres` test and rejects skips |
+| Default server Graph executor | Experimental; one registered `core-turn` node | `pkg/adapter/runexecutor/graph` tests |
+| Multi-node Graph engine | Experimental trusted Go assembly; SQL example with injected reviews | `go test ./examples/graph-review` |
+| Windows local sandbox | Current-user Basic only; Medium source, restricted child, Job cleanup, one active session per process, Host networking | [Native Basic acceptance](verification/2026-09-06-windows-basic-acceptance.md) |
+| Linux local sandbox | Existing `bwrap`/`prlimit` provider; required confinement dependencies must be available | Native Linux tests; not validated by a Windows test pass |
+| E2B sandbox | No bundled provider, E2B API client, or E2B-compatible server endpoint | A separate adapter can implement `sandbox.Provider` / `Session` and register exact provider/version metadata |
+| MCP | Outbound stdio tool integration | No inbound MCP server endpoint |
+
+An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
+to the existing sandbox contract and report actual assurance. Host networking
+must never be advertised as isolated networking. Provider credentials belong
+to the adapter configuration, outside the core contract.
 
 ## Runtime invariants
 
@@ -150,6 +179,17 @@ confined to `examples/crypto` and
   composition stores only a SHA-256 fingerprint of that revision.
 - Session restore validates every core event type and payload. Unknown or
   corrupt events are rejected rather than silently disappearing from history.
+- Restoring a non-empty Session invalidates its initially empty projection cache.
+  Appending a resume or tool result before the first model projection must retain
+  the complete stored user/assistant/tool history.
+- Tool calls can carry an optional opaque `continuation` string, bounded to
+  64 KiB and included in context/request budgets. Protocol adapters interpret
+  this state; the kernel only preserves it with the original assistant call.
+  The Chat Completions adapter round-trips `extra_content` in a versioned
+  envelope, including Gemini thought signatures. Unsupported protocols reject
+  this state instead of silently discarding it. It is never a tool argument or
+  authorization grant. Existing events without the optional field remain valid;
+  previously omitted signatures cannot be reconstructed from old records.
 - Capability manifests, snapshots, prompts, model output, tool arguments,
   capability results, token usage and event payloads all have explicit hard
   limits.
@@ -162,8 +202,15 @@ The current integration surface is deliberately adapter-oriented: in-process Go
 providers, OpenAI-compatible and Anthropic Messages protocol adapters, Wazero
 executors, outbound HTTP executors, stdio MCP tool libraries, private Runner
 workers, and Linux `bwrap` isolation all re-enter the same validation, policy,
-approval, budget, and telemetry seams. The local sandbox is not available on
-Windows and is not silently replaced by host execution. The public service
+approval, budget, and telemetry seams. Windows local execution intentionally
+supports the current-user Basic contract only. It does not include dedicated
+accounts, WFP/network isolation, administrator execution or elevation. Its
+WRITE_RESTRICTED token retains Everyone/logon-writable exceptions; the fixed
+workspace mount contract is not universal host filesystem isolation. Offline
+environment hints do not enforce network denial. The native provider requires
+no .NET, PowerShell 7 or Go installation at runtime. See the
+[Basic acceptance boundary](verification/2026-09-06-windows-basic-acceptance.md).
+The public service
 boundary is the HTTP/JSON and SSE API plus the versioned private Runner
 protocol; this repository does not expose an MCP server endpoint.
 

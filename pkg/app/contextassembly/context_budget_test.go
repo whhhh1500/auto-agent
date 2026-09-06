@@ -27,6 +27,29 @@ func TestAssembleRequiredAndGrouped(t *testing.T) {
 	}
 }
 
+func TestContinuationIncludedInContextBudget(t *testing.T) {
+	base := core.ChatMessage{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "call-a", Name: "test.lookup"}}}
+	withContinuation := cloneMessage(base)
+	withContinuation.ToolCalls[0].Continuation = strings.Repeat("x", 4096)
+	for _, estimator := range []BudgetEstimator{ByteEstimator{}, utf8ByteUpperBoundEstimator{}} {
+		before, err := estimator.Estimate(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := estimator.Estimate(withContinuation)
+		if err != nil || after.Bytes-before.Bytes < 4096 {
+			t.Fatalf("continuation absent from byte budget: before=%+v after=%+v err=%v", before, after, err)
+		}
+		if before.Tokens > 0 && after.Tokens-before.Tokens < 4096 {
+			t.Fatal("continuation absent from token budget")
+		}
+	}
+	withContinuation.ToolCalls[0].Continuation = strings.Repeat("x", (64<<10)+1)
+	if _, err := (ByteEstimator{}).Estimate(withContinuation); err == nil {
+		t.Fatal("oversized continuation accepted")
+	}
+}
+
 func TestBudgetTokenZeroDisablesGateAndExplicitLayerZeroDenies(t *testing.T) {
 	r := Request{Budget: Budget{TotalBytes: 1000, TotalTokens: 0, LayerBytes: map[Layer]int64{LayerRecent: 0}}, Estimator: CompositeBudgetEstimator{Tokenizer: tokenFunc(func(core.ChatMessage) (int64, error) { return 999, nil })}, Items: []Item{{Layer: LayerRecent, SourceID: "r", Revision: "1", Message: core.ChatMessage{Role: core.RoleUser, Content: "x"}}}}
 	got, err := Assemble(context.Background(), r)

@@ -69,14 +69,14 @@ func (ByteEstimator) Estimate(m core.ChatMessage) (Cost, error) {
 	}
 	n := int64(64) + a + b
 	if m.ToolCall != nil {
-		a, err := jsonValueBytes(m.ToolCall.Args)
+		a, err := jsonValueBytes(m.ToolCall)
 		if err != nil {
 			return Cost{}, err
 		}
 		n += 64 + a
 	}
 	for _, tc := range m.ToolCalls {
-		a, err := jsonValueBytes(tc.Args)
+		a, err := jsonValueBytes(tc)
 		if err != nil {
 			return Cost{}, err
 		}
@@ -277,6 +277,9 @@ func validateMessage(m core.ChatMessage) error {
 	}
 	ids := map[string]bool{}
 	check := func(tc core.ToolCall) error {
+		if len(tc.Continuation) > 64<<10 || !utf8.ValidString(tc.Continuation) {
+			return ErrInvalid
+		}
 		if validateIdentifier(tc.ID, MaxMetadataBytes, false) != nil || validateIdentifier(tc.Name, MaxMetadataBytes, false) != nil || ids[tc.ID] {
 			return ErrInvalid
 		}

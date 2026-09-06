@@ -45,7 +45,15 @@ func marshalChatRequest(request modelexecution.Request, maxTokens int) ([]byte, 
 		if len(message.ToolCalls) > 0 {
 			calls := make([]map[string]any, 0, len(message.ToolCalls))
 			for _, call := range message.ToolCalls {
-				calls = append(calls, map[string]any{"id": call.ID, "type": "function", "function": map[string]any{"name": call.Name, "arguments": string(call.Arguments)}})
+				item := map[string]any{"id": call.ID, "type": "function", "function": map[string]any{"name": call.Name, "arguments": string(call.Arguments)}}
+				if call.Continuation != "" {
+					extra, err := decodeChatContinuation(call.Continuation)
+					if err != nil {
+						return nil, err
+					}
+					item["extra_content"] = extra
+				}
+				calls = append(calls, item)
 			}
 			item["tool_calls"] = calls
 		}
@@ -141,9 +149,10 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 				Delta struct {
 					Content   *string `json:"content"`
 					ToolCalls []struct {
-						Index    *int   `json:"index"`
-						ID       string `json:"id"`
-						Function struct {
+						Index        *int            `json:"index"`
+						ID           string          `json:"id"`
+						ExtraContent json.RawMessage `json:"extra_content"`
+						Function     struct {
 							Name      string `json:"name"`
 							Arguments string `json:"arguments"`
 						} `json:"function"`
@@ -172,7 +181,11 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 					index = *call.Index
 				}
 				fragment := []byte(call.Function.Arguments)
-				if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: fragment}}); err != nil {
+				continuation, err := encodeChatContinuation(call.ExtraContent)
+				if err != nil {
+					return err
+				}
+				if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: fragment, Continuation: continuation}}); err != nil {
 					return err
 				}
 			}
@@ -209,8 +222,9 @@ func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
 			Message struct {
 				Content   string `json:"content"`
 				ToolCalls []struct {
-					ID       string `json:"id"`
-					Function struct {
+					ID           string          `json:"id"`
+					ExtraContent json.RawMessage `json:"extra_content"`
+					Function     struct {
 						Name      string `json:"name"`
 						Arguments string `json:"arguments"`
 					} `json:"function"`
@@ -236,7 +250,11 @@ func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
 		}
 	}
 	for index, call := range choice.Message.ToolCalls {
-		if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: []byte(call.Function.Arguments)}}); err != nil {
+		continuation, err := encodeChatContinuation(call.ExtraContent)
+		if err != nil {
+			return err
+		}
+		if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: []byte(call.Function.Arguments), Continuation: continuation}}); err != nil {
 			return err
 		}
 	}

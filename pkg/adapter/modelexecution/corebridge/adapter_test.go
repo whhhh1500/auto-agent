@@ -37,6 +37,31 @@ func TestAdapterReportsCatalogContextLimits(t *testing.T) {
 	}
 }
 
+func TestContinuationSurvivesCoreBridge(t *testing.T) {
+	state := newBridgeStream()
+	for _, delta := range []modelexecution.ToolCallDelta{
+		{Index: 0, ID: "call-a", Name: "test.lookup", ArgumentsFragment: []byte(`{}`)},
+		{Index: 0, Continuation: "opaque-state"},
+	} {
+		if err := state.addToolDelta(delta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls, err := state.calls()
+	if err != nil || len(calls) != 1 || calls[0].Continuation != "opaque-state" {
+		t.Fatal("inbound continuation lost")
+	}
+	for _, message := range []core.ChatMessage{
+		{Role: core.RoleAssistant, ToolCalls: calls},
+		{Role: core.RoleAssistant, ToolCall: &calls[0]},
+	} {
+		request, err := requestFromCore(modelcontrol.ProviderPlan{}, core.GenerateOptions{Messages: []core.ChatMessage{message}})
+		if err != nil || request.Messages[0].ToolCalls[0].Continuation != "opaque-state" {
+			t.Fatal("outbound continuation lost")
+		}
+	}
+}
+
 type provider struct{}
 
 func (provider) Send(context.Context, modelcontrol.ProviderPlan, modelexecution.OutboundRequest) (modelexecution.InboundResponse, error) {

@@ -49,3 +49,22 @@ The multi-node example and service recovery/concurrency checks are runnable
 and pass against actual SQL adapters. Evidence distinguishes freshly executed
 checks from historical reports and external checks not performed. Commit the
 reviewed change locally after validation.
+
+## Compatibility defects found during the authorized live acceptance
+
+The real conversation reached approval but failed on its resumed model request.
+A deterministic protocol peer then proved that restoring a Session followed by
+Append marked the empty projection cache current without replaying the stored
+history. Invalidate that cache on non-empty restore and test both cold/warm
+projection paths, including the fused default compactor.
+
+The Chat Completions mapping also discarded tool-call `extra_content` needed by
+protocols such as Gemini. Preserve this as a bounded opaque continuation on the
+original tool call, with protocol interpretation in the adapter and byte/token
+budget accounting in context assembly. The added optional core field consumes
+one existing compatibility slot; the core budget is unchanged. No vendor SDK,
+business field, signature fabrication, or signature bypass is introduced.
+
+Reference: [Google's thought-signature contract](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures).
+The acceptance must finish the same run after approval with exactly one inert
+tool effect and two real model requests.

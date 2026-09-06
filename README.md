@@ -108,6 +108,16 @@ host execution. Linux retains its existing bwrap/prlimit behavior.
 `cmd/demo`, `examples/crypto`, and
 `cmd/starter-server` are sample assemblies.
 
+For a SQL-backed multi-node workflow, see the separate
+[draft/review/finalize example](examples/graph-review/README.md). Current public
+and experimental integration boundaries are listed in the
+[support matrix](docs/architecture.md#support-matrix). E2B is not bundled;
+remote sandbox integrations must implement and register a sandbox provider.
+
+The [2026-09-06 integration acceptance](docs/verification/2026-09-06-assessment-closure.md)
+records the PostgreSQL gate, replacement-instance approval recovery, a real
+`gemini-3.8-flash` conversation, and a bounded local concurrency measurement.
+
 ## Scope hierarchy
 
 ```text

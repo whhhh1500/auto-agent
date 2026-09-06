@@ -157,6 +157,10 @@ type ToolCall struct {
 	ID   string         `json:"id"`
 	Name string         `json:"name"`
 	Args map[string]any `json:"args,omitempty"`
+	// Continuation is bounded opaque model-protocol state for replaying this
+	// assistant call (for example an encrypted signature). It is never a tool
+	// argument, authorization grant, or executable capability configuration.
+	Continuation string `json:"continuation,omitempty"`
 }
 
 // ProtectedToolInvoker invokes another capability through the active run's

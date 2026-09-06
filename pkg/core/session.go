@@ -302,6 +302,8 @@ func RestoreSession(options SessionOptions, events []SessionEvent) (*Session, er
 	if len(events) > session.eventCap() {
 		return nil, fmt.Errorf("session %q exceeds maximum of %d events", options.ID, session.eventCap())
 	}
+	// Restored events bypass Append; the empty-session cache does not cover them.
+	session.projValid = len(events) == 0
 	for index, event := range events {
 		if event.Seq != int64(index) {
 			return nil, fmt.Errorf("session %q event sequence is discontinuous at %d", options.ID, index)

@@ -97,7 +97,7 @@ func requestFromCore(plan modelcontrol.ProviderPlan, options core.GenerateOption
 			if err != nil {
 				return modelexecution.Request{}, err
 			}
-			m.ToolCalls = append(m.ToolCalls, modelexecution.ToolCall{ID: call.ID, Name: call.Name, Arguments: arguments})
+			m.ToolCalls = append(m.ToolCalls, modelexecution.ToolCall{ID: call.ID, Name: call.Name, Arguments: arguments, Continuation: call.Continuation})
 		}
 		request.Messages = append(request.Messages, m)
 	}
@@ -119,8 +119,9 @@ func requestFromCore(plan modelcontrol.ProviderPlan, options core.GenerateOption
 }
 
 type bridgeTool struct {
-	id, name  string
-	arguments strings.Builder
+	id, name     string
+	arguments    strings.Builder
+	continuation string
 }
 type bridgeStream struct {
 	tools map[int]*bridgeTool
@@ -139,6 +140,12 @@ func (s *bridgeStream) addToolDelta(delta modelexecution.ToolCallDelta) error {
 	}
 	if delta.Name != "" {
 		tool.name = delta.Name
+	}
+	if delta.Continuation != "" {
+		if tool.continuation != "" && tool.continuation != delta.Continuation {
+			return fmt.Errorf("model tool continuation changed within one call")
+		}
+		tool.continuation = delta.Continuation
 	}
 	_, err := tool.arguments.Write(delta.ArgumentsFragment)
 	return err
@@ -162,7 +169,7 @@ func (s *bridgeStream) calls() ([]core.ToolCall, error) {
 		if raw := strings.TrimSpace(tool.arguments.String()); raw != "" && json.Unmarshal([]byte(raw), &args) != nil {
 			return nil, fmt.Errorf("model tool call %d arguments are invalid JSON", index)
 		}
-		calls = append(calls, core.ToolCall{ID: tool.id, Name: tool.name, Args: args})
+		calls = append(calls, core.ToolCall{ID: tool.id, Name: tool.name, Args: args, Continuation: tool.continuation})
 	}
 	return calls, nil
 }

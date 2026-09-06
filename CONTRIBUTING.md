@@ -24,8 +24,13 @@ bash scripts/verify-gofmt.sh       # Unix-like systems
 
 For changes involving durable SQL behavior, run the SQLite tests and, when a
 PostgreSQL 16 instance is available, set `HARNESS_TEST_PG_DSN` and run the
-PostgreSQL integration suite. Do not weaken assertions or add skips to make a
-check green.
+PostgreSQL integration gate with `go run ./scripts/test-postgres`. It selects
+`TestPostgres` across all packages, including SQL adapters and integration
+examples, and rejects missing configuration, skips and zero-test results.
+Name new DSN-dependent integration tests with the `TestPostgres` prefix so the
+same command runs them locally and in CI. Do not weaken assertions or add skips
+to make a check green. Use a disposable-schema-capable test database; the DSN
+must remain outside source control.
 
 ## Review expectations
 

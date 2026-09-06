@@ -5,18 +5,19 @@ import "fmt"
 // StreamValidator enforces bounded ordered events before a consumer observes
 // them. It is per-request and has no goroutine or shared mutable state.
 type StreamValidator struct {
-	events    int
-	textBytes int
-	toolArgs  map[int]int
-	toolIDs   map[int]string
-	toolNames map[int]string
-	tools     map[int]struct{}
-	usageSeen bool
-	finished  bool
+	events        int
+	textBytes     int
+	toolArgs      map[int]int
+	toolIDs       map[int]string
+	toolNames     map[int]string
+	continuations map[int]string
+	tools         map[int]struct{}
+	usageSeen     bool
+	finished      bool
 }
 
 func NewStreamValidator() *StreamValidator {
-	return &StreamValidator{toolArgs: make(map[int]int), tools: make(map[int]struct{}), toolIDs: make(map[int]string), toolNames: make(map[int]string)}
+	return &StreamValidator{toolArgs: make(map[int]int), tools: make(map[int]struct{}), toolIDs: make(map[int]string), toolNames: make(map[int]string), continuations: make(map[int]string)}
 }
 
 // Accept validates and copies one event. A post-finish event, duplicate usage,
@@ -46,7 +47,7 @@ func (v *StreamValidator) Accept(event Event) (Event, error) {
 			return Event{}, fmt.Errorf("%w: tool delta", ErrInvalidEvent)
 		}
 		delta := event.ToolCall
-		if delta.Index < 0 || delta.Index >= DefaultMaxToolCalls || (delta.ID == "" && delta.Name == "" && len(delta.ArgumentsFragment) == 0) {
+		if delta.Index < 0 || delta.Index >= DefaultMaxToolCalls || (delta.ID == "" && delta.Name == "" && len(delta.ArgumentsFragment) == 0 && delta.Continuation == "") {
 			return Event{}, fmt.Errorf("%w: tool delta fields", ErrInvalidEvent)
 		}
 		if (delta.ID != "" && invalidIdentifier(delta.ID)) || (delta.Name != "" && invalidIdentifier(delta.Name)) {
@@ -63,6 +64,15 @@ func (v *StreamValidator) Accept(event Event) (Event, error) {
 		}
 		if delta.Name != "" {
 			v.toolNames[delta.Index] = delta.Name
+		}
+		if len(delta.Continuation) > DefaultMaxContinuationBytes || !utf8Valid(delta.Continuation) {
+			return Event{}, fmt.Errorf("%w: tool continuation limit or encoding", ErrInvalidEvent)
+		}
+		if delta.Continuation != "" {
+			if previous := v.continuations[delta.Index]; previous != "" && previous != delta.Continuation {
+				return Event{}, fmt.Errorf("%w: conflicting tool continuation", ErrInvalidEvent)
+			}
+			v.continuations[delta.Index] = delta.Continuation
 		}
 		v.tools[delta.Index] = struct{}{}
 		if len(v.tools) > DefaultMaxToolCalls {

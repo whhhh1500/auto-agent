@@ -194,7 +194,11 @@ func toolCallTokens(call core.ToolCall) (int64, error) {
 			return 0, err
 		}
 	}
-	return id + name + args + 8, nil
+	continuation, err := utf8ByteUpperBoundTokens(call.Continuation)
+	if err != nil {
+		return 0, err
+	}
+	return id + name + args + continuation + 8, nil
 }
 func (utf8ByteUpperBoundEstimator) EstimateFragment(layer Layer, text string) (Cost, error) {
 	bytes, err := (ByteEstimator{}).EstimateFragment(layer, text)

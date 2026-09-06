@@ -107,14 +107,14 @@ jobs:
       - name: PostgreSQL integration
         env:
           HARNESS_TEST_PG_DSN: postgres://postgres:test@127.0.0.1:5432/harness_test?sslmode=disable
-        run: |
-          set -o pipefail
-          go test -count=1 -timeout 180s ./pkg/storage -run '^TestPostgres' -v 2>&1 | tee postgres-test.log
-          grep -Eq -- '--- PASS: TestPostgres' postgres-test.log
-          if grep -Eq -- '--- SKIP: TestPostgres' postgres-test.log; then
-            echo 'PostgreSQL integration tests must not be skipped in CI.' >&2
-            exit 1
-          fi
+        run: go run ./scripts/test-postgres -log postgres-test.jsonl
+      - name: PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: postgres-test-evidence
+          path: postgres-test.jsonl
+          if-no-files-found: error
 
   container:
     runs-on: ubuntu-latest
