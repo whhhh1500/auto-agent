@@ -51,7 +51,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 
 	// Cross-instance gate: only one deployment works a session at a time.
 	if s.leaser != nil {
-		releaseLease, acquired, err := s.acquireRunLease(runCtx, cancel, session.ID(), runID)
+		lease, acquired, err := s.acquireRunLease(runCtx, cancel, session.ID(), runID, 0)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -60,7 +60,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "session is busy on another instance"})
 			return
 		}
-		defer releaseLease()
+		defer lease.Release()
 
 		// The ownership check above happened before the cross-instance gate.
 		// Reload after acquisition so this run composes from the latest durable

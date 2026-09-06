@@ -90,6 +90,16 @@ func (s *failingCheckpointStore) AppendEvents(ctx context.Context, sessionID str
 	return s.SQLSessionStore.AppendEvents(ctx, sessionID, expectedVersion, events)
 }
 
+func (s *failingCheckpointStore) AppendEventsFenced(ctx context.Context, fence storage.SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
+	for _, event := range events {
+		if event.Type == core.EvToolCall {
+			s.attempts.Add(1)
+			return s.err
+		}
+	}
+	return s.SQLSessionStore.AppendEventsFenced(ctx, fence, expectedVersion, events)
+}
+
 func (j *durableToolCallJournal) BeginToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
 	j.attempts.Add(1)
 	rows, err := j.db.QueryContext(ctx, "SELECT payload FROM event_chunks WHERE session_id = ? ORDER BY start_seq", invocation.SessionID)

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -159,7 +160,7 @@ type runWorkerFixture struct {
 }
 
 type leaseOrderedSessionStore struct {
-	core.SessionStore
+	*storage.SQLSessionStore
 	leaseHeld      *atomic.Bool
 	loads          atomic.Int32
 	loadedUnleased atomic.Bool
@@ -170,12 +171,82 @@ func (s *leaseOrderedSessionStore) Load(ctx context.Context, id string) (*core.S
 	if !s.leaseHeld.Load() {
 		s.loadedUnleased.Store(true)
 	}
-	return s.SessionStore.Load(ctx, id)
+	return s.SQLSessionStore.Load(ctx, id)
 }
 
 type leaseOrderObserver struct {
 	storage.SessionLeaser
 	held *atomic.Bool
+}
+
+type recordingSQLSessionLeaser struct {
+	*storage.SQLSessionStore
+	mu      sync.Mutex
+	holders []string
+}
+
+func (l *recordingSQLSessionLeaser) AcquireSessionLease(ctx context.Context, sessionID, holder string, ttl time.Duration) (bool, error) {
+	acquired, err := l.SQLSessionStore.AcquireSessionLease(ctx, sessionID, holder, ttl)
+	if acquired && err == nil {
+		l.mu.Lock()
+		l.holders = append(l.holders, holder)
+		l.mu.Unlock()
+	}
+	return acquired, err
+}
+
+func (l *recordingSQLSessionLeaser) acquiredHolders() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.holders...)
+}
+
+// expireBeforeFirstFinishQueue models the final hand-off race where the
+// terminal Session suffix is already durable, but the queue claim expires
+// immediately before FinishRunClaim can commit. It delegates every operation
+// except the first finish attempt to the real SQL queue.
+type expireBeforeFirstFinishQueue struct {
+	*storage.SQLRunControlStore
+	once         sync.Once
+	beforeFinish func(string)
+}
+
+func (q *expireBeforeFirstFinishQueue) FinishRunClaim(ctx context.Context, runID, workerID string, generation int64, status core.RunStatus, errorCode string) (bool, error) {
+	q.once.Do(func() { q.beforeFinish(runID) })
+	return q.SQLRunControlStore.FinishRunClaim(ctx, runID, workerID, generation, status, errorCode)
+}
+
+// claimLossDuringPreparationQueue makes the claim monitor observe ownership
+// loss while principal preparation is still in progress. Its terminal methods
+// remain observable so the test can prove that the stale worker does not
+// finish, retry, or pause the claim after that signal.
+type claimLossDuringPreparationQueue struct {
+	*storage.SQLRunControlStore
+	renewed     chan struct{}
+	renewOnce   sync.Once
+	finishCalls atomic.Int32
+	retryCalls  atomic.Int32
+	pauseCalls  atomic.Int32
+}
+
+func (q *claimLossDuringPreparationQueue) RenewRunClaim(context.Context, string, string, int64, time.Duration) (bool, error) {
+	q.renewOnce.Do(func() { close(q.renewed) })
+	return false, nil
+}
+
+func (q *claimLossDuringPreparationQueue) FinishRunClaim(ctx context.Context, runID, workerID string, generation int64, status core.RunStatus, errorCode string) (bool, error) {
+	q.finishCalls.Add(1)
+	return q.SQLRunControlStore.FinishRunClaim(ctx, runID, workerID, generation, status, errorCode)
+}
+
+func (q *claimLossDuringPreparationQueue) RetryRunClaim(ctx context.Context, runID, workerID string, generation int64, availableAt time.Time, errorCode string) (bool, error) {
+	q.retryCalls.Add(1)
+	return q.SQLRunControlStore.RetryRunClaim(ctx, runID, workerID, generation, availableAt, errorCode)
+}
+
+func (q *claimLossDuringPreparationQueue) PauseRunClaim(ctx context.Context, runID, workerID string, generation int64) (bool, error) {
+	q.pauseCalls.Add(1)
+	return q.SQLRunControlStore.PauseRunClaim(ctx, runID, workerID, generation)
 }
 
 type mutatingAcquireLeaser struct {
@@ -299,7 +370,7 @@ func TestQueuedWorkerLoadsSessionOnlyAfterAcquiringExecutionLease(t *testing.T) 
 	fixture := newRunWorkerFixture(t)
 	record := enqueueRunHTTP(t, fixture, "lease ordered load")
 	held := &atomic.Bool{}
-	orderedStore := &leaseOrderedSessionStore{SessionStore: fixture.sessions, leaseHeld: held}
+	orderedStore := &leaseOrderedSessionStore{SQLSessionStore: fixture.sessions, leaseHeld: held}
 	fixture.server.sessions = orderedStore
 	fixture.server.leaser = leaseOrderObserver{SessionLeaser: fixture.sessions, held: held}
 	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-lease-order")
@@ -312,6 +383,257 @@ func TestQueuedWorkerLoadsSessionOnlyAfterAcquiringExecutionLease(t *testing.T) 
 	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
 	if err != nil || terminal.Status != string(core.RunCompleted) {
 		t.Fatalf("queued run did not complete: %#v err=%v", terminal, err)
+	}
+}
+
+func TestQueuedWorkerRepairsPredecessorThroughCurrentFence(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	predecessor := "run-fenced-predecessor"
+	if _, err := fixture.session.Append(predecessor, core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.session.Append(predecessor, core.EvToolCall, core.ToolCallData{CallID: "call-fenced-predecessor", Name: "test.write"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.sessions.Save(context.Background(), fixture.session, 0); err != nil {
+		t.Fatal(err)
+	}
+	record := enqueueRunHTTP(t, fixture, "repair predecessor")
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-fenced-repair"); err != nil || !claimed {
+		t.Fatalf("worker claimed=%t err=%v", claimed, err)
+	}
+	loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := loaded.RunStatus(predecessor); !exists || status != core.RunFailed {
+		t.Fatalf("predecessor was not fenced-repaired: exists=%t status=%q", exists, status)
+	}
+	if status, exists := loaded.RunStatus(record.RunID); !exists || status != core.RunCompleted {
+		t.Fatalf("current run did not complete after fenced repair: exists=%t status=%q", exists, status)
+	}
+}
+
+func TestQueuedClaimLossDuringPreparationDoesNotSettleOldGeneration(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	queue := &claimLossDuringPreparationQueue{
+		SQLRunControlStore: fixture.queue,
+		renewed:            make(chan struct{}),
+	}
+	fixture.server.runQueue = queue
+	fixture.server.runControl = queue
+	fixture.server.runWorkerClaimTTL = 15 * time.Millisecond
+	fixture.server.runPrincipal = RunPrincipalResolverFunc(func(ctx context.Context, tenantID, subjectID string) (core.Principal, error) {
+		select {
+		case <-queue.renewed:
+			return core.Principal{}, PermanentRunFailure(errors.New("forced preparation failure after claim loss"))
+		case <-ctx.Done():
+			return core.Principal{}, ctx.Err()
+		}
+	})
+	record := enqueueRunHTTP(t, fixture, "claim loss during preparation")
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-preparation-claim-loss")
+	if !claimed || !errors.Is(err, errRunClaimLost) {
+		t.Fatalf("claim-loss preparation result: claimed=%t err=%v", claimed, err)
+	}
+	if queue.finishCalls.Load() != 0 || queue.retryCalls.Load() != 0 || queue.pauseCalls.Load() != 0 {
+		t.Fatalf("stale preparation settled queue: finish=%d retry=%d pause=%d", queue.finishCalls.Load(), queue.retryCalls.Load(), queue.pauseCalls.Load())
+	}
+	current, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != storage.RunStatusRunning {
+		t.Fatalf("claim-loss preparation mutated queue record: %#v", current)
+	}
+	loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := loaded.RunStatus(record.RunID); exists {
+		t.Fatal("claim-loss preparation appended a Session terminal suffix")
+	}
+}
+
+func TestQueuedFenceLossFromBackgroundFlushStopsOldWorkerWithoutTerminalPollution(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		invalidate func(t *testing.T, fixture *runWorkerFixture, runID string)
+	}{
+		{
+			name: "queue_lease_expired",
+			invalidate: func(t *testing.T, fixture *runWorkerFixture, runID string) {
+				t.Helper()
+				if _, err := fixture.db.ExecContext(context.Background(), "UPDATE run_queue SET lease_expires_at = 1 WHERE run_id = ?", runID); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "cancel_requested",
+			invalidate: func(t *testing.T, fixture *runWorkerFixture, runID string) {
+				t.Helper()
+				if _, err := fixture.db.ExecContext(context.Background(), "UPDATE run_control SET cancel_requested = 1 WHERE run_id = ?", runID); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRunWorkerFixture(t)
+			fixture.server.maxWriteDelay = 100 * time.Millisecond
+			fixture.server.runWorkerClaimTTL = 5 * time.Second
+			started := make(chan struct{}, 1)
+			release := make(chan struct{})
+			fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
+				return blockingRunWorkerModel{started: started, release: release}, nil
+			})
+			record := enqueueRunHTTP(t, fixture, "background fence loss")
+			result := make(chan error, 1)
+			go func() {
+				_, err := fixture.server.RunWorkerOnce(context.Background(), "worker-background-fence")
+				result <- err
+			}()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("worker did not begin model execution")
+			}
+			test.invalidate(t, fixture, record.RunID)
+			select {
+			case err := <-result:
+				if !errors.Is(err, errRunClaimLost) || !errors.Is(err, storage.ErrSessionWriteFenceLost) {
+					t.Fatalf("background fence loss error=%v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("background fence loss did not stop the worker")
+			}
+			close(release)
+			control, err := fixture.queue.GetRun(context.Background(), record.RunID)
+			if err != nil || control.Status != storage.RunStatusRunning || control.ErrorCode != "" || !control.CompletedAt.IsZero() {
+				t.Fatalf("stale worker wrote terminal control state: %#v err=%v", control, err)
+			}
+			loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range loaded.Events() {
+				if event.RunID == record.RunID && (event.Type == core.EvRunError || event.Type == core.EvRunEnd) {
+					t.Fatalf("stale worker persisted terminal event after fence loss: %#v", event)
+				}
+			}
+		})
+	}
+}
+
+func TestQueuedSuccessorCompletesAfterOldGenerationFenceLoss(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	fixture.server.maxWriteDelay = 100 * time.Millisecond
+	fixture.server.runWorkerClaimTTL = 5 * time.Second
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
+		return blockingRunWorkerModel{started: started, release: release}, nil
+	})
+	record := enqueueRunHTTP(t, fixture, "successor after fence loss")
+	oldResult := make(chan error, 1)
+	go func() {
+		_, err := fixture.server.RunWorkerOnce(context.Background(), "worker-old-generation")
+		oldResult <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("old worker did not begin model execution")
+	}
+	var oldGeneration int64
+	if err := fixture.db.QueryRowContext(context.Background(), "SELECT generation FROM run_queue WHERE run_id = ?", record.RunID).Scan(&oldGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.db.ExecContext(context.Background(), "UPDATE run_queue SET lease_expires_at = 1 WHERE run_id = ?", record.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if requeued, failed, err := fixture.queue.RecoverExpiredRunClaims(context.Background(), time.Now().UTC()); err != nil || requeued != 1 || failed != 0 {
+		t.Fatalf("requeue old claim: requeued=%d failed=%d err=%v", requeued, failed, err)
+	}
+	select {
+	case err := <-oldResult:
+		if !errors.Is(err, errRunClaimLost) || !errors.Is(err, storage.ErrSessionWriteFenceLost) {
+			t.Fatalf("old worker error=%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("old worker did not stop after generation replacement")
+	}
+	close(release)
+	fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
+		return countingRunWorkerModel{calls: &fixture.modelRuns}, nil
+	})
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-successor-generation"); err != nil || !claimed {
+		t.Fatalf("successor claimed=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) {
+		t.Fatalf("successor did not complete run: %#v err=%v", terminal, err)
+	}
+	loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := loaded.RunStatus(record.RunID); !exists || status != core.RunCompleted {
+		t.Fatalf("successor Session result: exists=%t status=%q", exists, status)
+	}
+	if oldGeneration < 1 {
+		t.Fatalf("invalid original generation %d", oldGeneration)
+	}
+}
+
+func TestQueuedTerminalDurabilitySurvivesClaimLossBeforeFinish(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	queue := &expireBeforeFirstFinishQueue{SQLRunControlStore: fixture.queue}
+	queue.beforeFinish = func(runID string) {
+		t.Helper()
+		loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status, exists := loaded.RunStatus(runID); !exists || status != core.RunCompleted {
+			t.Fatalf("terminal Session suffix was not durable before FinishRunClaim: exists=%t status=%q", exists, status)
+		}
+		if _, err := fixture.db.ExecContext(context.Background(), "UPDATE run_queue SET lease_expires_at = 1 WHERE run_id = ?", runID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.server.runQueue = queue
+
+	record := enqueueRunHTTP(t, fixture, "terminal then claim loss")
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-terminal-old")
+	if !claimed || !errors.Is(err, errRunClaimLost) {
+		t.Fatalf("old worker result: claimed=%t err=%v", claimed, err)
+	}
+	if errors.Is(err, storage.ErrSessionWriteFenceLost) {
+		t.Fatalf("post-flush Finish loss must not be misreported as a Session write fence loss: %v", err)
+	}
+
+	loaded, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := loaded.RunStatus(record.RunID); !exists || status != core.RunCompleted {
+		t.Fatalf("old worker did not leave its terminal Session suffix durable: exists=%t status=%q", exists, status)
+	}
+	control, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || control.Status != storage.RunStatusRunning || !control.CompletedAt.IsZero() {
+		t.Fatalf("expired Finish attempt mutated queue terminal state: %#v err=%v", control, err)
+	}
+	if requeued, failed, err := fixture.queue.RecoverExpiredRunClaims(context.Background(), time.Now().UTC()); err != nil || requeued != 1 || failed != 0 {
+		t.Fatalf("recover expired terminal claim: requeued=%d failed=%d err=%v", requeued, failed, err)
+	}
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-terminal-successor"); err != nil || !claimed {
+		t.Fatalf("successor claim=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) {
+		t.Fatalf("successor did not converge durable terminal run: %#v err=%v", terminal, err)
 	}
 }
 
@@ -333,7 +655,7 @@ func TestQueuedWorkerLostClaimBeforeLeaseDoesNotLoadOrRepairSession(t *testing.T
 		t.Fatal(err)
 	}
 	fixture.server.liveness = nil
-	loadObserver := &leaseOrderedSessionStore{SessionStore: fixture.sessions, leaseHeld: &atomic.Bool{}}
+	loadObserver := &leaseOrderedSessionStore{SQLSessionStore: fixture.sessions, leaseHeld: &atomic.Bool{}}
 	fixture.server.sessions = loadObserver
 	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-claim-loss-load")
 	if !claimed || !errors.Is(err, errRunClaimLost) {
@@ -1085,6 +1407,45 @@ func TestAsyncApprovalReleasesWorkerAndResumesSameRun(t *testing.T) {
 	}
 	if status, exists := loaded.RunStatus(record.RunID); !exists || status != core.RunCompleted {
 		t.Fatalf("resumed session status=%q exists=%t", status, exists)
+	}
+}
+
+func TestQueuedApprovalResumeUsesDistinctGenerationBoundLeaseHolders(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	leaser := &recordingSQLSessionLeaser{SQLSessionStore: fixture.sessions}
+	fixture.server.leaser = leaser
+	enableApprovalWorker(t, fixture)
+	record := enqueueRunHTTP(t, fixture, "approval holder generations")
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-holder-first"); err != nil || !claimed {
+		t.Fatalf("first worker claimed=%t err=%v", claimed, err)
+	}
+	var firstGeneration int64
+	if err := fixture.db.QueryRowContext(context.Background(), "SELECT generation FROM run_queue WHERE run_id = ?", record.RunID).Scan(&firstGeneration); err != nil {
+		t.Fatal(err)
+	}
+	approvals, err := fixture.approvals.ListApprovals(context.Background(), storage.ApprovalFilter{TenantID: fixture.principal.TenantID, Status: core.ApprovalPending})
+	if err != nil || len(approvals) != 1 {
+		t.Fatalf("approval pause: approvals=%#v err=%v", approvals, err)
+	}
+	if _, changed, err := fixture.approvals.DecideApproval(context.Background(), approvals[0].ID, core.ApprovalApproved, "admin@acme"); err != nil || !changed {
+		t.Fatalf("approve: changed=%t err=%v", changed, err)
+	}
+	if claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-holder-second"); err != nil || !claimed {
+		t.Fatalf("resume worker claimed=%t err=%v", claimed, err)
+	}
+	holders := leaser.acquiredHolders()
+	if len(holders) != 2 || holders[0] == holders[1] {
+		t.Fatalf("lease acquisition holders=%q", holders)
+	}
+	if !strings.HasPrefix(holders[0], fixture.server.instanceID+":r") ||
+		!strings.Contains(holders[0], ":g"+strconv.FormatInt(firstGeneration, 10)+":") ||
+		strings.Contains(holders[0], record.RunID) {
+		t.Fatalf("first holder does not bind the first generation without exposing the raw run ID: %q", holders[0])
+	}
+	if !strings.HasPrefix(holders[1], fixture.server.instanceID+":r") ||
+		!strings.Contains(holders[1], ":g"+strconv.FormatInt(firstGeneration+1, 10)+":") ||
+		strings.Contains(holders[1], record.RunID) {
+		t.Fatalf("second holder does not bind the successor generation without exposing the raw run ID: %q", holders[1])
 	}
 }
 

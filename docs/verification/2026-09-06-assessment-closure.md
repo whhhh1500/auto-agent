@@ -25,6 +25,16 @@ HTTP 审批恢复、Graph 示例，以及用户指定的 `gemini-3.8-flash` 模�
    替换 worker 会重新调用模型和工具。现为同步/queued 两条服务路径建立 per-run
    pre-tool durable checkpoint，并用两个独立 OS 子进程验证异常退出后的 fail-closed 恢复。
 
+7. 同日后续增加 queued worker 的 SQL generation fence：Server 在启动时拒绝无法证明
+   `Sessions + RunQueue + SessionLeaser` 共用同一 atomic SQL domain 的组合；worker 用
+   `instance + compact Run ID digest + generation + nonce` 的唯一 Session lease holder，显式 repair 和同一
+   fenced `WriteBehind` 覆盖后续 model/tool/checkpoint/background/terminal Session 写入。
+   SQLite 定向和 race 验证覆盖旧 generation、queue lease 过期、cancel、background flush、
+   predecessor repair、approval pause/resume 和 successor 完成。`ErrSessionWriteFenceLost`
+   只停止/abort stale worker，不会写 `store_error` terminal 或结算旧 claim。该补验没有运行
+   真实 PostgreSQL：未配置 DSN 时 PostgreSQL 用例按仓库约定跳过，因此 SQLite 结果不应被
+   表述为 PostgreSQL 锁竞争或事务行为的实测证据。
+
 恢复逻辑现在先使非空 Session 的投影缓存失效。工具调用新增可选、最多 64 KiB 的
 `continuation` 字符串，由外层协议适配器解释，原样随对应 assistant 工具调用持久化和
 返回；上下文与请求预算包含该字段。未知协议状态被拒绝，不作为工具参数或授权信息。

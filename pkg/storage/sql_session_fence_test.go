@@ -26,7 +26,16 @@ func newSQLiteFencedFixture(t *testing.T) *fencedSQLFixture {
 	return newFencedSQLFixture(t, newTestSQLStore(t), "session-fenced", "run-fenced")
 }
 
+func newSQLiteFencedPredecessorFixture(t *testing.T) *fencedSQLFixture {
+	t.Helper()
+	return newFencedSQLFixtureWithOpenRun(t, newTestSQLStore(t), "session-fenced-predecessor", "run-fenced-current", "run-fenced-predecessor")
+}
+
 func newFencedSQLFixture(t *testing.T, store *SQLSessionStore, sessionID, runID string) *fencedSQLFixture {
+	return newFencedSQLFixtureWithOpenRun(t, store, sessionID, runID, runID)
+}
+
+func newFencedSQLFixtureWithOpenRun(t *testing.T, store *SQLSessionStore, sessionID, runID, openRunID string) *fencedSQLFixture {
 	t.Helper()
 	ctx := context.Background()
 	session := mustNamedSession(t, sessionID)
@@ -43,7 +52,7 @@ func newFencedSQLFixture(t *testing.T, store *SQLSessionStore, sessionID, runID 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Append(runID, core.EvRunStart, core.RunStartData{
+	if _, err := session.Append(openRunID, core.EvRunStart, core.RunStartData{
 		CompositionRevision: compositionRevision,
 		AssignmentRevision:  assignmentRevision,
 		Composition:         composition,
@@ -102,6 +111,23 @@ func rawFencedEvent(t *testing.T, seq int64, runID, text string) core.SessionEve
 		t.Fatal(err)
 	}
 	return core.SessionEvent{Seq: seq, Time: time.Now().UTC(), RunID: runID, Type: core.EvUserMessage, Data: data}
+}
+
+func fencedRepairCandidate(t *testing.T, session *core.Session) []core.SessionEvent {
+	t.Helper()
+	repaired, err := session.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := repaired.Version()
+	synthetic := core.RepairInterrupted(repaired.Events())
+	if len(synthetic) == 0 {
+		t.Fatal("session has no interrupted repair suffix")
+	}
+	if err := core.AppendRepair(repaired, synthetic, nil); err != nil {
+		t.Fatal(err)
+	}
+	return repaired.EventsFrom(version)
 }
 
 func assertFencedSessionVersion(t *testing.T, fixture *fencedSQLFixture, want int64) *core.Session {
@@ -519,6 +545,35 @@ func TestSQLiteFencedAcquireReservesWriter(t *testing.T) {
 }
 
 func TestRepairInterruptedSessionFenced(t *testing.T) {
+	t.Run("repairs_only_the_committed_open_predecessor", func(t *testing.T) {
+		fixture := newSQLiteFencedPredecessorFixture(t)
+		loaded := assertFencedSessionVersion(t, fixture, 1)
+		candidate := fencedRepairCandidate(t, loaded)
+		if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, loaded.Version(), candidate); err == nil || !strings.Contains(err.Error(), "not fenced run") {
+			t.Fatalf("ordinary fenced append accepted predecessor repair: %v", err)
+		}
+		repaired, applied, err := RepairInterruptedSessionFenced(context.Background(), fixture.store, fixture.fence, loaded)
+		if err != nil || !applied {
+			t.Fatalf("fenced predecessor repair: applied=%t err=%v", applied, err)
+		}
+		if repaired.Version() != loaded.Version()+int64(len(candidate)) {
+			t.Fatalf("repaired version=%d want=%d", repaired.Version(), loaded.Version()+int64(len(candidate)))
+		}
+		if status, exists := repaired.RunStatus("run-fenced-predecessor"); !exists || status != core.RunFailed {
+			t.Fatalf("predecessor status: exists=%t status=%q", exists, status)
+		}
+		if _, exists := repaired.RunStatus(fixture.fence.RunID); exists {
+			t.Fatal("repair synthesized events for the current queued run")
+		}
+		var status string
+		if err := fixture.store.db.QueryRowContext(context.Background(), "SELECT status FROM run_evidence WHERE session_id = ? AND run_id = ?", fixture.fence.SessionID, "run-fenced-predecessor").Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != string(core.RunFailed) {
+			t.Fatalf("predecessor evidence status=%q", status)
+		}
+	})
+
 	t.Run("once_then_noop", func(t *testing.T) {
 		fixture := newSQLiteFencedFixture(t)
 		call, err := fixture.session.Append(fixture.fence.RunID, core.EvToolCall, core.ToolCallData{CallID: "call-fenced", Name: "test.tool"})
@@ -537,6 +592,145 @@ func TestRepairInterruptedSessionFenced(t *testing.T) {
 		again, applied, err := RepairInterruptedSessionFenced(context.Background(), fixture.store, fixture.fence, persisted)
 		if err != nil || applied || again.Version() != persisted.Version() {
 			t.Fatalf("second fenced repair: applied=%t version=%d err=%v", applied, again.Version(), err)
+		}
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE run_queue SET worker_id = 'worker-other' WHERE run_id = ?", fixture.fence.RunID); err != nil {
+			t.Fatal(err)
+		}
+		unchanged, applied, err := RepairInterruptedSessionFenced(context.Background(), fixture.store, fixture.fence, persisted)
+		if err != nil || applied || unchanged.Version() != persisted.Version() {
+			t.Fatalf("balanced repair must remain a local no-op after fence loss: applied=%t version=%d err=%v", applied, unchanged.Version(), err)
+		}
+	})
+
+	t.Run("rejects_forged_cross_run_repair_candidates_without_writes", func(t *testing.T) {
+		t.Run("approval_pause_is_a_local_noop", func(t *testing.T) {
+			fixture := newSQLiteFencedFixture(t)
+			call := core.ToolCall{ID: "call-fenced-approval", Name: "test.tool"}
+			if _, err := fixture.session.Append(fixture.fence.RunID, core.EvToolCall, core.ToolCallData{CallID: call.ID, Name: call.Name}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fixture.session.Append(fixture.fence.RunID, core.EvApprovalRequested, core.ApprovalRequestedData{
+				ApprovalID: "apr_0123456789abcdef0123456789abcdef", ToolCall: call, ResumeCall: call, Step: 0,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, 1, fixture.session.EventsFrom(1)); err != nil {
+				t.Fatal(err)
+			}
+			loaded := assertFencedSessionVersion(t, fixture, 3)
+			if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE run_queue SET worker_id = 'worker-other' WHERE run_id = ?", fixture.fence.RunID); err != nil {
+				t.Fatal(err)
+			}
+			unchanged, applied, err := RepairInterruptedSessionFenced(context.Background(), fixture.store, fixture.fence, loaded)
+			if err != nil || applied || unchanged.Version() != loaded.Version() {
+				t.Fatalf("approval repair: applied=%t version=%d err=%v", applied, unchanged.Version(), err)
+			}
+			if status, exists := unchanged.RunStatus(fixture.fence.RunID); !exists || status != core.RunWaitingApproval {
+				t.Fatalf("approval status: exists=%t status=%q", exists, status)
+			}
+		})
+
+		tests := []struct {
+			name   string
+			mutate func([]core.SessionEvent) []core.SessionEvent
+		}{
+			{"other_run_event", func(events []core.SessionEvent) []core.SessionEvent {
+				events[0].RunID = "run-fenced-arbitrary"
+				return events
+			}},
+			{"forged_payload", func(events []core.SessionEvent) []core.SessionEvent {
+				events[0].Data = json.RawMessage(`{"code":"forged"}`)
+				return events
+			}},
+			{"missing_event", func(events []core.SessionEvent) []core.SessionEvent {
+				return events[:len(events)-1]
+			}},
+			{"extra_event", func(events []core.SessionEvent) []core.SessionEvent {
+				extra := events[0]
+				extra.Seq = events[len(events)-1].Seq + 1
+				extra.Time = time.Now().UTC()
+				return append(events, extra)
+			}},
+			{"different_order", func(events []core.SessionEvent) []core.SessionEvent {
+				events[0], events[1] = events[1], events[0]
+				return events
+			}},
+			{"missing_append_timestamp", func(events []core.SessionEvent) []core.SessionEvent {
+				events[0].Time = time.Time{}
+				return events
+			}},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				fixture := newSQLiteFencedPredecessorFixture(t)
+				loaded := assertFencedSessionVersion(t, fixture, 1)
+				candidate := append([]core.SessionEvent(nil), fencedRepairCandidate(t, loaded)...)
+				candidate = test.mutate(candidate)
+				_, applied, err := fixture.store.appendInterruptedSessionRepairFenced(context.Background(), fixture.fence, loaded.Version(), candidate)
+				if err == nil || applied {
+					t.Fatalf("forged repair: applied=%t err=%v", applied, err)
+				}
+				assertFencedSessionVersion(t, fixture, loaded.Version())
+				var chunks int
+				if err := fixture.store.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM event_chunks WHERE session_id = ?", fixture.fence.SessionID).Scan(&chunks); err != nil {
+					t.Fatal(err)
+				}
+				if chunks != 1 {
+					t.Fatalf("forged repair left event chunks=%d", chunks)
+				}
+				var status string
+				if err := fixture.store.db.QueryRowContext(context.Background(), "SELECT status FROM run_evidence WHERE session_id = ? AND run_id = ?", fixture.fence.SessionID, "run-fenced-predecessor").Scan(&status); err != nil {
+					t.Fatal(err)
+				}
+				if status != "running" {
+					t.Fatalf("forged repair changed predecessor evidence status=%q", status)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects_incomplete_committed_tail_without_writes", func(t *testing.T) {
+		fixture := newSQLiteFencedPredecessorFixture(t)
+		loaded := assertFencedSessionVersion(t, fixture, 1)
+		candidate := fencedRepairCandidate(t, loaded)
+		for index := range candidate {
+			candidate[index].Seq++
+		}
+		if _, err := fixture.store.db.ExecContext(context.Background(),
+			"UPDATE sessions SET version = 2, event_count = 2 WHERE id = ?", fixture.fence.SessionID,
+		); err != nil {
+			t.Fatal(err)
+		}
+		_, applied, err := fixture.store.appendInterruptedSessionRepairFenced(context.Background(), fixture.fence, 2, candidate)
+		if err == nil || applied || !strings.Contains(err.Error(), "exceeds restored event count") {
+			t.Fatalf("incomplete committed tail: applied=%t err=%v", applied, err)
+		}
+		var version, eventCount int64
+		if err := fixture.store.db.QueryRowContext(context.Background(),
+			"SELECT version, event_count FROM sessions WHERE id = ?", fixture.fence.SessionID,
+		).Scan(&version, &eventCount); err != nil {
+			t.Fatal(err)
+		}
+		if version != 2 || eventCount != 2 {
+			t.Fatalf("incomplete committed tail was mutated: version=%d event_count=%d", version, eventCount)
+		}
+		var chunks int
+		if err := fixture.store.db.QueryRowContext(context.Background(),
+			"SELECT COUNT(*) FROM event_chunks WHERE session_id = ?", fixture.fence.SessionID,
+		).Scan(&chunks); err != nil {
+			t.Fatal(err)
+		}
+		if chunks != 1 {
+			t.Fatalf("incomplete committed tail left event chunks=%d", chunks)
+		}
+		var status string
+		if err := fixture.store.db.QueryRowContext(context.Background(),
+			"SELECT status FROM run_evidence WHERE session_id = ? AND run_id = ?", fixture.fence.SessionID, "run-fenced-predecessor",
+		).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != "running" {
+			t.Fatalf("incomplete committed tail changed predecessor evidence status=%q", status)
 		}
 	})
 

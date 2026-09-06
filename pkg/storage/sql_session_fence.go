@@ -1,11 +1,13 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
@@ -38,6 +40,10 @@ var (
 // Session store shares one database transaction with run_control, run_queue,
 // and session_leases. It must not be emulated across independent databases.
 func (s *SQLSessionStore) AppendEventsFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
+	return s.appendEventsFenced(ctx, fence, expectedVersion, events)
+}
+
+func (s *SQLSessionStore) appendEventsFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error {
 	if ctx == nil {
 		return fmt.Errorf("fenced session append requires a context")
 	}
@@ -104,6 +110,180 @@ func (s *SQLSessionStore) AppendEventsFenced(ctx context.Context, fence SessionW
 		return sessionWriteFenceLost("claim, cancellation state, or session lease expired before commit")
 	}
 	return tx.Commit()
+}
+
+// appendInterruptedSessionRepairFenced is the storage-private companion to
+// RepairInterruptedSessionFenced. It treats events as a candidate only: after
+// acquiring the current queued-run fence, it reconstructs the committed
+// Session prefix in the same transaction, derives the one legal repair suffix
+// with core.RepairInterrupted, and writes its own newly assigned events.
+//
+// This prevents a caller with a valid fence from using interrupted-run repair
+// as an arbitrary cross-Run append capability. The candidate is retained only
+// to make a stale in-memory repair decision fail closed rather than silently
+// repairing a newer, different tail.
+func (s *SQLSessionStore) appendInterruptedSessionRepairFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, candidate []core.SessionEvent) (*core.Session, bool, error) {
+	if ctx == nil {
+		return nil, false, fmt.Errorf("fenced session repair requires a context")
+	}
+	if s == nil || s.db == nil {
+		return nil, false, fmt.Errorf("fenced session repair requires an SQL session store")
+	}
+	if err := validateSessionWriteFence(fence); err != nil {
+		return nil, false, err
+	}
+	if expectedVersion < 0 {
+		return nil, false, fmt.Errorf("session repair expected version must not be negative")
+	}
+	if len(candidate) == 0 {
+		return nil, false, fmt.Errorf("fenced session repair candidate is empty")
+	}
+	if err := validateAppendEvents(expectedVersion, candidate); err != nil {
+		return nil, false, err
+	}
+	for index, event := range candidate {
+		if event.Time.IsZero() {
+			return nil, false, fmt.Errorf("fenced repair candidate event %d has no append timestamp", index)
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var header string
+	switch s.dialect {
+	case SQLDialectSQLite:
+		header, err = s.acquireSQLiteSessionWriteFence(ctx, tx, fence, expectedVersion)
+	case SQLDialectPostgres:
+		header, err = s.acquirePostgresSessionWriteFence(ctx, tx, fence, expectedVersion)
+	default:
+		err = fmt.Errorf("unsupported SQL dialect %q", s.dialect.String())
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var options core.SessionOptions
+	if err := json.Unmarshal([]byte(header), &options); err != nil {
+		return nil, false, fmt.Errorf("decode session %s header for fenced repair: %w", fence.SessionID, err)
+	}
+	if options.Principal.TenantID != fence.TenantID || options.Principal.SubjectID != fence.SubjectID {
+		return nil, false, sessionWriteFenceLost("fenced identity does not own the session")
+	}
+
+	committed, err := s.restoreFencedSession(ctx, tx, fence.SessionID, options, expectedVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	synthetic := core.RepairInterrupted(committed.Events())
+	if len(synthetic) == 0 {
+		return nil, false, fmt.Errorf("fenced repair candidate does not match an interrupted committed session tail")
+	}
+	if err := validateFencedRepairCandidate(expectedVersion, candidate, synthetic); err != nil {
+		return nil, false, err
+	}
+
+	repaired, err := committed.Clone()
+	if err != nil {
+		return nil, false, err
+	}
+	if err := core.AppendRepair(repaired, synthetic, nil); err != nil {
+		return nil, false, err
+	}
+	events := repaired.EventsFrom(expectedVersion)
+	if err := s.insertChunk(ctx, tx, fence.SessionID, expectedVersion, events); err != nil {
+		return nil, false, err
+	}
+	if err := insertRunEvidence(ctx, tx, s.dialect, fence.SessionID, options, events, s.evidenceCap()); err != nil {
+		return nil, false, fmt.Errorf("index session %s fenced repair evidence: %w", fence.SessionID, err)
+	}
+	targetVersion := expectedVersion + int64(len(events))
+	result, err := tx.ExecContext(ctx, fencedSessionTipUpdate(s.dialect),
+		targetVersion, targetVersion, fence.SessionID, expectedVersion, fence.TenantID, fence.SubjectID,
+		fence.RunID, fence.SessionID, fence.TenantID, fence.SubjectID, fence.WorkerID, fence.QueueGeneration, fence.LeaseHolder,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	if affected == 0 {
+		return nil, false, sessionWriteFenceLost("claim, cancellation state, or session lease expired before fenced repair commit")
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return repaired, true, nil
+}
+
+func validateFencedRepairCandidate(expectedVersion int64, candidate, synthetic []core.SessionEvent) error {
+	if len(candidate) != len(synthetic) {
+		return fmt.Errorf("fenced repair candidate has %d events, committed repair requires %d", len(candidate), len(synthetic))
+	}
+	for index := range synthetic {
+		candidateEvent := candidate[index]
+		syntheticEvent := synthetic[index]
+		if candidateEvent.Seq != expectedVersion+int64(index) {
+			return fmt.Errorf("fenced repair candidate event %d has sequence %d, want %d", index, candidateEvent.Seq, expectedVersion+int64(index))
+		}
+		if candidateEvent.Time.IsZero() {
+			return fmt.Errorf("fenced repair candidate event %d has no append timestamp", index)
+		}
+		if candidateEvent.RunID != syntheticEvent.RunID || candidateEvent.Type != syntheticEvent.Type || !bytes.Equal(candidateEvent.Data, syntheticEvent.Data) {
+			return fmt.Errorf("fenced repair candidate event %d does not match the committed repair suffix", index)
+		}
+	}
+	return nil
+}
+
+func (s *SQLSessionStore) restoreFencedSession(ctx context.Context, tx *sql.Tx, sessionID string, options core.SessionOptions, committed int64) (*core.Session, error) {
+	rows, err := tx.QueryContext(ctx, sqlSelectChunks.bind(s.dialect), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := make([]core.SessionEvent, 0, committed)
+	nextSeq := int64(0)
+	for rows.Next() {
+		var startSeq int64
+		var payload string
+		if err := rows.Scan(&startSeq, &payload); err != nil {
+			return nil, err
+		}
+		if startSeq != nextSeq {
+			return nil, fmt.Errorf("session %s chunk sequence discontinuous at %d", sessionID, startSeq)
+		}
+		decoded := int64(0)
+		for _, line := range strings.Split(payload, "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if len(line) > core.MaxSessionEventDataBytes+(1<<20) {
+				return nil, fmt.Errorf("decode session %s event: encoded event exceeds size limit", sessionID)
+			}
+			var event core.SessionEvent
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				return nil, fmt.Errorf("decode session %s event: %w", sessionID, err)
+			}
+			events = append(events, event)
+			decoded++
+		}
+		nextSeq += decoded
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if int64(len(events)) > committed {
+		events = events[:committed]
+	}
+	if int64(len(events)) != committed {
+		return nil, fmt.Errorf("session %s committed version %d exceeds restored event count %d", sessionID, committed, len(events))
+	}
+	return core.RestoreSession(options, events)
 }
 
 // SQLite has one writer at a time. Making the first statement a conditional

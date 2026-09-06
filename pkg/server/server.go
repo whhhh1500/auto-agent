@@ -22,6 +22,7 @@ import (
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 
@@ -184,8 +185,10 @@ type Config struct {
 	// requests. When nil, status remains request-local for compatibility.
 	RunControl storage.RunControlStore
 	// RunQueue enables durable asynchronous submission and worker claims. A
-	// RunQueueStore also serves as RunControl when RunControl is nil. Leaser is
-	// required so a claimed worker owns session execution before its first Load.
+	// RunQueueStore also serves as RunControl when RunControl is nil; when both
+	// are supplied they must be the same object so durable control-plane state
+	// cannot split. Leaser is required so a claimed worker owns session execution
+	// before its first Load.
 	RunQueue             storage.RunQueueStore
 	RunPrincipalResolver RunPrincipalResolver
 	// Approvals exposes durable pending approval queries and decisions. When
@@ -356,6 +359,14 @@ func New(config Config) (*Server, error) {
 	}
 	if config.RunQueue != nil && config.Leaser == nil {
 		return nil, fmt.Errorf("durable run queue requires a session leaser")
+	}
+	if config.RunQueue != nil && config.RunControl != nil && !sameRunControlAndQueue(config.RunControl, config.RunQueue) {
+		return nil, fmt.Errorf("durable run queue requires RunControl to be omitted or the same object as RunQueue")
+	}
+	if config.RunQueue != nil {
+		if err := storage.ValidateQueuedSessionFenceDomain(config.Sessions, config.RunQueue, config.Leaser); err != nil {
+			return nil, fmt.Errorf("durable run queue requires an atomic queued session fence domain: %w", err)
+		}
 	}
 	if config.RunExecutors == nil {
 		registry, err := runexecutor.NewDefaultRegistry()
@@ -603,6 +614,15 @@ func New(config Config) (*Server, error) {
 		server.obsMatcher = newObsMatcher(config.Obs)
 	}
 	return server, nil
+}
+
+func sameRunControlAndQueue(control storage.RunControlStore, queue storage.RunQueueStore) bool {
+	controlValue := reflect.ValueOf(control)
+	queueValue := reflect.ValueOf(queue)
+	if !controlValue.IsValid() || !queueValue.IsValid() || controlValue.Type() != queueValue.Type() || !controlValue.Type().Comparable() {
+		return false
+	}
+	return controlValue.Interface() == queueValue.Interface()
 }
 
 // Handler returns the complete public HTTP surface.

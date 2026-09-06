@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,10 +125,51 @@ func TestServerLeaseIdentityIsStableRandomUUIDAndRunScoped(t *testing.T) {
 		t.Fatalf("distinct server instances reused ID %q", serverA.instanceID)
 	}
 
-	holderOne := serverA.leaseHolder("run_one")
-	holderTwo := serverA.leaseHolder("run_two")
-	if holderOne != serverA.instanceID+":run_one" || holderTwo != serverA.instanceID+":run_two" {
-		t.Fatalf("run holders do not contain stable instance and run IDs: %q %q", holderOne, holderTwo)
+	runID := "run_one"
+	holderOne, err := serverA.leaseHolder(runID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holderTwo, err := serverA.leaseHolder(runID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runDigest := sha256.Sum256([]byte(runID))
+	wantPrefix := serverA.instanceID + ":r" + fmt.Sprintf("%x", runDigest[:16]) + ":g7:"
+	if holderOne == holderTwo || !strings.HasPrefix(holderOne, wantPrefix) || !strings.HasPrefix(holderTwo, wantPrefix) {
+		t.Fatalf("lease holders must bind instance/run/generation with a unique acquisition nonce: %q %q", holderOne, holderTwo)
+	}
+	if strings.Contains(holderOne, runID) || strings.Contains(holderTwo, runID) {
+		t.Fatalf("lease holder exposes raw run ID: %q %q", holderOne, holderTwo)
+	}
+	for _, holder := range []string{holderOne, holderTwo} {
+		parts := strings.Split(holder, ":")
+		if len(parts) != 4 || !uuidV4.MatchString(parts[3]) {
+			t.Fatalf("lease holder has no UUIDv4 acquisition nonce: %q", holder)
+		}
+	}
+}
+
+func TestServerLeaseHolderBoundsAndValidatesIdentity(t *testing.T) {
+	server := newLeaseTestServer(t, &fakeSessionLeaser{})
+	maxRunID := strings.Repeat("r", 128)
+	holder, err := server.leaseHolder(maxRunID, 9223372036854775807)
+	if err != nil {
+		t.Fatalf("max-length valid run ID rejected: %v", err)
+	}
+	if len(holder) > 128 {
+		t.Fatalf("lease holder length=%d exceeds SQL holder limit: %q", len(holder), holder)
+	}
+	for _, input := range []struct {
+		runID      string
+		generation int64
+	}{
+		{runID: "invalid run id", generation: 0},
+		{runID: "run-valid", generation: -1},
+	} {
+		if _, err := server.leaseHolder(input.runID, input.generation); err == nil {
+			t.Fatalf("invalid holder input run=%q generation=%d was accepted", input.runID, input.generation)
+		}
 	}
 }
 
@@ -140,7 +184,7 @@ func TestRunLeaseRenewsAndCancelsRunWhenOwnershipIsLost(t *testing.T) {
 	server.leaseOpTimeout = time.Second
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
-	cleanup, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-1", "run-1")
+	lease, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-1", "run-1", 11)
 	if err != nil || !acquired {
 		t.Fatalf("acquire run lease: acquired=%v err=%v", acquired, err)
 	}
@@ -149,7 +193,7 @@ func TestRunLeaseRenewsAndCancelsRunWhenOwnershipIsLost(t *testing.T) {
 	leaser.renewResults <- leaseResult{renewed: true}
 	clock.Advance(3 * time.Second)
 	firstRenew := waitForRenewCall(t, server, leaser, clock, "successful")
-	if firstRenew.holder != server.instanceID+":run-1" || firstRenew.sessionID != "session-1" {
+	if firstRenew.holder != lease.Holder() || firstRenew.sessionID != "session-1" {
 		t.Fatalf("renew used wrong lease identity: %#v", firstRenew)
 	}
 	select {
@@ -168,14 +212,14 @@ func TestRunLeaseRenewsAndCancelsRunWhenOwnershipIsLost(t *testing.T) {
 		t.Fatal("lease ownership loss did not cancel the run")
 	}
 
-	cleanup()
+	lease.Release()
 
 	leaser.mu.Lock()
 	defer leaser.mu.Unlock()
-	if len(leaser.acquireCalls) != 1 || leaser.acquireCalls[0].holder != server.instanceID+":run-1" {
+	if len(leaser.acquireCalls) != 1 || leaser.acquireCalls[0].holder != lease.Holder() || !strings.HasPrefix(lease.Holder(), server.instanceID+":r") || !strings.Contains(lease.Holder(), ":g11:") {
 		t.Fatalf("acquire used wrong holder: %#v", leaser.acquireCalls)
 	}
-	if len(leaser.releaseCalls) != 1 || leaser.releaseCalls[0].holder != server.instanceID+":run-1" {
+	if len(leaser.releaseCalls) != 1 || leaser.releaseCalls[0].holder != lease.Holder() {
 		t.Fatalf("release used wrong holder: %#v", leaser.releaseCalls)
 	}
 	if len(leaser.releaseBounded) != 1 || !leaser.releaseBounded[0] {
@@ -193,7 +237,7 @@ func TestRunLeaseRenewalErrorCancelsRun(t *testing.T) {
 	clock := replaceServerLiveness(t, server)
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
-	cleanup, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-2", "run-2")
+	lease, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-2", "run-2", 0)
 	if err != nil || !acquired {
 		t.Fatalf("acquire run lease: acquired=%v err=%v", acquired, err)
 	}
@@ -206,7 +250,7 @@ func TestRunLeaseRenewalErrorCancelsRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("renewal error did not cancel the run")
 	}
-	cleanup()
+	lease.Release()
 }
 
 func TestRunLeaseConflictDoesNotStartRenewal(t *testing.T) {
@@ -215,12 +259,47 @@ func TestRunLeaseConflictDoesNotStartRenewal(t *testing.T) {
 
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
-	cleanup, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-3", "run-3")
+	lease, acquired, err := server.acquireRunLease(runCtx, cancelRun, "session-3", "run-3", 0)
 	if err != nil || acquired {
 		t.Fatalf("conflict result: acquired=%v err=%v", acquired, err)
 	}
-	cleanup()
-	if holder := server.leaseHolder("run-3"); holder != server.instanceID+":run-3" {
+	lease.Release()
+	if holder := lease.Holder(); !strings.HasPrefix(holder, server.instanceID+":r") || !strings.Contains(holder, ":g0:") {
 		t.Fatalf("malformed lease holder %q", holder)
+	}
+}
+
+func TestRunLeaseReleasesAnomalousSuccessfulAcquireError(t *testing.T) {
+	leaser := &fakeSessionLeaser{acquireResult: true, acquireErr: errors.New("acquire response lost")}
+	server := newLeaseTestServer(t, leaser)
+	lease, acquired, err := server.acquireRunLease(context.Background(), func() {}, "session-4", "run-4", 2)
+	if err == nil || acquired {
+		t.Fatalf("anomalous acquire result: acquired=%t err=%v", acquired, err)
+	}
+	if lease.Holder() == "" {
+		t.Fatal("acquire cleanup lost the generated holder")
+	}
+	leaser.mu.Lock()
+	defer leaser.mu.Unlock()
+	if len(leaser.acquireCalls) != 1 || len(leaser.releaseCalls) != 1 || leaser.releaseCalls[0].holder != lease.Holder() {
+		t.Fatalf("anomalous acquire was not released: acquires=%#v releases=%#v", leaser.acquireCalls, leaser.releaseCalls)
+	}
+	if !leaser.releaseBounded[0] {
+		t.Fatal("anomalous acquire release did not use a bounded context")
+	}
+}
+
+func TestRunLeaseReleasesWhenRenewalRegistrationIsUnavailable(t *testing.T) {
+	leaser := &fakeSessionLeaser{acquireResult: true}
+	server := newLeaseTestServer(t, leaser)
+	server.liveness = nil
+	lease, acquired, err := server.acquireRunLease(context.Background(), func() {}, "session-5", "run-5", 3)
+	if err == nil || acquired {
+		t.Fatalf("missing scheduler result: acquired=%t err=%v", acquired, err)
+	}
+	leaser.mu.Lock()
+	defer leaser.mu.Unlock()
+	if len(leaser.acquireCalls) != 1 || len(leaser.releaseCalls) != 1 || leaser.releaseCalls[0].holder != lease.Holder() {
+		t.Fatalf("lease was not released after registration failure: acquires=%#v releases=%#v", leaser.acquireCalls, leaser.releaseCalls)
 	}
 }

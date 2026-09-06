@@ -3,11 +3,17 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
+
+	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
+
+const maxSessionLeaseHolderRunes = 128
 
 // leaseTicker is kept behind a tiny interface so lease lifecycle behavior can
 // be tested deterministically without sleeping or running stress tests.
@@ -53,26 +59,75 @@ func defaultLeaseOperationTimeout(ttl time.Duration) time.Duration {
 	return timeout
 }
 
-func (s *Server) leaseHolder(runID string) string {
-	return s.instanceID + ":" + runID
+// runLeaseHandle identifies exactly one successful session lease acquisition.
+// A handle is intentionally not reusable: its random nonce prevents a delayed
+// renewal or release from an old acquisition of the same instance/run from
+// matching a later acquisition.
+type runLeaseHandle struct {
+	holder  string
+	release func()
+}
+
+func (h runLeaseHandle) Holder() string { return h.holder }
+
+func (h runLeaseHandle) Release() {
+	if h.release != nil {
+		h.release()
+	}
+}
+
+func (s *Server) leaseHolder(runID string, queueGeneration int64) (string, error) {
+	if err := core.ValidateRunID(runID); err != nil {
+		return "", fmt.Errorf("session lease holder run id: %w", err)
+	}
+	if queueGeneration < 0 {
+		return "", fmt.Errorf("session lease holder queue generation must not be negative")
+	}
+	nonce, err := newInstanceUUID()
+	if err != nil {
+		return "", fmt.Errorf("generate session lease acquisition nonce: %w", err)
+	}
+	// Run IDs are valid at up to 128 characters while SQL lease holders are
+	// bounded to 128 runes. A fixed-size digest keeps the holder valid and avoids
+	// carrying a caller-controlled run identifier into operational logs. The
+	// actual RunID remains separately available on every lease operation and
+	// telemetry record.
+	runDigest := sha256.Sum256([]byte(runID))
+	holder := s.instanceID + ":r" + fmt.Sprintf("%x", runDigest[:16]) + ":g" + strconv.FormatInt(queueGeneration, 10) + ":" + nonce
+	if len(holder) > maxSessionLeaseHolderRunes {
+		return "", fmt.Errorf("generated session lease holder exceeds %d runes", maxSessionLeaseHolderRunes)
+	}
+	return holder, nil
 }
 
 // acquireRunLease obtains one run-scoped lease and registers its renewal with
 // the server-wide liveness scheduler.
 // The returned cleanup first stops renewal, then releases ownership with a
 // bounded context. Renewal failure cancels the run context immediately.
-func (s *Server) acquireRunLease(runCtx context.Context, cancelRun context.CancelFunc, sessionID, runID string) (cleanup func(), acquired bool, err error) {
-	holder := s.leaseHolder(runID)
+func (s *Server) acquireRunLease(runCtx context.Context, cancelRun context.CancelFunc, sessionID, runID string, queueGeneration int64) (handle runLeaseHandle, acquired bool, err error) {
+	holder, err := s.leaseHolder(runID, queueGeneration)
+	if err != nil {
+		return runLeaseHandle{}, false, err
+	}
+	handle.holder = holder
+	handle.release = func() {}
 	acquired, err = s.leaser.AcquireSessionLease(runCtx, sessionID, holder, s.leaseTTL)
-	if err != nil || !acquired {
-		return func() {}, acquired, err
+	if err != nil {
+		// A well-behaved leaser returns acquired=false with an error. Defend
+		// against an adapter that has committed acquisition but then fails while
+		// reporting it: do not leak an otherwise live holder.
+		if acquired {
+			s.releaseRunLease(runCtx, sessionID, holder)
+		}
+		return handle, false, err
+	}
+	if !acquired {
+		return handle, false, nil
 	}
 
 	if s.liveness == nil {
-		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), s.leaseOpTimeout)
-		_ = s.leaser.ReleaseSessionLease(releaseCtx, sessionID, holder)
-		cancelRelease()
-		return func() {}, false, fmt.Errorf("run liveness scheduler is not configured")
+		s.releaseRunLease(runCtx, sessionID, holder)
+		return handle, false, fmt.Errorf("run liveness scheduler is not configured")
 	}
 	stopRenewal, err := s.liveness.Register(runCtx, "session-lease:"+holder, leaseRenewInterval(s.leaseTTL), func(ctx context.Context) error {
 		renewCtx, cancelRenew := context.WithTimeout(ctx, s.leaseOpTimeout)
@@ -96,30 +151,32 @@ func (s *Server) acquireRunLease(runCtx context.Context, cancelRun context.Cance
 		return fmt.Errorf("session lease renewal failed")
 	}, func() { cancelRun() })
 	if err != nil {
-		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(runCtx), s.leaseOpTimeout)
-		_ = s.leaser.ReleaseSessionLease(releaseCtx, sessionID, holder)
-		cancelRelease()
-		return func() {}, false, err
+		s.releaseRunLease(runCtx, sessionID, holder)
+		return handle, false, err
 	}
 
 	var cleanupOnce sync.Once
-	cleanup = func() {
+	handle.release = func() {
 		cleanupOnce.Do(func() {
 			stopRenewal()
 
-			// Lease release remains bounded after cancellation while preserving
-			// the originating request or worker SpanContext for its error log.
-			releaseCtx := context.WithoutCancel(runCtx)
-			releaseOpCtx, cancelRelease := context.WithTimeout(releaseCtx, s.leaseOpTimeout)
-			defer cancelRelease()
-			if releaseErr := s.leaser.ReleaseSessionLease(releaseOpCtx, sessionID, holder); releaseErr != nil && s.logger != nil {
-				s.logger.ErrorContext(releaseCtx, "session lease release failed",
-					slog.String("session", sessionID),
-					slog.String("holder", holder),
-					slog.String("error", releaseErr.Error()),
-				)
-			}
+			s.releaseRunLease(runCtx, sessionID, holder)
 		})
 	}
-	return cleanup, true, nil
+	return handle, true, nil
+}
+
+func (s *Server) releaseRunLease(runCtx context.Context, sessionID, holder string) {
+	// Lease release remains bounded after cancellation while preserving the
+	// originating request or worker SpanContext for its error log.
+	releaseCtx := context.WithoutCancel(runCtx)
+	releaseOpCtx, cancelRelease := context.WithTimeout(releaseCtx, s.leaseOpTimeout)
+	defer cancelRelease()
+	if releaseErr := s.leaser.ReleaseSessionLease(releaseOpCtx, sessionID, holder); releaseErr != nil && s.logger != nil {
+		s.logger.ErrorContext(releaseCtx, "session lease release failed",
+			slog.String("session", sessionID),
+			slog.String("holder", holder),
+			slog.String("error", releaseErr.Error()),
+		)
+	}
 }

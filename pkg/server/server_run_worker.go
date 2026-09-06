@@ -321,25 +321,41 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 		return errRunClaimLost
 	}
 
-	if s.leaser != nil {
-		releaseLease, acquired, err := s.acquireRunLease(runCtx, cancelRun, task.SessionID, task.RunID)
-		if err != nil || !acquired {
-			claim.stop()
-			if err == nil {
-				err = fmt.Errorf("session lease is unavailable")
-			}
-			return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, false, "session_lease_unavailable", err, false)
-		}
-		defer releaseLease()
+	if s.leaser == nil {
+		claim.stop()
+		return fmt.Errorf("queued run requires a session leaser")
 	}
+	lease, acquired, err := s.acquireRunLease(runCtx, cancelRun, task.SessionID, task.RunID, task.Generation)
+	if err != nil || !acquired {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
+		claim.stop()
+		if err == nil {
+			err = fmt.Errorf("session lease is unavailable")
+		}
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, nil, nil, false, "session_lease_unavailable", err, false)
+	}
+	defer lease.Release()
+	fence := storage.SessionWriteFence{
+		SessionID: task.SessionID, RunID: task.RunID, TenantID: task.TenantID, SubjectID: task.SubjectID,
+		WorkerID: workerID, QueueGeneration: task.Generation, LeaseHolder: lease.Holder(),
+	}
+	return s.executeQueuedRunWithFence(workerCtx, runCtx, cancelRun, claim, task, workerID, fence)
+}
+
+func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, cancelRun context.CancelFunc, claim *queuedRunClaimMonitor, task storage.QueuedRun, workerID string, fence storage.SessionWriteFence) error {
 	if claim.reason.Load() == claimStopLost {
 		return errRunClaimLost
 	}
 
 	session, err := s.sessions.Load(runCtx, task.SessionID)
 	if err != nil {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
 		claim.stop()
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, false, "session_load_failed", err, false)
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, nil, nil, false, "session_load_failed", err, false)
 	}
 	if claim.reason.Load() == claimStopLost {
 		return errRunClaimLost
@@ -351,27 +367,39 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	}
 	principal, err := s.resolveQueuedPrincipal(runCtx, task)
 	if err != nil {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
 		claim.stop()
 		var permanent PermanentRunError
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "principal_resolution_failed", err, errors.As(err, &permanent))
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "principal_resolution_failed", err, errors.As(err, &permanent))
 	}
 	if owner.SubjectID != task.SubjectID || owner.TenantID != task.TenantID || !owner.Scope.Equal(principal.Scope) {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, nil)
+		}
 		claim.stop()
 		err := fmt.Errorf("queued run owner does not match session owner")
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_owner_mismatch", err, true)
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_owner_mismatch", err, true)
 	}
 	if claim.reason.Load() == claimStopLost {
 		return errRunClaimLost
 	}
-	session, _, err = storage.RepairInterruptedSession(runCtx, s.sessions, session)
+	session, _, err = storage.RepairInterruptedSessionFenced(runCtx, s.sessions, fence, session)
 	if err != nil {
+		if claim.reason.Load() == claimStopLost || errors.Is(err, storage.ErrSessionWriteFenceLost) {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
 		claim.stop()
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_repair_failed", err, false)
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_repair_failed", err, false)
 	}
 	if existingStatus, exists := session.RunStatus(task.RunID); exists {
 		if existingStatus == core.RunWaitingApproval {
 			resume = true
 		} else {
+			if claim.reason.Load() == claimStopLost {
+				return s.stopQueuedFencedWriter(cancelRun, claim, nil, nil)
+			}
 			claim.stop()
 			if existingStatus == "" {
 				existingStatus = core.RunFailed
@@ -385,11 +413,28 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	}
 
 	expectedVersion := session.Version()
+	writer, err := storage.NewFencedWriteBehind(s.sessions, fence, session, expectedVersion, s.maxWriteDelay)
+	if err != nil {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
+		claim.stop()
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "fenced_writer_init_failed", err, true)
+	}
+	writer.SetErrorObserver(func(persistErr error) {
+		if errors.Is(persistErr, storage.ErrSessionWriteFenceLost) {
+			claim.reason.Store(claimStopLost)
+			cancelRun()
+		}
+	})
 	runRuntime, canary, err := s.runtimeFor(runCtx, principal, session.ProfileID())
 	if err != nil {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
+		}
 		claim.stop()
 		return s.settleQueuedPreparationFailure(
-			workerCtx, task, workerID, session, resume, "control_plane_refresh_failed", err, false,
+			workerCtx, task, workerID, session, &fence, writer, resume, "control_plane_refresh_failed", err, false,
 		)
 	}
 	if canary != nil && canary.Candidate {
@@ -398,14 +443,16 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	if canary != nil && canary.Candidate && s.logger != nil {
 		s.logger.InfoContext(runCtx, "canary selected", slog.String("canary", canary.ID), slog.String("profile", canary.ProfileID), slog.String("run", task.RunID), slog.String("worker", workerID))
 	}
-	writer := storage.NewWriteBehind(s.sessions, session, expectedVersion, s.maxWriteDelay)
 	runRuntime, checkpointFailure := runtimeWithToolCheckpoint(runRuntime, writer, cancelRun)
 	var runExecutor runexecutor.RunExecutor
 	var compositionMetadata map[string]string
 	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume)
 	if err != nil {
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
+		}
 		claim.stop()
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "executor_selection_failed", err, true)
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "executor_selection_failed", err, true)
 	}
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
@@ -426,18 +473,17 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	}
 	status := effectiveRunStatus(result, runErr)
 	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone && !checkpointFailure.Failed()) {
-		claim.stop()
-		abortCtx, cancelAbort := context.WithTimeout(context.Background(), terminalPersistenceTimeout)
-		_ = writer.Abort(abortCtx)
-		cancelAbort()
-		return errRunClaimLost
+		return s.stopQueuedFencedWriter(cancelRun, claim, writer, nil)
 	}
 	flushCtx, cancelFlush := context.WithTimeout(context.WithoutCancel(runCtx), terminalPersistenceTimeout)
 	flushErr := writer.Flush(flushCtx)
 	cancelFlush()
 	claim.stop()
+	if errors.Is(flushErr, storage.ErrSessionWriteFenceLost) {
+		return s.stopQueuedFencedWriter(cancelRun, claim, writer, flushErr)
+	}
 	if claim.reason.Load() == claimStopLost || (runCtx.Err() != nil && claim.reason.Load() == claimStopNone && !checkpointFailure.Failed()) {
-		return errRunClaimLost
+		return s.stopQueuedFencedWriter(cancelRun, claim, writer, nil)
 	}
 	if flushErr != nil {
 		_ = s.finishQueuedRunClaim(task, workerID, core.RunFailed, "store_error")
@@ -462,16 +508,47 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	return nil
 }
 
-func (s *Server) settleQueuedPreparationFailure(workerCtx context.Context, task storage.QueuedRun, workerID string, session *core.Session, waiting bool, errorCode string, cause error, permanent bool) error {
+func (s *Server) stopQueuedFencedWriter(cancelRun context.CancelFunc, claim *queuedRunClaimMonitor, writer *storage.WriteBehind, cause error) error {
+	if claim != nil {
+		claim.reason.Store(claimStopLost)
+		claim.stop()
+	}
+	if cancelRun != nil {
+		cancelRun()
+	}
+	if writer != nil {
+		abortCtx, cancelAbort := context.WithTimeout(context.Background(), terminalPersistenceTimeout)
+		abortErr := writer.Abort(abortCtx)
+		cancelAbort()
+		if cause == nil {
+			cause = abortErr
+		}
+	}
+	if cause == nil {
+		return errRunClaimLost
+	}
+	return errors.Join(errRunClaimLost, cause)
+}
+
+func (s *Server) settleQueuedPreparationFailure(workerCtx context.Context, task storage.QueuedRun, workerID string, session *core.Session, fence *storage.SessionWriteFence, writer *storage.WriteBehind, waiting bool, errorCode string, cause error, permanent bool) error {
+	if errors.Is(cause, storage.ErrSessionWriteFenceLost) {
+		return errors.Join(errRunClaimLost, cause)
+	}
 	if workerCtx.Err() != nil {
 		return errors.Join(cause, workerCtx.Err())
 	}
 	if permanent || task.Attempt >= task.MaxAttempts {
-		controlErr := s.finishQueuedRunClaim(task, workerID, core.RunFailed, errorCode)
 		var sessionErr error
 		if waiting && session != nil {
-			sessionErr = s.closeWaitingSessionValue(session, task.RunID, core.RunFailed, errorCode, cause)
+			sessionErr = s.closeWaitingSessionValueFenced(workerCtx, session, fence, writer, task.RunID, core.RunFailed, errorCode, cause)
+			if errors.Is(sessionErr, storage.ErrSessionWriteFenceLost) {
+				return errors.Join(errRunClaimLost, cause, sessionErr)
+			}
+			if sessionErr != nil {
+				return errors.Join(cause, sessionErr)
+			}
 		}
+		controlErr := s.finishQueuedRunClaim(task, workerID, core.RunFailed, errorCode)
 		return errors.Join(cause, controlErr, sessionErr)
 	}
 	delay := queuedRunRetryDelay(task.Attempt)
@@ -790,13 +867,51 @@ func (s *Server) closeWaitingSessionRun(ctx context.Context, sessionID, runID st
 }
 
 func (s *Server) closeWaitingSessionValue(session *core.Session, runID string, terminal core.RunStatus, errorCode string, cause error) error {
+	expectedVersion, changed, err := s.appendWaitingSessionClosure(session, runID, terminal, errorCode, cause)
+	if err != nil || !changed {
+		return err
+	}
+	persistCtx, cancel := context.WithTimeout(context.Background(), terminalPersistenceTimeout)
+	defer cancel()
+	return s.sessions.Save(persistCtx, session, expectedVersion)
+}
+
+// closeWaitingSessionValueFenced closes a queued approval pause without
+// escaping its claim/session-lease fence. A writer created after repair is
+// preferred so the terminal suffix shares its normal batching state; early
+// preparation failures use the same FencedSessionAppender directly.
+func (s *Server) closeWaitingSessionValueFenced(ctx context.Context, session *core.Session, fence *storage.SessionWriteFence, writer *storage.WriteBehind, runID string, terminal core.RunStatus, errorCode string, cause error) error {
+	expectedVersion, changed, err := s.appendWaitingSessionClosure(session, runID, terminal, errorCode, cause)
+	if err != nil || !changed {
+		return err
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalPersistenceTimeout)
+	defer cancel()
+	if writer != nil {
+		writer.MarkDirty()
+		return writer.Flush(persistCtx)
+	}
+	if fence == nil {
+		return fmt.Errorf("fenced waiting-session close is missing a session write fence")
+	}
+	appender, ok := s.sessions.(storage.FencedSessionAppender)
+	if !ok {
+		return fmt.Errorf("queued session store %T does not implement fenced append", s.sessions)
+	}
+	return appender.AppendEventsFenced(persistCtx, *fence, expectedVersion, session.EventsFrom(expectedVersion))
+}
+
+func (s *Server) appendWaitingSessionClosure(session *core.Session, runID string, terminal core.RunStatus, errorCode string, cause error) (expectedVersion int64, changed bool, err error) {
+	if session == nil {
+		return 0, false, fmt.Errorf("waiting-session close requires a session")
+	}
 	status, exists := session.RunStatus(runID)
 	if !exists || status != core.RunWaitingApproval {
-		return nil
+		return session.Version(), false, nil
 	}
-	expectedVersion := session.Version()
+	expectedVersion = session.Version()
 	if pending, ok, err := session.PendingApproval(runID); err != nil {
-		return err
+		return 0, false, err
 	} else if ok {
 		decision := core.ApprovalDenied
 		resolvedAt := time.Now().UTC()
@@ -816,18 +931,16 @@ func (s *Server) closeWaitingSessionValue(session *core.Session, runID string, t
 			ApprovalID: pending.ApprovalID, CallID: pending.ToolCall.ID,
 			Decision: decision, ResolvedAt: resolvedAt, ResolvedBy: resolvedBy,
 		}); err != nil {
-			return err
+			return 0, false, err
 		}
 	}
 	if _, err := session.Append(runID, core.EvRunError, core.NewRuntimeErrorData(errorCode, cause, false)); err != nil {
-		return err
+		return 0, false, err
 	}
 	if _, err := session.Append(runID, core.EvRunEnd, core.RunEndData{Status: terminal}); err != nil {
-		return err
+		return 0, false, err
 	}
-	persistCtx, cancel := context.WithTimeout(context.Background(), terminalPersistenceTimeout)
-	defer cancel()
-	return s.sessions.Save(persistCtx, session, expectedVersion)
+	return expectedVersion, true, nil
 }
 
 func (s *Server) recordRunStat(ctx context.Context, session *core.Session, runID string, principal core.Principal, status core.RunStatus, started time.Time) {

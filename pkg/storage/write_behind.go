@@ -26,14 +26,15 @@ type WriteBehind struct {
 	maxDelay           time.Duration
 	backgroundDisabled bool
 
-	mu           sync.Mutex
-	savedVersion int64
-	dirty        bool
-	timer        *time.Timer
-	flushing     bool
-	lastErr      error
-	closed       bool
-	changed      chan struct{}
+	mu            sync.Mutex
+	savedVersion  int64
+	dirty         bool
+	timer         *time.Timer
+	flushing      bool
+	lastErr       error
+	errorObserver func(error)
+	closed        bool
+	changed       chan struct{}
 }
 
 var backgroundFlushTimeout = 30 * time.Second
@@ -102,6 +103,27 @@ func (w *WriteBehind) MarkDirty() {
 // writer. Later MarkDirty calls continue background batching.
 func (w *WriteBehind) Checkpoint(ctx context.Context) error {
 	return w.flush(ctx, false)
+}
+
+// SetErrorObserver installs one best-effort notification for the first
+// persistence error retained by this writer. The callback runs after the
+// writer releases its internal lock, so it may cancel the owning run or call
+// other infrastructure without deadlocking the flusher. Replacing an observer
+// after an error has already occurred immediately notifies the replacement.
+//
+// The observer is intentionally notification-only: Checkpoint, Flush, and
+// Abort remain the authoritative ways to observe and return persistence errors.
+func (w *WriteBehind) SetErrorObserver(observer func(error)) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.errorObserver = observer
+	err := w.lastErr
+	w.mu.Unlock()
+	if observer != nil && err != nil {
+		observer(err)
+	}
 }
 
 // Flush persists everything pending synchronously and stops background
@@ -206,12 +228,14 @@ func (w *WriteBehind) flushOnce(ctx context.Context) {
 		}
 	}
 
+	var notify func(error)
 	w.mu.Lock()
 	w.flushing = false
 	if err != nil {
 		// Retain the failure: Flush reports it instead of silently dropping.
 		if w.lastErr == nil {
 			w.lastErr = err
+			notify = w.errorObserver
 		}
 	} else {
 		w.savedVersion = targetVersion
@@ -224,6 +248,9 @@ func (w *WriteBehind) flushOnce(ctx context.Context) {
 	}
 	w.signalChangedLocked()
 	w.mu.Unlock()
+	if notify != nil {
+		notify(err)
+	}
 }
 
 func (w *WriteBehind) scheduleLocked() {

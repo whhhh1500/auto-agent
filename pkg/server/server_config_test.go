@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/cc-auto-agent/harness-core/pkg/buildinfo"
@@ -9,16 +10,26 @@ import (
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
+
+	_ "modernc.org/sqlite"
 )
 
 type configJournalStub struct{}
 
 type configRunQueueStub struct{ storage.RunQueueStore }
+
+// These wrappers mirror common instrumentation/decorator adapters. Embedding
+// preserves the sealed storage fence-domain method without permitting an
+// independently implemented queue or leaser to fabricate one.
+type configSQLSessionStoreWrapper struct{ *storage.SQLSessionStore }
+type configSQLRunQueueWrapper struct{ *storage.SQLRunControlStore }
+type configSQLSessionLeaserWrapper struct{ *storage.SQLSessionStore }
 
 func (*configJournalStub) Record(context.Context, storage.BindingRecord) error { return nil }
 func (*configJournalStub) Delete(context.Context, string) error                { return nil }
@@ -133,6 +144,118 @@ func TestNewRejectsDurableRunQueueWithoutSessionLeaser(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires a session leaser") {
 		t.Fatalf("durable queue without session leaser error=%v", err)
+	}
+}
+
+func openConfigFenceStore(t *testing.T, name string) (*sql.DB, *storage.SQLSessionStore) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), name+".db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	store, err := storage.OpenSQLSessionStore(context.Background(), db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, store
+}
+
+func queuedFenceConfig(sessions core.SessionStore, queue storage.RunQueueStore, leaser storage.SessionLeaser) Config {
+	return Config{
+		Runtime: &core.Runtime{}, Sessions: sessions, RunQueue: queue, Leaser: leaser,
+		Authenticator: AuthenticatorFunc(func(*http.Request) (core.Principal, error) { return core.Principal{}, nil }),
+		RunPrincipalResolver: RunPrincipalResolverFunc(func(context.Context, string, string) (core.Principal, error) {
+			return core.Principal{}, nil
+		}),
+	}
+}
+
+func TestNewRejectsQueuedRunWithoutFencedSessionAppender(t *testing.T) {
+	db, leaser := openConfigFenceStore(t, "fenced-session-required")
+	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(queuedFenceConfig(core.NewMemorySessionStore(), queue, leaser))
+	if err == nil || !strings.Contains(err.Error(), "implement") || !strings.Contains(err.Error(), "FencedSessionAppender") {
+		t.Fatalf("unfenced queued sessions error=%v", err)
+	}
+}
+
+func TestNewRejectsQueuedRunAcrossFenceDomains(t *testing.T) {
+	firstDB, sessions := openConfigFenceStore(t, "session-domain")
+	secondDB, _ := openConfigFenceStore(t, "queue-domain")
+	queue, err := storage.NewSQLRunControlStore(secondDB, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(queuedFenceConfig(sessions, queue, sessions))
+	if err == nil || !strings.Contains(err.Error(), "share one SQL database handle") {
+		t.Fatalf("different queue domain error=%v", err)
+	}
+
+	queue, err = storage.NewSQLRunControlStore(firstDB, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherLeaser := openConfigFenceStore(t, "lease-domain")
+	_, err = New(queuedFenceConfig(sessions, queue, otherLeaser))
+	if err == nil || !strings.Contains(err.Error(), "share one SQL database handle") {
+		t.Fatalf("different leaser domain error=%v", err)
+	}
+}
+
+func TestNewRejectsQueuedRunWithoutDomainProof(t *testing.T) {
+	db, sessions := openConfigFenceStore(t, "domain-proof")
+	if db == nil {
+		t.Fatal("test database is nil")
+	}
+	_, err := New(queuedFenceConfig(sessions, configRunQueueStub{}, sessions))
+	if err == nil || !strings.Contains(err.Error(), "run queue backed by the storage SQL fence domain") {
+		t.Fatalf("queue without domain proof error=%v", err)
+	}
+}
+
+func TestNewAcceptsQueuedRunWithSharedSQLFenceDomainThroughTransparentWrappers(t *testing.T) {
+	db, sessions := openConfigFenceStore(t, "transparent-wrapper-domain")
+	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(queuedFenceConfig(
+		&configSQLSessionStoreWrapper{SQLSessionStore: sessions},
+		&configSQLRunQueueWrapper{SQLRunControlStore: queue},
+		&configSQLSessionLeaserWrapper{SQLSessionStore: sessions},
+	))
+	if err != nil {
+		t.Fatalf("transparent SQL wrappers should retain the shared fence domain: %v", err)
+	}
+}
+
+func TestNewRejectsQueuedRunWithSameHandleButDifferentDialect(t *testing.T) {
+	db, sessions := openConfigFenceStore(t, "dialect-domain")
+	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(queuedFenceConfig(sessions, queue, sessions))
+	if err == nil || !strings.Contains(err.Error(), "share one SQL database handle and dialect") {
+		t.Fatalf("same handle with different dialect error=%v", err)
+	}
+}
+
+func TestNewRejectsQueuedRunWithSeparateRunControl(t *testing.T) {
+	db, sessions := openConfigFenceStore(t, "separate-run-control")
+	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := queuedFenceConfig(sessions, queue, sessions)
+	config.RunControl = newFakeRunControlStore()
+	_, err = New(config)
+	if err == nil || !strings.Contains(err.Error(), "RunControl to be omitted or the same object as RunQueue") {
+		t.Fatalf("separate run control error=%v", err)
 	}
 }
 

@@ -41,6 +41,21 @@ type FencedSessionAppender interface {
 	AppendEventsFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, events []core.SessionEvent) error
 }
 
+// fencedSessionRepairAppender is deliberately package-private. A repair may
+// close the one interrupted Run selected by the committed Session tail, which
+// can be a predecessor of fence.RunID. Exposing a generic repair-append method
+// would let a caller holding a valid fence write arbitrary events for a
+// different Run.
+//
+// Native SQL stores implement this method. A transparent wrapper that embeds a
+// native SQL store retains the method by promotion, while an independently
+// implemented external adapter cannot claim this capability. The SQL method
+// independently recomputes the deterministic repair suffix inside its fenced
+// transaction and rejects a candidate that differs from that suffix.
+type fencedSessionRepairAppender interface {
+	appendInterruptedSessionRepairFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, events []core.SessionEvent) (*core.Session, bool, error)
+}
+
 func validateSessionWriteFence(fence SessionWriteFence) error {
 	if err := core.ValidateSessionID(fence.SessionID); err != nil {
 		return fmt.Errorf("session write fence: %w", err)
@@ -95,8 +110,10 @@ func sessionWriteFenceLost(reason string) error {
 }
 
 // RepairInterruptedSessionFenced is the ownership-safe counterpart of
-// RepairInterruptedSession. It computes repair events from one Clone and
-// persists only the synthetic suffix through AppendEventsFenced.
+// RepairInterruptedSession. It computes a candidate repair suffix from one
+// Clone. The storage-private appender then reloads the committed tail in the
+// same fenced transaction, recomputes the deterministic suffix, verifies the
+// candidate, and persists only its own freshly appended events.
 //
 // Version conflicts retain the existing one-reload convergence behavior.
 // Fence loss is returned directly and is never downgraded to a normal
@@ -113,9 +130,9 @@ func RepairInterruptedSessionFenced(ctx context.Context, store core.SessionStore
 	if session.ID() != fence.SessionID {
 		return nil, false, fmt.Errorf("repair session %q does not match fenced session %q", session.ID(), fence.SessionID)
 	}
-	appender, ok := store.(FencedSessionAppender)
+	appender, ok := store.(fencedSessionRepairAppender)
 	if !ok {
-		return nil, false, fmt.Errorf("session store %T does not implement fenced append", store)
+		return nil, false, fmt.Errorf("session store %T does not provide fenced interrupted-session repair", store)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, false, fmt.Errorf("repair interrupted session %s with fence: %w", session.ID(), err)
@@ -135,9 +152,9 @@ func RepairInterruptedSessionFenced(ctx context.Context, store core.SessionStore
 	if err := ctx.Err(); err != nil {
 		return nil, false, fmt.Errorf("repair interrupted session %s with fence: %w", session.ID(), err)
 	}
-	err = appender.AppendEventsFenced(ctx, fence, expectedVersion, repaired.EventsFrom(expectedVersion))
+	persisted, applied, err := appender.appendInterruptedSessionRepairFenced(ctx, fence, expectedVersion, repaired.EventsFrom(expectedVersion))
 	if err == nil {
-		return repaired, true, nil
+		return persisted, applied, nil
 	}
 	if errors.Is(err, ErrSessionWriteFenceLost) {
 		return nil, false, fmt.Errorf("persist fenced repair for session %s: %w", session.ID(), err)

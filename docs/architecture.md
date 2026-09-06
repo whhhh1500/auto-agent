@@ -142,10 +142,14 @@ to the adapter configuration, outside the core contract.
 
 - Composite capabilities invoke nested tools through `core.ProtectedToolInvoker`;
   raw provider-to-provider calls are not part of the supported run path.
-- Cross-instance session leases use a stable instance UUID plus the run ID,
-  renew at `TTL/3`, and cancel the run when ownership is lost. The in-process
-  session mutex is sufficient only for a single server instance; synchronous
-  multi-instance deployments sharing a SessionStore must configure a Leaser.
+- Cross-instance session leases use a stable instance UUID, Run ID, queue
+  generation (zero for synchronous runs), and a fresh per-acquisition nonce.
+  They renew at `TTL/3` and cancel the run when ownership is lost. Renew and
+  release use the exact acquired holder, so a delayed operation from an old
+  acquisition cannot act on a later same-instance/same-Run acquisition. The
+  in-process session mutex is sufficient only for a single server instance;
+  synchronous multi-instance deployments sharing a SessionStore must configure
+  a Leaser.
 - Session loads are pure reads across Memory, File, SQL, and S3 stores. Crash
   repair is explicit: the execution owner calls `storage.RepairInterruptedSession`
   under its session lock/lease, and the helper persists the existing synthetic
@@ -155,12 +159,28 @@ to the adapter configuration, outside the core contract.
   requests. Queue claims renew independently from Session leases, use the
   claim generation as a fencing token, and are recovered while the service stays
   online; an expired worker cannot finish a successor's claim. A configured
-  durable RunQueue requires a SessionLeaser, and a worker acquires that lease
-  before its first Session Load or explicit repair. Phase 0 checks known claim
-  loss before those operations and propagates cancellation into repair, but the
-  SessionStore version CAS is not yet atomically bound to queue generation; a
-  claim lost between the final check and Save still requires a future fenced
-  append contract to exclude the stale writer durably.
+  durable RunQueue requires a SessionLeaser, `FencedSessionAppender`, and the
+  sealed storage SQL fence-domain capability on Sessions, RunQueue, and
+  SessionLeaser. RunControl is either omitted (and supplied by RunQueue) or the
+  exact same queue object, so synchronous status/cancellation and worker claims
+  cannot split across durable control planes. Native SQL components and transparent embedding wrappers retain
+  that capability only when they share one `*sql.DB` handle and dialect; an
+  independently implemented adapter cannot manufacture it. This is deliberately
+  a same-pool provenance check, not a proof of arbitrary adapter behavior. Core
+  SQL queries use unqualified tables, so PostgreSQL deployments must keep one
+  stable shared schema/search path for that pool; per-connection search-path
+  changes or schema multiplexing are unsupported. The worker acquires its
+  generation-and-nonce-bound Session
+  lease before its first Load, runs explicit repair through the SQL fence, then
+  creates one fenced `WriteBehind` for executor resolution, normal/resume
+  execution, tool checkpointing, background persistence, and terminal flush.
+  Each non-empty append verifies current queue worker/generation/expiry,
+  cancellation, Session lease holder/expiry, durable tenant/subject ownership,
+  and Session version in the same SQL transaction. `ErrSessionWriteFenceLost`
+  cancels and aborts the stale worker; it never becomes `store_error` and the
+  stale worker does not append terminal events or mutate its old claim.
+  Memory/File/S3 Session stores and separate queue/session SQL handles are
+  rejected for queued execution rather than receiving a best-effort fallback.
 - Durable approvals write an `approval/requested` continuation checkpoint,
   transition the Run to `waiting_approval`, and release every execution lease.
   Decisions atomically return the same Run ID to the queue; resume re-enters
@@ -213,8 +233,9 @@ to the adapter configuration, outside the core contract.
   run/call identity and argument digest are recorded before the provider sees
   the request; completed outcomes replay canonically, while unknown
   non-idempotent outcomes fail closed instead of repeating a side effect.
-- The server creates one `WriteBehind` per synchronous or queued Run before
-  resolving its executor. `Checkpoint` is the repeatable synchronous operation:
+- The server creates one `WriteBehind` per synchronous Run and, after fenced
+  repair, one `NewFencedWriteBehind` per queued Run before resolving its
+  executor. `Checkpoint` is the repeatable synchronous operation:
   later `MarkDirty` calls still use background batching and a later checkpoint
   advances durability again while the writer is open. `Flush` is terminal: it
   drains the pending prefix, closes background scheduling, and later `MarkDirty`
