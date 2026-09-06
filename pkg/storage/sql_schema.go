@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place: the schema DDL only adds objects, so
 // opening a v1 database creates the missing tables and advances the
 // recorded version.
-const SQLSchemaVersion = 41
+const SQLSchemaVersion = 42
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -795,4 +795,13 @@ CREATE TABLE IF NOT EXISTS graph_checkpoint_versions (
 	PRIMARY KEY (tenant_id, session_id, run_id, revision),
 	UNIQUE (version_id)
 );
+`
+
+// sqlSchemaV42 adds a separate durable authorization epoch. It deliberately
+// does not reuse control_revision: release and canary synchronizers use that
+// older revision to detect their own concurrent writes, while account and
+// dynamic-binding mutations are independent authorization changes.
+const sqlSchemaV42AuthorizationEpoch = `
+INSERT INTO store_meta (key, value) VALUES ('authorization_epoch', '0')
+	ON CONFLICT (key) DO NOTHING;
 `

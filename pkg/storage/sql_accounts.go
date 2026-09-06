@@ -198,11 +198,27 @@ func (s *SQLAccountStore) CreateAccount(ctx context.Context, account Account, pa
 	if account.CreatedAt.IsZero() {
 		account.CreatedAt = time.Now().UTC()
 	}
-	_, err = s.db.ExecContext(ctx, sqlInsertAccount.bind(s.dialect),
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, sqlInsertAccount.bind(s.dialect),
 		account.AccountID, nullableString(account.Email), string(hash), account.Role, account.TenantID,
 		account.Status, boolInt(account.MustChangePassword), account.CreatedAt.UnixMilli(),
 	)
-	return duplicateAsConflict(account.AccountID, err)
+	if err != nil {
+		return duplicateAsConflict(account.AccountID, err)
+	}
+	// A newly active account can become the current queued-run principal. A
+	// pending or disabled account cannot, so those creations do not invalidate
+	// an existing delivery snapshot.
+	if account.Status == AccountActive {
+		if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *SQLAccountStore) GetAccount(ctx context.Context, accountID string) (Account, error) {
@@ -264,11 +280,25 @@ func (s *SQLAccountStore) SetAccountStatus(ctx context.Context, accountID, statu
 	if account.MustChangePassword {
 		return fmt.Errorf("pending account must change its password before status changes")
 	}
-	result, err := s.db.ExecContext(ctx, sqlAccountStatus.bind(s.dialect), status, accountID)
+	if account.Status == status {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return requireAffected(result, fmt.Sprintf("account %q not found", accountID))
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, sqlAccountStatus.bind(s.dialect), status, accountID)
+	if err != nil {
+		return err
+	}
+	if err := requireAffected(result, fmt.Sprintf("account %q not found", accountID)); err != nil {
+		return err
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLAccountStore) SetAccountPassword(ctx context.Context, accountID, password string) error {
@@ -351,6 +381,9 @@ func (s *SQLAccountStore) ActivateInitialAccount(ctx context.Context, accountID,
 		return "", err
 	}
 	if err := requireAffected(result, "account activation is no longer pending"); err != nil {
+		return "", err
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
 		return "", err
 	}
 	if _, err := tx.ExecContext(ctx, sqlDeleteTokensAccount.bind(s.dialect), accountID); err != nil {

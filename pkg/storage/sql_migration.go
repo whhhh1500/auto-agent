@@ -23,6 +23,8 @@ var (
 	sqlBumpControlRevision   = sqlQuery{"UPDATE store_meta SET value = CAST(CAST(value AS BIGINT) + 1 AS TEXT) WHERE key = 'control_revision'"}
 )
 
+const graphCheckpointHistorySchemaVersionV41 = 41
+
 // OpenSQLSessionStore opens (and if needed creates) the schema on an open
 // database handle. Schema version mismatches fail closed.
 func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*SQLSessionStore, error) {
@@ -79,7 +81,7 @@ func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*
 			if err := migrateGraphCheckpointHistoryV41(ctx, db, dialect); err != nil {
 				return nil, fmt.Errorf("backfill graph checkpoint history: %w", err)
 			}
-			return store, nil
+			stored = 41
 		}
 		if _, err := db.ExecContext(ctx, sqlSchemaV15); err != nil {
 			return nil, fmt.Errorf("ensure sql schema: %w", err)
@@ -154,7 +156,10 @@ func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*
 		} else if err := verifyGraphCheckpointHistoryV41(ctx, db, dialect); err != nil {
 			return nil, err
 		}
-		if stored >= 41 && stored < SQLSchemaVersion {
+		if _, err := db.ExecContext(ctx, sqlSchemaV42AuthorizationEpoch); err != nil {
+			return nil, fmt.Errorf("ensure authorization epoch: %w", err)
+		}
+		if stored < SQLSchemaVersion {
 			if _, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 				return nil, fmt.Errorf("upgrade sql schema version: %w", err)
 			}
@@ -267,10 +272,19 @@ func initializeSQLSchema(ctx context.Context, db *sql.DB, dialect SQLDialect) er
 	if err := migrateGraphCheckpointHistoryV41(ctx, db, dialect); err != nil {
 		return fmt.Errorf("backfill graph checkpoint history: %w", err)
 	}
-	if _, err := db.ExecContext(ctx, sqlInsertMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
-		// A concurrent opener may have inserted it; verify instead of failing.
-		var check string
-		if checkErr := db.QueryRowContext(ctx, sqlSelectMetaRow.bind(dialect)).Scan(&check); checkErr != nil || check != strconv.Itoa(SQLSchemaVersion) {
+	if _, err := db.ExecContext(ctx, sqlSchemaV42AuthorizationEpoch); err != nil {
+		return fmt.Errorf("ensure authorization epoch: %w", err)
+	}
+	result, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion))
+	if err != nil {
+		return fmt.Errorf("record sql schema version: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("record sql schema version: %w", err)
+	}
+	if affected == 0 {
+		if _, err := db.ExecContext(ctx, sqlInsertMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 			return fmt.Errorf("record sql schema version: %w", err)
 		}
 	}
@@ -528,7 +542,7 @@ func applyGraphCheckpointHistoryV41(ctx context.Context, exec graphCheckpointHis
 	if found && stored > SQLSchemaVersion {
 		return fmt.Errorf("sql session store schema version %d is not supported (this build writes version %d)", stored, SQLSchemaVersion)
 	}
-	if found && stored == SQLSchemaVersion {
+	if found && stored >= graphCheckpointHistorySchemaVersionV41 {
 		return nil
 	}
 	if _, err := exec.ExecContext(ctx, sqlSchemaV41CheckpointHistory); err != nil {
@@ -553,7 +567,7 @@ func applyGraphCheckpointHistoryV41(ctx context.Context, exec graphCheckpointHis
 	if err := verifyGraphCheckpointHistoryFloors(ctx, exec, dialect, floors); err != nil {
 		return err
 	}
-	result, err := exec.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion))
+	result, err := exec.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(graphCheckpointHistorySchemaVersionV41))
 	if err != nil {
 		return err
 	}
@@ -562,7 +576,7 @@ func applyGraphCheckpointHistoryV41(ctx context.Context, exec graphCheckpointHis
 		return err
 	}
 	if affected == 0 {
-		if _, err := exec.ExecContext(ctx, sqlInsertMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
+		if _, err := exec.ExecContext(ctx, sqlInsertMetaRow.bind(dialect), strconv.Itoa(graphCheckpointHistorySchemaVersionV41)); err != nil {
 			return err
 		}
 	}

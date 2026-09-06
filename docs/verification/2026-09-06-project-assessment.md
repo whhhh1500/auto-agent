@@ -51,7 +51,7 @@
 
 [ci.yml](../../.github/workflows/ci.yml) 的 PostgreSQL 作业只执行 `./pkg/storage -run '^TestPostgres'`。`pkg/adapter/sql` 下 effectjournal、compositionstore、fencejournal、artifactmigration、graphcheckpoint、graphsegment 和 notificationtarget 的 PostgreSQL 用例未包含在该命令中。其他测试作业未设置 HARNESS_TEST_PG_DSN，因此这些用例会跳过。
 
-本次测试日志实际观察到这 7 个适配器包的 12 条 PostgreSQL 跳过记录。SQLSchemaVersion 当前为 41，适配器包含 CAS、租约、历史检查点和迁移语义，SQLite 通过无法替代 PostgreSQL 实测。
+本次测试日志实际观察到这 7 个适配器包的 12 条 PostgreSQL 跳过记录。当时 SQLSchemaVersion 为 41；当前 schema 已演进至 v42。适配器包含 CAS、租约、历史检查点和迁移语义，SQLite 通过无法替代 PostgreSQL 实测。
 
 建议扩大 PostgreSQL 作业的包范围，覆盖所有依赖该测试 DSN 的包，同时沿用“不得跳过”的门禁。验收应展示适配器用例在一次真实 PostgreSQL CI 中执行通过。这是持续验证缺口，不是本次发现了数据库运行错误。
 

@@ -1,6 +1,6 @@
 # Public API and Compatibility Inventory
 
-Snapshot date: 2026-09-04  
+Snapshot date: 2026-09-06  
 Status: current observed surface; this is an inventory, not a target-package
 claim.
 
@@ -98,7 +98,7 @@ JSON file; representative constructors and extension seams are:
 | Package | Representative public contracts | Constructors/factories |
 | --- | --- | --- |
 | `pkg/core` | `Agent`, `Session`, `SessionStore`, `CapabilityRegistry`, `LlmAdapter`, `ToolRuntime`, `Plugin`, `Permission`, `SessionEvent` | `NewAgent`, `NewSession`, `RestoreSession`, `NewCapabilityRegistry`, `NewAgentProfileRegistry`, `NewCredentialRegistry`, `NewPolicyRegistry` |
-| `pkg/storage` | `AccountStore`, `ObjectStore`, optional `StreamingObjectGetter`/`StreamingObjectPutter`/`StreamingObjectStore` seams, `SQLSessionStore`, `RunQueueStore`, `ApprovalStore`, `EvidenceStore`, `SQLDialect` (source-compatible alias; `SQLDialectSQLite`/`SQLDialectPostgres`) | `OpenSQLSessionStore`, `NewSQLAccountStore`, `NewMemoryObjectStore`, `NewFileObjectStore`, `NewS3ObjectStore`, `NewSQLRunControlStore` |
+| `pkg/storage` | `AccountStore`, `ObjectStore`, optional streaming and SQL recovery seams (`AuthorizationEpochReader`, `FencedSessionAppender`, completed-result appenders), `SQLSessionStore`, `RunQueueStore`, `ApprovalStore`, `EvidenceStore`, `SQLDialect` (source-compatible alias; `SQLDialectSQLite`/`SQLDialectPostgres`) | `OpenSQLSessionStore`, `NewSQLAccountStore`, `NewMemoryObjectStore`, `NewFileObjectStore`, `NewS3ObjectStore`, `NewSQLRunControlStore`, `NewFencedWriteBehind` |
 | `pkg/server` | `Config`, `Server`, `Authenticator`, `PrincipalMapper`, `RunPrincipalResolver` | `New` |
 | `pkg/control` | `ReleaseManager`, `CanaryManager`, `ReleaseJournal`, `CanaryStore` | `NewReleaseManager`, `NewCanaryManager` |
 | `pkg/evaluation` | `Store`, `Evaluator`, `Dataset`, `RunResult`, `GatePolicy` | `NewMemoryStore`, `NewRegistry` |
@@ -220,8 +220,8 @@ replay. A disconnected client replays durable events through
 
 ## SQL schema and migration chain
 
-The durable schema is currently version **41**, exposed as
-`storage.SQLSchemaVersion`. The complete v1-v41 history and tables introduced
+The durable schema is currently version **42**, exposed as
+`storage.SQLSchemaVersion`. The complete v1-v42 history and tables introduced
 or projected at each step are recorded in the JSON inventory. The canonical
 v41 table set is:
 
@@ -252,12 +252,13 @@ resource-migration slot and metadata-only mutation journal; version 37 adds
 Graph checkpoint and transition evidence; version 38 adds encrypted
 notification-target metadata; version 39 adds generation-fenced Graph segment
 leases; version 40 adds `approval_requests_run_status` and `run_control_stale`
-indexes; and version 41 adds `graph_checkpoint_versions`. The v41 model is one
+indexes; version 41 adds `graph_checkpoint_versions`; and version 42 adds the
+`store_meta.authorization_epoch` row. The v41 model is one
 mutable CAS-protected `graph_checkpoints` head plus append-only versions and
 transitions. A v40 upgrade backfills only its current head as a
 `migration_floor`; it never manufactures older history. Existing schema names,
 columns, and historical migration order are compatibility constraints.
-SQLite v41 fresh/upgrade/backfill evidence is covered by the storage suite.
+SQLite v41-to-v42 epoch migration plus v41 fresh/upgrade/backfill evidence is covered by the storage suite.
 PostgreSQL v35-v41 evidence passed on 2026-09-04 against isolated disposable
 schemas using an administrator-capable `HARNESS_TEST_PG_DSN`; the v41 pass
 explicitly covered history upgrade, atomic rollback, replay, and competing

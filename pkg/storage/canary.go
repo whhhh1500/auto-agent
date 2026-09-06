@@ -90,6 +90,9 @@ func (s *SQLCanaryStore) CreateCanary(ctx context.Context, record control.Canary
 	if err := bumpControlRevision(ctx, tx, s.dialect); err != nil {
 		return err
 	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -124,6 +127,9 @@ func (s *SQLCanaryStore) UpdateCanary(ctx context.Context, record control.Canary
 		return false, err
 	}
 	if err := bumpControlRevision(ctx, tx, s.dialect); err != nil {
+		return false, err
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

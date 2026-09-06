@@ -1,5 +1,5 @@
 {
-  "inventory_date": "2026-09-04",
+  "inventory_date": "2026-09-06",
   "module": "github.com/cc-auto-agent/harness-core",
   "status": "current-observed-snapshot",
   "public_api_additions": [
@@ -18,6 +18,42 @@
       ],
       "constants": null,
       "note": "Streaming getter/putter interfaces are optional; ObjectStore byte methods remain the compatibility surface. ErrStreamingUnsupported must be returned before consuming a request body so callers can safely fall back."
+    },
+    {
+      "package": "pkg/storage",
+      "types": [
+        "AuthorizationEpochReader",
+        "CompletedToolResultRecoveryPrefix",
+        "FencedCompletedToolResultAppender",
+        "FencedCompletedToolResultRecoveryAppender",
+        "FencedSessionAppender",
+        "SessionWriteFence"
+      ],
+      "functions": [
+        "CanonicalCapabilityResultDigest",
+        "RepairInterruptedSession",
+        "RepairInterruptedSessionFenced",
+        "SQLRunControlStore.AuthorizationEpoch",
+        "SQLSessionStore.AppendCompletedToolResultFenced",
+        "SQLSessionStore.AppendCompletedToolResultRecoveryPrefixFenced",
+        "SQLSessionStore.AppendEventsFenced",
+        "SQLSessionStore.AuthorizationEpoch",
+        "SQLToolInvocationJournal.GetToolInvocation",
+        "ValidateAuthorizationEpochSQLAuthority",
+        "ValidateQueuedSessionFenceDomain",
+        "WriteBehind.Checkpoint",
+        "WriteBehind.SetErrorObserver"
+      ],
+      "constructors": [
+        "NewFencedWriteBehind"
+      ],
+      "variables": [
+        "ErrAuthorizationEpochChanged",
+        "ErrCompletedToolResultProofInvalid",
+        "ErrSessionWriteFenceLost"
+      ],
+      "constants": null,
+      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery and recovery prefixes, plus an authorization epoch read/fence. They are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
     },
     {
       "package": "pkg/runtime",
@@ -3776,10 +3812,12 @@
         "AuditEvent",
         "AuditFilter",
         "AuditStore",
+        "AuthorizationEpochReader",
         "BindingJournal",
         "BindingRecord",
         "Cipher",
         "ColdSweeper",
+        "CompletedToolResultRecoveryPrefix",
         "DynamicObjectStore",
         "EvidenceKind",
         "EvidencePage",
@@ -3789,6 +3827,9 @@
         "EvidenceStatsStore",
         "EvidenceStore",
         "EvidenceVariantStats",
+        "FencedCompletedToolResultAppender",
+        "FencedCompletedToolResultRecoveryAppender",
+        "FencedSessionAppender",
         "FileObjectStore",
         "FileSessionStore",
         "InitialAdminCredentials",
@@ -3843,6 +3884,7 @@
         "SessionLister",
         "SessionQuerier",
         "SessionSummary",
+        "SessionWriteFence",
         "StreamingObjectGetter",
         "StreamingObjectPutter",
         "StreamingObjectStore",
@@ -3859,6 +3901,7 @@
         "BootstrapAdmin",
         "BootstrapAdminWithPassword",
         "BootstrapInitialAdmin",
+        "CanonicalCapabilityResultDigest",
         "Cipher.Decrypt",
         "Cipher.Encrypt",
         "ColdSweeper.Sweep",
@@ -3903,6 +3946,8 @@
         "ParseScopePath",
         "PostgresStartupLock.Release",
         "PrincipalForAccount",
+        "RepairInterruptedSession",
+        "RepairInterruptedSessionFenced",
         "RunMessageDigest",
         "S3Error.Error",
         "S3ObjectStore.Delete",
@@ -3984,6 +4029,7 @@
         "SQLRagIndex.ProjectionStats",
         "SQLRagIndex.RebuildProjection",
         "SQLRagIndex.Search",
+        "SQLRunControlStore.AuthorizationEpoch",
         "SQLRunControlStore.ClaimRun",
         "SQLRunControlStore.CreateRun",
         "SQLRunControlStore.EnqueueRun",
@@ -4017,7 +4063,11 @@
         "SQLRunnerStore.RenewTaskClaim",
         "SQLRunnerStore.RetryTask",
         "SQLSessionStore.AcquireSessionLease",
+        "SQLSessionStore.AppendCompletedToolResultFenced",
+        "SQLSessionStore.AppendCompletedToolResultRecoveryPrefixFenced",
         "SQLSessionStore.AppendEvents",
+        "SQLSessionStore.AppendEventsFenced",
+        "SQLSessionStore.AuthorizationEpoch",
         "SQLSessionStore.ControlRevision",
         "SQLSessionStore.Create",
         "SQLSessionStore.FindReleaseByOperation",
@@ -4043,20 +4093,26 @@
         "SQLSessionStore.Save",
         "SQLToolInvocationJournal.BeginToolInvocation",
         "SQLToolInvocationJournal.CompleteToolInvocation",
+        "SQLToolInvocationJournal.GetToolInvocation",
         "SQLToolInvocationJournal.MarkToolInvocationUncertain",
+        "ValidateAuthorizationEpochSQLAuthority",
         "ValidateObjectKey",
+        "ValidateQueuedSessionFenceDomain",
         "ValidateSessionIDForFile",
         "VerifyPassword",
         "VerifyPasswordOrDummy",
         "WriteBehind.Abort",
+        "WriteBehind.Checkpoint",
         "WriteBehind.Flush",
         "WriteBehind.MarkDirty",
-        "WriteBehind.SavedVersion"
+        "WriteBehind.SavedVersion",
+        "WriteBehind.SetErrorObserver"
       ],
       "constructors": [
         "NewArtifactCopier",
         "NewCipher",
         "NewDynamicObjectStore",
+        "NewFencedWriteBehind",
         "NewFileObjectStore",
         "NewFileSessionStore",
         "NewMemoryObjectStore",
@@ -4083,6 +4139,8 @@
       "variables": [
         "ErrApprovalNotFound",
         "ErrArtifactMigrationActive",
+        "ErrAuthorizationEpochChanged",
+        "ErrCompletedToolResultProofInvalid",
         "ErrConditionUnsupported",
         "ErrEvidenceCursorInvalid",
         "ErrInvalidRunSubmission",
@@ -4092,6 +4150,7 @@
         "ErrRunNotFound",
         "ErrRunSubmissionConflict",
         "ErrS3ResponseTooLarge",
+        "ErrSessionWriteFenceLost",
         "ErrStreamingUnsupported"
       ],
       "constants": [
@@ -4322,7 +4381,7 @@
     "control/error"
   ],
   "sql_schema": {
-    "current_version": 41,
+    "current_version": 42,
     "history": [
       {
         "version": 1,
@@ -4609,6 +4668,11 @@
         "tables_added": [
           "graph_checkpoint_versions"
         ]
+      },
+      {
+        "version": 42,
+        "change": "separate durable authorization epoch for SQL recovery fencing",
+        "tables_added": []
       }
     ],
     "canonical_tables_at_v41": [

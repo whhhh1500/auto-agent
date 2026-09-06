@@ -25,6 +25,11 @@ type SQLToolInvocationJournal struct {
 	maxInvocations int
 }
 
+func (s *SQLToolInvocationJournal) atomicSessionFenceDomain() atomicSessionFenceDomain {
+	domain, _ := newAtomicSessionFenceDomain(s.db, s.dialect)
+	return domain
+}
+
 var (
 	sqlInsertToolInvocation = sqlQuery{`INSERT INTO tool_invocations
 		(tenant_id, subject_id, session_id, run_id, call_id, capability_id, args_digest,

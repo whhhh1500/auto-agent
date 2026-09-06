@@ -92,6 +92,30 @@ func ValidateQueuedSessionFenceDomain(sessions core.SessionStore, queue RunQueue
 	return nil
 }
 
+// ValidateAuthorizationEpochSQLAuthority proves only the SQL half of a future
+// strict recovery configuration: Session events, queue claims, Session leases,
+// the tool journal, and the authorization epoch must share one sealed SQL
+// authority. It deliberately cannot bless an arbitrary in-process or remote
+// profile, policy, capability, or principal resolver; a future recovery
+// feature must reject those unless it has an epoch-bound control-plane adapter.
+func ValidateAuthorizationEpochSQLAuthority(sessions core.SessionStore, queue RunQueueStore, leaser SessionLeaser, journal core.ToolInvocationJournal) error {
+	if err := ValidateQueuedSessionFenceDomain(sessions, queue, leaser); err != nil {
+		return err
+	}
+	if _, ok := sessions.(AuthorizationEpochReader); !ok {
+		return fmt.Errorf("authorization epoch requires sessions to implement %T", (*AuthorizationEpochReader)(nil))
+	}
+	sessionProvider := sessions.(atomicSessionFenceDomainProvider)
+	journalProvider, ok := journal.(atomicSessionFenceDomainProvider)
+	if !ok {
+		return fmt.Errorf("authorization epoch requires a tool journal backed by the storage SQL authority")
+	}
+	if !sessionProvider.atomicSessionFenceDomain().equal(journalProvider.atomicSessionFenceDomain()) {
+		return fmt.Errorf("authorization epoch requires sessions and tool journal to share one SQL database handle and dialect")
+	}
+	return nil
+}
+
 func (s *SQLSessionStore) atomicSessionFenceDomain() atomicSessionFenceDomain {
 	domain, _ := newAtomicSessionFenceDomain(s.db, s.dialect)
 	return domain

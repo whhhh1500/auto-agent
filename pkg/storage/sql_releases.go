@@ -78,6 +78,9 @@ func (s *SQLSessionStore) RecordRelease(ctx context.Context, info control.Releas
 	if err := bumpControlRevision(ctx, tx, s.dialect); err != nil {
 		return err
 	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -107,6 +110,9 @@ func (s *SQLSessionStore) MarkRolledBack(ctx context.Context, profileID string, 
 	}
 	if changed > 0 {
 		if err := bumpControlRevision(ctx, tx, s.dialect); err != nil {
+			return err
+		}
+		if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
 			return err
 		}
 	}

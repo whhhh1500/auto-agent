@@ -88,25 +88,47 @@ func (s *SQLBindingJournal) Record(ctx context.Context, record BindingRecord) er
 	if len(summary)+len(payload) > MaxBindingPayloadBytes {
 		return fmt.Errorf("binding payload exceeds %d bytes", MaxBindingPayloadBytes)
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
 	var count int
-	if err := s.db.QueryRowContext(ctx, sqlCountBindings.bind(s.dialect)).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, sqlCountBindings.bind(s.dialect)).Scan(&count); err != nil {
 		return err
 	}
 	if count >= s.bindingCap() {
 		return fmt.Errorf("admin bindings exceed maximum of %d", s.bindingCap())
 	}
-	_, err = s.db.ExecContext(ctx, sqlInsertBinding.bind(s.dialect),
+	_, err = tx.ExecContext(ctx, sqlInsertBinding.bind(s.dialect),
 		record.ID, record.Kind, string(summary), string(payload), time.Now().UTC().UnixMilli(),
 	)
-	return duplicateAsConflict(record.ID, err)
+	if err != nil {
+		return duplicateAsConflict(record.ID, err)
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLBindingJournal) Delete(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, sqlDeleteBinding.bind(s.dialect), id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return requireAffected(result, "binding "+id+" not found")
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, sqlDeleteBinding.bind(s.dialect), id)
+	if err != nil {
+		return err
+	}
+	if err := requireAffected(result, "binding "+id+" not found"); err != nil {
+		return err
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLBindingJournal) List(ctx context.Context) ([]BindingRecord, error) {
