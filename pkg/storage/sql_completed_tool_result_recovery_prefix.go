@@ -47,6 +47,12 @@ func (s *SQLSessionStore) AppendCompletedToolResultRecoveryPrefixFenced(ctx cont
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// This is deliberately the transaction's first SQL statement. On SQLite it
+	// obtains the writer reservation before the Session fence; on PostgreSQL it
+	// holds the epoch row before the documented control-plane lock sequence.
+	if err := lockAuthorizationEpoch(ctx, tx, s.dialect, prefix.ExpectedAuthorizationEpoch); err != nil {
+		return false, err
+	}
 	header, committed, err := s.acquireCompletedToolResultRecoveryFence(ctx, tx, fence, expectedVersion)
 	if err != nil {
 		return false, err
@@ -116,6 +122,11 @@ func (s *SQLSessionStore) AppendCompletedToolResultRecoveryPrefixFenced(ctx cont
 	if _, err := s.lockCompletedToolResultProof(ctx, tx, prefix.Invocation, prefix.ExpectedResultDigest); err != nil {
 		return false, err
 	}
+	// Recheck after chunk and evidence writes. This catches transaction-local
+	// triggers that mutate the epoch even though the initial lock was live.
+	if err := lockAuthorizationEpoch(ctx, tx, s.dialect, prefix.ExpectedAuthorizationEpoch); err != nil {
+		return false, err
+	}
 	write, err := tx.ExecContext(ctx, fencedSessionTipUpdate(s.dialect), expectedVersion+2, expectedVersion+2, fence.SessionID, expectedVersion, fence.TenantID, fence.SubjectID, fence.RunID, fence.SessionID, fence.TenantID, fence.SubjectID, fence.WorkerID, fence.QueueGeneration, fence.LeaseHolder)
 	if err != nil {
 		return false, err
@@ -148,6 +159,9 @@ func validateCompletedToolResultRecoveryPrefix(fence SessionWriteFence, expected
 	if err := validateCompletedToolResultRequest(fence, expectedVersion, prefix.Invocation, prefix.ExpectedResultDigest); err != nil {
 		return completedToolResultRecoveryMarker{}, err
 	}
+	if prefix.ExpectedAuthorizationEpoch < 0 {
+		return completedToolResultRecoveryMarker{}, completedToolResultProofInvalid()
+	}
 	resume := prefix.Resume
 	if resume.Composition == nil || resume.ProfileSnapshotID == "" || resume.CapabilitySnapshotID == "" || resume.CompositionRevision == "" || resume.AssignmentRevision == "" || resume.Composition.Profile.ID != resume.ProfileSnapshotID {
 		return completedToolResultRecoveryMarker{}, completedToolResultProofInvalid()
@@ -161,7 +175,7 @@ func validateCompletedToolResultRecoveryPrefix(fence SessionWriteFence, expected
 		return completedToolResultRecoveryMarker{}, completedToolResultProofInvalid()
 	}
 	marker, err := completedToolResultRecoveryMarkerFromMetadata(resume.Composition.Metadata)
-	if err != nil || marker.callID != prefix.Invocation.CallID || marker.digest != prefix.ExpectedResultDigest {
+	if err != nil || marker.callID != prefix.Invocation.CallID || marker.digest != prefix.ExpectedResultDigest || marker.epoch != prefix.ExpectedAuthorizationEpoch {
 		return completedToolResultRecoveryMarker{}, completedToolResultProofInvalid()
 	}
 	return marker, nil

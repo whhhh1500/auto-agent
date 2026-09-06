@@ -83,8 +83,8 @@ func bumpAuthorizationEpoch(ctx context.Context, tx *sql.Tx, dialect SQLDialect)
 
 // lockAuthorizationEpoch compares expected against the durable epoch and
 // holds the matching row lock until tx ends. It must be called from the same
-// transaction that persists the state authorized by expected. A future
-// recovery-prefix transaction takes this lock before its queued Session fence:
+// transaction that persists the state authorized by expected. Recovery-prefix
+// transactions take this first, before their queued Session fence:
 // authorization_epoch -> run_control -> run_queue -> session_leases ->
 // sessions -> tool_invocations.
 func lockAuthorizationEpoch(ctx context.Context, tx *sql.Tx, dialect SQLDialect, expected int64) error {
@@ -108,6 +108,9 @@ func lockAuthorizationEpoch(ctx context.Context, tx *sql.Tx, dialect SQLDialect,
 			return ErrAuthorizationEpochChanged
 		}
 		return fmt.Errorf("authorization epoch lock affected no rows")
+	}
+	if expected == maxAuthorizationEpoch {
+		return fmt.Errorf("authorization epoch is exhausted")
 	}
 	return nil
 }

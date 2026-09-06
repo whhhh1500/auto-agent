@@ -35,19 +35,24 @@ type FencedCompletedToolResultAppender interface {
 // CompletedToolResultRecoveryPrefix describes the only durable prefix that may
 // turn a completed journal result into a continuation. The store constructs the
 // events itself so a caller cannot forge sequence numbers, timestamps, or the
-// canonical result payload. Its V2 authorization_epoch marker is durable audit
-// evidence only; this API does not lock or validate a control-plane epoch.
+// canonical result payload. ExpectedAuthorizationEpoch is the nonnegative
+// authorization snapshot that the V2 marker must encode exactly. Native SQL
+// implementations lock and recheck that epoch in the same transaction as the
+// prefix; callers must use this only after proving one sealed SQL authority.
 type CompletedToolResultRecoveryPrefix struct {
-	Resume               core.RunResumeData
-	Invocation           core.ToolInvocation
-	ExpectedResultDigest string
+	Resume                     core.RunResumeData
+	Invocation                 core.ToolInvocation
+	ExpectedResultDigest       string
+	ExpectedAuthorizationEpoch int64
 }
 
 // FencedCompletedToolResultRecoveryAppender is the optional V2 companion to
-// FencedCompletedToolResultAppender. It atomically writes exactly one
-// run/resume plus one canonical tool/result event in one fenced SQL chunk.
-// Callers must reload the Session after either outcome; appended=false only
-// reports an exact response-lost convergence while the supplied fence is live.
+// FencedCompletedToolResultAppender. Native SQL implementations atomically
+// lock the expected authorization epoch, fenced ownership, and exact completed
+// journal proof before writing one run/resume plus canonical tool/result chunk.
+// It must not be emulated across separate SQL authorities. Callers must reload
+// after either outcome; appended=false only reports exact response-lost
+// convergence while both the supplied fence and authorization epoch are live.
 type FencedCompletedToolResultRecoveryAppender interface {
 	AppendCompletedToolResultRecoveryPrefixFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, prefix CompletedToolResultRecoveryPrefix) (appended bool, err error)
 }
