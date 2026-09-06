@@ -32,6 +32,26 @@ type FencedCompletedToolResultAppender interface {
 	AppendCompletedToolResultFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, invocation core.ToolInvocation, expectedResultDigest string) (event core.SessionEvent, appended bool, err error)
 }
 
+// CompletedToolResultRecoveryPrefix describes the only durable prefix that may
+// turn a completed journal result into a continuation. The store constructs the
+// events itself so a caller cannot forge sequence numbers, timestamps, or the
+// canonical result payload. Its V2 authorization_epoch marker is durable audit
+// evidence only; this API does not lock or validate a control-plane epoch.
+type CompletedToolResultRecoveryPrefix struct {
+	Resume               core.RunResumeData
+	Invocation           core.ToolInvocation
+	ExpectedResultDigest string
+}
+
+// FencedCompletedToolResultRecoveryAppender is the optional V2 companion to
+// FencedCompletedToolResultAppender. It atomically writes exactly one
+// run/resume plus one canonical tool/result event in one fenced SQL chunk.
+// Callers must reload the Session after either outcome; appended=false only
+// reports an exact response-lost convergence while the supplied fence is live.
+type FencedCompletedToolResultRecoveryAppender interface {
+	AppendCompletedToolResultRecoveryPrefixFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, prefix CompletedToolResultRecoveryPrefix) (appended bool, err error)
+}
+
 // CanonicalCapabilityResultDigest returns the lowercase SHA-256 digest of the
 // standard-library JSON encoding of one validated capability result. The
 // encoding is deterministic for this wire value: struct fields are fixed and
