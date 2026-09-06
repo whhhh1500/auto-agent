@@ -214,7 +214,7 @@ func TestSQLSessionStoreRejectsInvalidIDsBeforeSQL(t *testing.T) {
 	assertBeforeSQL("release empty holder", store.ReleaseSessionLease(ctx, "sess-1", "   "))
 }
 
-func TestSQLSessionStoreRepairsInterruptedTail(t *testing.T) {
+func TestSQLSessionStoreLoadIsReadOnlyAndExplicitRepairIsIdempotent(t *testing.T) {
 	store := newTestSQLStore(t)
 	_, _, _, user := testScopes()
 	principal := testPrincipal(user)
@@ -236,24 +236,7 @@ func TestSQLSessionStoreRepairsInterruptedTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := store.Load(ctx, session.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	types := []SessionEventType{}
-	for _, event := range loaded.Events() {
-		types = append(types, event.Type)
-	}
-	if types[len(types)-1] != EvRunEnd || !containsEventType(types, EvRunError) {
-		t.Fatalf("SQL load did not repair the interrupted tail: %v", types)
-	}
-	second, err := store.Load(ctx, session.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Version() != loaded.Version() {
-		t.Fatal("SQL repair is not idempotent")
-	}
+	assertReadOnlyLoadAndExplicitRepair(t, store, session, "run-crash")
 }
 
 func TestSQLSessionStoreListsCatalog(t *testing.T) {
@@ -683,9 +666,12 @@ func TestSQLStoreMatchesFileStoreSemantics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 3 appended events + 3 synthetic closers (tool result, run/error, run/end).
-		if loaded.Version() != 6 {
-			t.Fatalf("%T restored %d events", store, loaded.Version())
+		if loaded.Version() != 3 {
+			t.Fatalf("%T read-only load restored %d events", store, loaded.Version())
+		}
+		repaired, applied, err := RepairInterruptedSession(ctx, store, loaded)
+		if err != nil || !applied || repaired.Version() != 6 {
+			t.Fatalf("%T explicit repair: applied=%t version=%d err=%v", store, applied, repaired.Version(), err)
 		}
 	}
 }

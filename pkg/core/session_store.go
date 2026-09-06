@@ -18,6 +18,8 @@ var (
 const MaxMemorySessions = 4096
 
 // SessionStore persists complete session snapshots with optimistic concurrency.
+// Load is a pure read: recovery and other lifecycle transitions must be
+// requested explicitly by an execution owner.
 type SessionStore interface {
 	Create(ctx context.Context, session *Session) error
 	Load(ctx context.Context, id string) (*Session, error)

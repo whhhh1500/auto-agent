@@ -89,7 +89,8 @@ type Config struct {
 	// Canaries is the optional durable staged-rollout surface. It must share
 	// the configured release manager and runtime profile registry.
 	Canaries *control.CanaryManager
-	// Leaser is the optional cross-instance session lease. When set, a run
+	// Leaser is the optional cross-instance session lease. It is required when
+	// RunQueue is configured. When set, a run
 	// only starts after acquiring the session's lease; a session already
 	// leased by another instance answers 409. Long runs renew the lease every
 	// LeaseTTL/3 and are cancelled if ownership is lost. LeaseTTL defaults to
@@ -183,7 +184,8 @@ type Config struct {
 	// requests. When nil, status remains request-local for compatibility.
 	RunControl storage.RunControlStore
 	// RunQueue enables durable asynchronous submission and worker claims. A
-	// RunQueueStore also serves as RunControl when RunControl is nil.
+	// RunQueueStore also serves as RunControl when RunControl is nil. Leaser is
+	// required so a claimed worker owns session execution before its first Load.
 	RunQueue             storage.RunQueueStore
 	RunPrincipalResolver RunPrincipalResolver
 	// Approvals exposes durable pending approval queries and decisions. When
@@ -351,6 +353,9 @@ const (
 func New(config Config) (*Server, error) {
 	if config.Runtime == nil || config.Sessions == nil || config.Authenticator == nil {
 		return nil, fmt.Errorf("server dependencies are incomplete")
+	}
+	if config.RunQueue != nil && config.Leaser == nil {
+		return nil, fmt.Errorf("durable run queue requires a session leaser")
 	}
 	if config.RunExecutors == nil {
 		registry, err := runexecutor.NewDefaultRegistry()

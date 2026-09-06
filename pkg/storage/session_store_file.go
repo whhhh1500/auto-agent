@@ -131,50 +131,15 @@ func (s *FileSessionStore) Create(ctx context.Context, session *core.Session) er
 	return privateWriteFile(path, buffer.Bytes())
 }
 
-func (s *FileSessionStore) Load(ctx context.Context, id string) (*core.Session, error) {
+func (s *FileSessionStore) Load(_ context.Context, id string) (*core.Session, error) {
 	path, err := s.sessionPath(id)
 	if err != nil {
 		return nil, err
 	}
 	unlock := s.acquireSessionLock(id)
 	defer unlock()
-	session, loadedCount, err := s.loadLocked(path, id)
-	if err != nil {
-		return nil, err
-	}
-	// Repair an interrupted tail so the transcript is provider-valid, then
-	// append the synthetic closers directly to the file (never via Save,
-	// which would reload under this held lock).
-	synthetic := core.RepairInterrupted(session.Events())
-	if len(synthetic) > 0 {
-		if err := core.AppendRepair(session, synthetic, nil); err != nil {
-			return nil, err
-		}
-		if err := privateChmod(path, 0o600); err != nil {
-			return nil, err
-		}
-		file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
-		writer := bufio.NewWriter(file)
-		for _, event := range session.Events()[loadedCount:] {
-			encoded, err := json.Marshal(event)
-			if err != nil {
-				return nil, err
-			}
-			writer.Write(encoded)
-			writer.WriteByte('\n')
-		}
-		if err := writer.Flush(); err != nil {
-			return nil, err
-		}
-		if err := s.rebuildEvidenceForSession(ctx, session); err != nil {
-			return nil, fmt.Errorf("write session %s evidence: %w", id, err)
-		}
-	}
-	return session, nil
+	session, _, err := s.loadLocked(path, id)
+	return session, err
 }
 
 // loadLocked reads and restores the session without any repair logic. The

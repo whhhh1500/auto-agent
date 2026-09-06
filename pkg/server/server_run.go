@@ -71,6 +71,15 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	session, _, err = storage.RepairInterruptedSession(runCtx, s.sessions, session)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, core.ErrSessionConflict) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
 	runRuntime, canary, err := s.runtimeFor(runCtx, principal, session.ProfileID())
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})

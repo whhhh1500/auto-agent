@@ -9,6 +9,7 @@ import (
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 )
 
 type configJournalStub struct{}
+
+type configRunQueueStub struct{ storage.RunQueueStore }
 
 func (*configJournalStub) Record(context.Context, storage.BindingRecord) error { return nil }
 func (*configJournalStub) Delete(context.Context, string) error                { return nil }
@@ -120,6 +123,16 @@ func TestNewRejectsUnsafeRunStaleThreshold(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("unsafe stale threshold was accepted")
+	}
+}
+
+func TestNewRejectsDurableRunQueueWithoutSessionLeaser(t *testing.T) {
+	_, err := New(Config{
+		Runtime: &core.Runtime{}, Sessions: core.NewMemorySessionStore(), RunQueue: configRunQueueStub{},
+		Authenticator: AuthenticatorFunc(func(*http.Request) (core.Principal, error) { return core.Principal{}, nil }),
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires a session leaser") {
+		t.Fatalf("durable queue without session leaser error=%v", err)
 	}
 }
 

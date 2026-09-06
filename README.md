@@ -303,7 +303,13 @@ Long sessions are archived in two layers, both anchored to the immutable log:
 
 ### Crash repair
 
-A run killed mid-flight leaves an unbalanced log. On load, `RepairInterrupted` scans the open tail and returns deterministic synthetic closers — `tool_not_started` / `tool_outcome_unknown` error results, a `step/end`, then `run/error` (`run_interrupted`) plus `run/end` — so the transcript is provider-valid and the session resumes instead of being discarded. `FileSessionStore` and `S3SessionStore` apply and persist the repair on load; the repair is idempotent.
+A run killed mid-flight leaves an unbalanced log. `SessionStore.Load` is a pure read for Memory, File, SQL, and S3 stores; history and inspection requests therefore cannot terminate an active checkpointed run. After acquiring execution ownership, an executor may call `storage.RepairInterruptedSession`, which uses the store version as an optimistic CAS and appends the deterministic `core.RepairInterrupted` suffix — `tool_not_started` / `tool_outcome_unknown` error results, a `step/end`, then `run/error` (`run_interrupted`) plus `run/end`. An unresolved durable approval remains open. A repeated explicit repair is a no-op, and a conflicting still-open log is returned as `core.ErrSessionConflict` instead of being retried blindly.
+
+Migration note (2026-09-06): embedders that relied on `Load` to repair crash tails must now call `storage.RepairInterruptedSession` only after obtaining their session execution lock or lease. The HTTP server does this before a synchronous new run and, for queued work, after the queue claim and session lease are both held. Configuring `server.Config.RunQueue` without `server.Config.Leaser` is now rejected so a durable worker cannot inspect or repair a session before establishing cross-instance ownership. For event-log compatibility, the existing synthetic `run/error` message still contains the legacy phrase “appended on load”; consumers should use its stable `run_interrupted` code rather than parse that text.
+
+For synchronous runs, the server's per-session mutex is process-local. A single server instance may omit `Config.Leaser`; deployments with multiple server instances sharing a SessionStore must configure a cross-instance `SessionLeaser`, otherwise no server-side contract prevents one instance from repairing a Run that is still active on another instance.
+
+Phase-0 ownership limit: queued workers stop before Load/repair when claim loss is already known, and cancelled repair contexts do not call `Save`. The ordinary SessionStore version CAS is not yet transactionally fenced by queue worker/generation, however, so claim loss racing the final ownership check and the repair Save remains a narrow stale-writer window. A generation-fenced Session append is required to close that window.
 
 ### Write-behind persistence
 
@@ -331,7 +337,7 @@ rows; uncertain records remain as permanent duplicate-execution fences. The jour
 
 The current SQL schema is v41. Earlier memory/RAG tag and token projections are rebuildable derived indexes over canonical entries/documents. Later additions include artifact-migration state and journal records (v36), experimental Graph checkpoint/transition facts (v37), encrypted tenant-scoped notification targets (v38), generation-fenced Graph segment leases (v39), approval/stale-run lookup indexes (v40), and immutable Graph checkpoint-version history (v41). The v41 upgrade atomically backfills only each v40 head as a `migration_floor` and installs a write fence, so pre-v41 head-only writers fail rather than split a current head from its history. Migrations are additive and the store refuses a database newer than this binary; the complete versioned chain is recorded in the public inventory rather than duplicated as stale migration prose here.
 
-Event payloads are JSONL TEXT in every durable store, so sessions migrate between backends by copying data. All durable stores apply and persist crash-tail repair on load.
+Event payloads are JSONL TEXT in every durable store, so sessions migrate between backends by copying data. Loads restore only the committed prefix and never append repair events; crash-tail repair is an explicit execution-owner operation.
 
 ### Cold session-object compression
 

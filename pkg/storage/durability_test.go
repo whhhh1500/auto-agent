@@ -8,11 +8,35 @@ import (
 	. "github.com/cc-auto-agent/harness-core/pkg/core"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	appcontextassembly "github.com/cc-auto-agent/harness-core/pkg/app/contextassembly"
 )
+
+type repairConflictStore struct {
+	SessionStore
+	latest *Session
+}
+
+type repairSaveObserver struct {
+	SessionStore
+	saves atomic.Int32
+}
+
+func (s *repairSaveObserver) Save(ctx context.Context, session *Session, expectedVersion int64) error {
+	s.saves.Add(1)
+	return s.SessionStore.Save(ctx, session, expectedVersion)
+}
+
+func (s repairConflictStore) Load(context.Context, string) (*Session, error) {
+	return s.latest.Clone()
+}
+
+func (repairConflictStore) Save(context.Context, *Session, int64) error {
+	return ErrSessionConflict
+}
 
 func openRunEvents(t *testing.T, runID string) []SessionEvent {
 	t.Helper()
@@ -100,7 +124,7 @@ func TestRepairInterruptedNotStartedCall(t *testing.T) {
 	}
 }
 
-func TestRepairAppliedOnFileStoreLoad(t *testing.T) {
+func TestFileSessionStoreLoadIsReadOnlyAndExplicitRepairIsIdempotent(t *testing.T) {
 	store, err := NewFileSessionStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -127,21 +151,24 @@ func TestRepairAppliedOnFileStoreLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := store.Load(ctx, session.ID())
-	if err != nil {
+	assertReadOnlyLoadAndExplicitRepair(t, store, session, runID)
+}
+
+func TestMemorySessionStoreLoadIsReadOnlyAndExplicitRepairIsIdempotent(t *testing.T) {
+	store := NewMemorySessionStore()
+	_, _, _, user := testScopes()
+	session := mustSession(t, user, testPrincipal(user))
+	runID := "run-memory-load"
+	if _, err := session.Append(runID, EvRunStart, RunStartData{}); err != nil {
 		t.Fatal(err)
 	}
-	types := []SessionEventType{}
-	for _, event := range loaded.Events() {
-		types = append(types, event.Type)
+	if _, err := session.Append(runID, EvToolCall, ToolCallData{CallID: "call-memory-load", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
 	}
-	last := types[len(types)-1]
-	if last != EvRunEnd {
-		t.Fatalf("loaded session must end with run/end after repair, got %v", types)
+	if err := store.Create(context.Background(), session); err != nil {
+		t.Fatal(err)
 	}
-	if !containsEventType(types, CodeRunInterruptedEventType()) {
-		t.Fatalf("expected run/error closer: %v", types)
-	}
+	assertReadOnlyLoadAndExplicitRepair(t, store, session, runID)
 }
 
 func CodeRunInterruptedEventType() SessionEventType { return EvRunError }
@@ -153,6 +180,212 @@ func containsEventType(types []SessionEventType, target SessionEventType) bool {
 		}
 	}
 	return false
+}
+
+func assertReadOnlyLoadAndExplicitRepair(t *testing.T, store SessionStore, session *Session, runID string) {
+	t.Helper()
+	ctx := context.Background()
+	version := session.Version()
+	const readers = 8
+	errs := make(chan error, readers)
+	var wg sync.WaitGroup
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			loaded, err := store.Load(ctx, session.ID())
+			if err == nil && loaded.Version() != version {
+				err = fmt.Errorf("read-only load changed version from %d to %d", version, loaded.Version())
+			}
+			if err == nil {
+				status, exists := loaded.RunStatus(runID)
+				if !exists || status != "" {
+					err = fmt.Errorf("read-only load terminated active run: exists=%t status=%q", exists, status)
+				}
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	syntheticCount := len(RepairInterrupted(loaded.Events()))
+	if syntheticCount == 0 {
+		t.Fatal("active run did not produce an explicit repair suffix")
+	}
+	repaired, applied, err := RepairInterruptedSession(ctx, store, loaded)
+	if err != nil || !applied {
+		t.Fatalf("explicit repair failed: applied=%t err=%v", applied, err)
+	}
+	if repaired.Version() != version+int64(syntheticCount) {
+		t.Fatalf("repair version=%d want=%d", repaired.Version(), version+int64(syntheticCount))
+	}
+	if status, exists := repaired.RunStatus(runID); !exists || status != RunFailed {
+		t.Fatalf("repaired run status: exists=%t status=%q", exists, status)
+	}
+	again, applied, err := RepairInterruptedSession(ctx, store, repaired)
+	if err != nil || applied {
+		t.Fatalf("second repair must be a no-op: applied=%t err=%v", applied, err)
+	}
+	if again.Version() != repaired.Version() {
+		t.Fatalf("second repair changed version: %d -> %d", repaired.Version(), again.Version())
+	}
+	persisted, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Version() != repaired.Version() {
+		t.Fatalf("repair was not persisted exactly once: got=%d want=%d", persisted.Version(), repaired.Version())
+	}
+}
+
+func TestRepairInterruptedSessionUsesCASAndConvergesConcurrentMemoryRepairs(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySessionStore()
+	_, _, _, user := testScopes()
+	session := mustSession(t, user, testPrincipal(user))
+	if _, err := session.Append("run-memory-repair", EvRunStart, RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append("run-memory-repair", EvToolCall, ToolCallData{CallID: "call-memory-repair", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	left, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		applied bool
+		err     error
+	}
+	outcomes := make(chan outcome, 2)
+	var wg sync.WaitGroup
+	for _, candidate := range []*Session{left, right} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, applied, repairErr := RepairInterruptedSession(ctx, store, candidate)
+			outcomes <- outcome{applied: applied, err: repairErr}
+		}()
+	}
+	wg.Wait()
+	close(outcomes)
+	commits := 0
+	for outcome := range outcomes {
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		if outcome.applied {
+			commits++
+		}
+	}
+	if commits != 1 {
+		t.Fatalf("concurrent repair commits=%d want=1", commits)
+	}
+	persisted, err := store.Load(ctx, session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := persisted.RunStatus("run-memory-repair"); !exists || status != RunFailed {
+		t.Fatalf("repaired run status: exists=%t status=%q", exists, status)
+	}
+}
+
+func TestRepairInterruptedSessionDoesNotRetryMovingOpenRun(t *testing.T) {
+	_, _, _, user := testScopes()
+	session := mustSession(t, user, testPrincipal(user))
+	if _, err := session.Append("run-repair-conflict", EvRunStart, RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append("run-repair-conflict", EvToolCall, ToolCallData{CallID: "call-repair-conflict", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := session.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := latest.Append("run-repair-conflict", EvUserMessage, UserMessageData{Text: "writer is still active"}); err != nil {
+		t.Fatal(err)
+	}
+	store := repairConflictStore{SessionStore: NewMemorySessionStore(), latest: latest}
+	_, applied, err := RepairInterruptedSession(context.Background(), store, session)
+	if !errors.Is(err, ErrSessionConflict) || applied {
+		t.Fatalf("moving open run repair: applied=%t err=%v", applied, err)
+	}
+}
+
+func TestRepairInterruptedSessionCancelledContextDoesNotSave(t *testing.T) {
+	_, _, _, user := testScopes()
+	session := mustSession(t, user, testPrincipal(user))
+	if _, err := session.Append("run-repair-cancelled", EvRunStart, RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	inner := NewMemorySessionStore()
+	if err := inner.Create(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	store := &repairSaveObserver{SessionStore: inner}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, applied, err := RepairInterruptedSession(ctx, store, session)
+	if !errors.Is(err, context.Canceled) || applied {
+		t.Fatalf("cancelled repair: applied=%t err=%v", applied, err)
+	}
+	if saves := store.saves.Load(); saves != 0 {
+		t.Fatalf("cancelled repair attempted %d saves", saves)
+	}
+	persisted, err := inner.Load(context.Background(), session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := persisted.RunStatus("run-repair-cancelled"); !exists || status != "" {
+		t.Fatalf("cancelled repair terminated run: exists=%t status=%q", exists, status)
+	}
+}
+
+func TestRepairInterruptedSessionLeavesApprovalPauseOpen(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemorySessionStore()
+	_, _, _, user := testScopes()
+	session := mustSession(t, user, testPrincipal(user))
+	call := ToolCall{ID: "call-repair-approval", Name: "test.tool"}
+	if _, err := session.Append("run-repair-approval", EvRunStart, RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append("run-repair-approval", EvToolCall, ToolCallData{CallID: call.ID, Name: call.Name}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append("run-repair-approval", EvApprovalRequested, ApprovalRequestedData{
+		ApprovalID: "apr_0123456789abcdef0123456789abcdef", ToolCall: call, ResumeCall: call, Step: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	version := session.Version()
+	unchanged, applied, err := RepairInterruptedSession(ctx, store, session)
+	if err != nil || applied || unchanged.Version() != version {
+		t.Fatalf("approval pause repair: applied=%t version=%d want=%d err=%v", applied, unchanged.Version(), version, err)
+	}
+	if status, exists := unchanged.RunStatus("run-repair-approval"); !exists || status != RunWaitingApproval {
+		t.Fatalf("approval pause status: exists=%t status=%q", exists, status)
+	}
 }
 
 func TestRollingSummarizerArchivesPrefix(t *testing.T) {

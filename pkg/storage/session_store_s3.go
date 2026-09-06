@@ -244,16 +244,6 @@ func (s *S3SessionStore) loadLocked(ctx context.Context, id string) (*core.Sessi
 	if err != nil {
 		return nil, "", err
 	}
-	// Repair an interrupted tail so the transcript is provider-valid.
-	synthetic := core.RepairInterrupted(session.Events())
-	if len(synthetic) > 0 {
-		if err := core.AppendRepair(session, synthetic, nil); err != nil {
-			return nil, "", err
-		}
-		if err := s.Save(ctx, session, meta.Version); err != nil {
-			return nil, "", fmt.Errorf("persist repair for session %s: %w", id, err)
-		}
-	}
 	return session, metaETag, nil
 }
 

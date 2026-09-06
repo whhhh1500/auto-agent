@@ -202,7 +202,7 @@ func TestS3SessionStoreRejectsBadIDs(t *testing.T) {
 	}
 }
 
-func TestS3SessionStoreRepairsInterruptedTailOnLoad(t *testing.T) {
+func TestS3SessionStoreLoadIsReadOnlyAndExplicitRepairIsIdempotent(t *testing.T) {
 	store, _ := newFakeS3Store(t)
 	_, _, _, user := testScopes()
 	principal := testPrincipal(user)
@@ -224,26 +224,7 @@ func TestS3SessionStoreRepairsInterruptedTailOnLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := store.Load(ctx, session.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	types := []SessionEventType{}
-	for _, event := range loaded.Events() {
-		types = append(types, event.Type)
-	}
-	if types[len(types)-1] != EvRunEnd || !containsEventType(types, EvRunError) {
-		t.Fatalf("S3 load did not repair the interrupted tail: %v", types)
-	}
-	// The repair is persisted: a second load sees a balanced log with no new
-	// synthetic events beyond the first repair.
-	second, err := store.Load(ctx, session.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Version() != loaded.Version() {
-		t.Fatalf("repair is not idempotent: %d vs %d", second.Version(), loaded.Version())
-	}
+	assertReadOnlyLoadAndExplicitRepair(t, store, session, "run-crash")
 }
 
 func TestS3SessionStoreTrustsMetaVersionOverOrphanChunks(t *testing.T) {

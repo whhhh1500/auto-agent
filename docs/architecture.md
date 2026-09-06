@@ -143,11 +143,24 @@ to the adapter configuration, outside the core contract.
 - Composite capabilities invoke nested tools through `core.ProtectedToolInvoker`;
   raw provider-to-provider calls are not part of the supported run path.
 - Cross-instance session leases use a stable instance UUID plus the run ID,
-  renew at `TTL/3`, and cancel the run when ownership is lost.
+  renew at `TTL/3`, and cancel the run when ownership is lost. The in-process
+  session mutex is sufficient only for a single server instance; synchronous
+  multi-instance deployments sharing a SessionStore must configure a Leaser.
+- Session loads are pure reads across Memory, File, SQL, and S3 stores. Crash
+  repair is explicit: the execution owner calls `storage.RepairInterruptedSession`
+  under its session lock/lease, and the helper persists the existing synthetic
+  repair suffix with optimistic version CAS. Read-only history requests cannot
+  close an active run, and unresolved approval checkpoints are not repaired.
 - Durable run control stores queued/running/waiting-approval/terminal state and cancellation
   requests. Queue claims renew independently from Session leases, use the
   claim generation as a fencing token, and are recovered while the service stays
-  online; an expired worker cannot finish a successor's claim.
+  online; an expired worker cannot finish a successor's claim. A configured
+  durable RunQueue requires a SessionLeaser, and a worker acquires that lease
+  before its first Session Load or explicit repair. Phase 0 checks known claim
+  loss before those operations and propagates cancellation into repair, but the
+  SessionStore version CAS is not yet atomically bound to queue generation; a
+  claim lost between the final check and Save still requires a future fenced
+  append contract to exclude the stale writer durably.
 - Durable approvals write an `approval/requested` continuation checkpoint,
   transition the Run to `waiting_approval`, and release every execution lease.
   Decisions atomically return the same Run ID to the queue; resume re-enters

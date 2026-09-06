@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -157,6 +158,53 @@ type runWorkerFixture struct {
 	modelRuns atomic.Int32
 }
 
+type leaseOrderedSessionStore struct {
+	core.SessionStore
+	leaseHeld      *atomic.Bool
+	loads          atomic.Int32
+	loadedUnleased atomic.Bool
+}
+
+func (s *leaseOrderedSessionStore) Load(ctx context.Context, id string) (*core.Session, error) {
+	s.loads.Add(1)
+	if !s.leaseHeld.Load() {
+		s.loadedUnleased.Store(true)
+	}
+	return s.SessionStore.Load(ctx, id)
+}
+
+type leaseOrderObserver struct {
+	storage.SessionLeaser
+	held *atomic.Bool
+}
+
+type mutatingAcquireLeaser struct {
+	storage.SessionLeaser
+	once   sync.Once
+	mutate func()
+}
+
+func (l *mutatingAcquireLeaser) AcquireSessionLease(ctx context.Context, sessionID, holder string, ttl time.Duration) (bool, error) {
+	l.once.Do(l.mutate)
+	return l.SessionLeaser.AcquireSessionLease(ctx, sessionID, holder, ttl)
+}
+
+func (l leaseOrderObserver) AcquireSessionLease(ctx context.Context, sessionID, holder string, ttl time.Duration) (bool, error) {
+	acquired, err := l.SessionLeaser.AcquireSessionLease(ctx, sessionID, holder, ttl)
+	if err == nil && acquired {
+		l.held.Store(true)
+	}
+	return acquired, err
+}
+
+func (l leaseOrderObserver) ReleaseSessionLease(ctx context.Context, sessionID, holder string) error {
+	err := l.SessionLeaser.ReleaseSessionLease(ctx, sessionID, holder)
+	if err == nil {
+		l.held.Store(false)
+	}
+	return err
+}
+
 func newRunWorkerFixture(t *testing.T) *runWorkerFixture {
 	t.Helper()
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "worker.db"))
@@ -245,6 +293,179 @@ func enqueueRunHTTP(t *testing.T, fixture *runWorkerFixture, message string) sto
 		t.Fatalf("enqueue did not return queued status: %#v", record)
 	}
 	return record
+}
+
+func TestQueuedWorkerLoadsSessionOnlyAfterAcquiringExecutionLease(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	record := enqueueRunHTTP(t, fixture, "lease ordered load")
+	held := &atomic.Bool{}
+	orderedStore := &leaseOrderedSessionStore{SessionStore: fixture.sessions, leaseHeld: held}
+	fixture.server.sessions = orderedStore
+	fixture.server.leaser = leaseOrderObserver{SessionLeaser: fixture.sessions, held: held}
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-lease-order")
+	if err != nil || !claimed {
+		t.Fatalf("worker failed: claimed=%t err=%v", claimed, err)
+	}
+	if orderedStore.loads.Load() == 0 || orderedStore.loadedUnleased.Load() {
+		t.Fatalf("worker load ordering: loads=%d loaded_without_lease=%t", orderedStore.loads.Load(), orderedStore.loadedUnleased.Load())
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) {
+		t.Fatalf("queued run did not complete: %#v err=%v", terminal, err)
+	}
+}
+
+func TestQueuedWorkerLostClaimBeforeLeaseDoesNotLoadOrRepairSession(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	interruptedRunID := "run-claim-lost-predecessor"
+	if _, err := fixture.session.Append(interruptedRunID, core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.session.Append(interruptedRunID, core.EvToolCall, core.ToolCallData{CallID: "call-claim-lost", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.sessions.Save(context.Background(), fixture.session, 0); err != nil {
+		t.Fatal(err)
+	}
+	before := fixture.session.Version()
+	enqueueRunHTTP(t, fixture, "claim loss must not repair")
+	if err := fixture.server.liveness.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.server.liveness = nil
+	loadObserver := &leaseOrderedSessionStore{SessionStore: fixture.sessions, leaseHeld: &atomic.Bool{}}
+	fixture.server.sessions = loadObserver
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-claim-loss-load")
+	if !claimed || !errors.Is(err, errRunClaimLost) {
+		t.Fatalf("claim loss: claimed=%t err=%v", claimed, err)
+	}
+	if loads := loadObserver.loads.Load(); loads != 0 {
+		t.Fatalf("claim-lost worker loaded session %d times", loads)
+	}
+
+	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Version() != before {
+		t.Fatalf("claim-lost worker changed session version: got=%d want=%d", persisted.Version(), before)
+	}
+	if status, exists := persisted.RunStatus(interruptedRunID); !exists || status != "" {
+		t.Fatalf("claim-lost worker repaired predecessor: exists=%t status=%q", exists, status)
+	}
+}
+
+func TestHistoryReadDoesNotRepairActiveCheckpoint(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	runID := "run-active-history"
+	if _, err := fixture.session.Append(runID, core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.session.Append(runID, core.EvToolCall, core.ToolCallData{CallID: "call-active-history", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.sessions.Save(context.Background(), fixture.session, 0); err != nil {
+		t.Fatal(err)
+	}
+	before := fixture.session.Version()
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+fixture.session.ID()+"/events", nil)
+	response := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("history status=%d body=%s", response.Code, response.Body.String())
+	}
+	var history struct {
+		Version int64               `json:"version"`
+		Events  []core.SessionEvent `json:"events"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if history.Version != before || int64(len(history.Events)) != before {
+		t.Fatalf("history read changed checkpoint: version=%d events=%d want=%d", history.Version, len(history.Events), before)
+	}
+	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Version() != before {
+		t.Fatalf("history read persisted repair: version=%d want=%d", persisted.Version(), before)
+	}
+	if status, exists := persisted.RunStatus(runID); !exists || status != "" {
+		t.Fatalf("history read terminated active run: exists=%t status=%q", exists, status)
+	}
+}
+
+func TestSyncRunExplicitlyRepairsInterruptedPredecessor(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	interruptedRunID := "run-sync-predecessor"
+	if _, err := fixture.session.Append(interruptedRunID, core.EvRunStart, core.RunStartData{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.session.Append(interruptedRunID, core.EvToolCall, core.ToolCallData{CallID: "call-sync-predecessor", Name: "test.tool"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.sessions.Save(context.Background(), fixture.session, 0); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+fixture.session.ID()+"/runs", bytes.NewBufferString(`{"message":"continue after repair"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sync run status=%d body=%s", response.Code, response.Body.String())
+	}
+	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := persisted.RunStatus(interruptedRunID); !exists || status != core.RunFailed {
+		t.Fatalf("predecessor was not explicitly repaired: exists=%t status=%q", exists, status)
+	}
+	if code := runTerminalErrorCode(persisted, interruptedRunID); code != core.CodeRunInterrupted {
+		t.Fatalf("predecessor repair code=%q", code)
+	}
+}
+
+func TestSyncRunReloadsAfterLeaseBeforeRepair(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	interruptedRunID := "run-sync-lease-predecessor"
+	fixture.server.leaser = &mutatingAcquireLeaser{
+		SessionLeaser: fixture.sessions,
+		mutate: func() {
+			latest, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedVersion := latest.Version()
+			if _, err := latest.Append(interruptedRunID, core.EvRunStart, core.RunStartData{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := latest.Append(interruptedRunID, core.EvToolCall, core.ToolCallData{CallID: "call-sync-lease-predecessor", Name: "test.tool"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.sessions.Save(context.Background(), latest, expectedVersion); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+fixture.session.ID()+"/runs", bytes.NewBufferString(`{"message":"continue after lease reload"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	fixture.server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("sync run status=%d body=%s", response.Code, response.Body.String())
+	}
+	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, exists := persisted.RunStatus(interruptedRunID); !exists || status != core.RunFailed {
+		t.Fatalf("lease-reloaded predecessor was not repaired: exists=%t status=%q", exists, status)
+	}
+	if code := runTerminalErrorCode(persisted, interruptedRunID); code != core.CodeRunInterrupted {
+		t.Fatalf("lease-reloaded predecessor repair code=%q", code)
+	}
 }
 
 func enqueueRunRecorder(t *testing.T, fixture *runWorkerFixture, message, key string) *httptest.ResponseRecorder {

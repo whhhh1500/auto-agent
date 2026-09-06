@@ -207,18 +207,9 @@ func (s *SQLSessionStore) Load(ctx context.Context, id string) (*core.Session, e
 	if err != nil {
 		return nil, err
 	}
-	session, committed, err := s.restore(ctx, id, row)
+	session, _, err := s.restore(ctx, id, row)
 	if err != nil {
 		return nil, err
-	}
-	synthetic := core.RepairInterrupted(session.Events())
-	if len(synthetic) > 0 {
-		if err := core.AppendRepair(session, synthetic, nil); err != nil {
-			return nil, err
-		}
-		if err := s.Save(ctx, session, committed); err != nil {
-			return nil, fmt.Errorf("persist repair for session %s: %w", id, err)
-		}
 	}
 	return session, nil
 }

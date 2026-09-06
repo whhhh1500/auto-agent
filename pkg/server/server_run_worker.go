@@ -317,11 +317,32 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 	defer cancelRun()
 	claim := s.monitorQueuedRunClaim(runCtx, cancelRun, task, workerID)
 	defer claim.stop()
+	if claim.reason.Load() == claimStopLost {
+		return errRunClaimLost
+	}
+
+	if s.leaser != nil {
+		releaseLease, acquired, err := s.acquireRunLease(runCtx, cancelRun, task.SessionID, task.RunID)
+		if err != nil || !acquired {
+			claim.stop()
+			if err == nil {
+				err = fmt.Errorf("session lease is unavailable")
+			}
+			return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, false, "session_lease_unavailable", err, false)
+		}
+		defer releaseLease()
+	}
+	if claim.reason.Load() == claimStopLost {
+		return errRunClaimLost
+	}
 
 	session, err := s.sessions.Load(runCtx, task.SessionID)
 	if err != nil {
 		claim.stop()
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, nil, false, "session_load_failed", err, false)
+	}
+	if claim.reason.Load() == claimStopLost {
+		return errRunClaimLost
 	}
 	owner := session.Principal()
 	resume := false
@@ -339,6 +360,14 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 		err := fmt.Errorf("queued run owner does not match session owner")
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_owner_mismatch", err, true)
 	}
+	if claim.reason.Load() == claimStopLost {
+		return errRunClaimLost
+	}
+	session, _, err = storage.RepairInterruptedSession(runCtx, s.sessions, session)
+	if err != nil {
+		claim.stop()
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_repair_failed", err, false)
+	}
 	if existingStatus, exists := session.RunStatus(task.RunID); exists {
 		if existingStatus == core.RunWaitingApproval {
 			resume = true
@@ -352,38 +381,6 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 				errorCode = "run_already_started"
 			}
 			return s.finishQueuedRunClaim(task, workerID, existingStatus, errorCode)
-		}
-	}
-
-	if s.leaser != nil {
-		releaseLease, acquired, err := s.acquireRunLease(runCtx, cancelRun, session.ID(), task.RunID)
-		if err != nil || !acquired {
-			claim.stop()
-			if err == nil {
-				err = fmt.Errorf("session lease is unavailable")
-			}
-			return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_lease_unavailable", err, false)
-		}
-		defer releaseLease()
-		session, err = s.sessions.Load(runCtx, task.SessionID)
-		if err != nil {
-			claim.stop()
-			return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, resume, "session_reload_failed", err, false)
-		}
-		if status, exists := session.RunStatus(task.RunID); exists {
-			if status == core.RunWaitingApproval {
-				resume = true
-			} else {
-				claim.stop()
-				if status == "" {
-					status = core.RunFailed
-				}
-				errorCode := runTerminalErrorCode(session, task.RunID)
-				if errorCode == "" && status == core.RunFailed {
-					errorCode = "run_already_started"
-				}
-				return s.finishQueuedRunClaim(task, workerID, status, errorCode)
-			}
 		}
 	}
 
