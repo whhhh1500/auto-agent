@@ -321,67 +321,80 @@ func (s *SQLSessionStore) acquireSQLiteSessionWriteFence(ctx context.Context, tx
 // a lease that expires while the transaction is working cannot authorize the
 // durable write.
 func (s *SQLSessionStore) acquirePostgresSessionWriteFence(ctx context.Context, tx *sql.Tx, fence SessionWriteFence, expectedVersion int64) (string, error) {
+	header, committed, err := s.lockPostgresSessionWriteFence(ctx, tx, fence)
+	if err != nil {
+		return "", err
+	}
+	if committed != expectedVersion {
+		return "", fmt.Errorf("%w: expected %d, found %d", core.ErrSessionConflict, expectedVersion, committed)
+	}
+	return header, nil
+}
+
+// lockPostgresSessionWriteFence locks queued ownership in the same order as
+// claim lifecycle mutations before the Session row. Callers that need an
+// idempotent response-lost branch may inspect the locked committed version
+// themselves; writers still make the final database-time fence recheck.
+func (s *SQLSessionStore) lockPostgresSessionWriteFence(ctx context.Context, tx *sql.Tx, fence SessionWriteFence) (string, int64, error) {
 	var runSessionID, runTenantID, runSubjectID, status string
 	var cancelRequested int
 	if err := tx.QueryRowContext(ctx, sqlFencePostgresLockRun.bind(s.dialect), fence.RunID).Scan(&runSessionID, &runTenantID, &runSubjectID, &status, &cancelRequested); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", sessionWriteFenceLost("run control row is missing")
+			return "", 0, sessionWriteFenceLost("run control row is missing")
 		}
-		return "", err
+		return "", 0, err
 	}
 	var workerID string
 	var generation, queueExpiry int64
 	if err := tx.QueryRowContext(ctx, sqlFencePostgresLockQueue.bind(s.dialect), fence.RunID).Scan(&workerID, &generation, &queueExpiry); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", sessionWriteFenceLost("run queue row is missing")
+			return "", 0, sessionWriteFenceLost("run queue row is missing")
 		}
-		return "", err
+		return "", 0, err
 	}
 	var leaseHolder string
 	var sessionLeaseExpiry int64
 	if err := tx.QueryRowContext(ctx, sqlFencePostgresLockLease.bind(s.dialect), fence.SessionID).Scan(&leaseHolder, &sessionLeaseExpiry); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", sessionWriteFenceLost("session lease row is missing")
+			return "", 0, sessionWriteFenceLost("session lease row is missing")
 		}
-		return "", err
+		return "", 0, err
 	}
 	var committed int64
 	var header, sessionTenantID, sessionUserID string
 	if err := tx.QueryRowContext(ctx, sqlFencePostgresLockSession.bind(s.dialect), fence.SessionID).Scan(&committed, &header, &sessionTenantID, &sessionUserID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", fmt.Errorf("%w: %s", core.ErrSessionNotFound, fence.SessionID)
+			return "", 0, fmt.Errorf("%w: %s", core.ErrSessionNotFound, fence.SessionID)
 		}
-		return "", err
+		return "", 0, err
 	}
 	var now int64
 	if err := tx.QueryRowContext(ctx, sqlFencePostgresNow.bind(s.dialect)).Scan(&now); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	switch {
 	case runSessionID != fence.SessionID:
-		return "", sessionWriteFenceLost("run belongs to another session")
+		return "", 0, sessionWriteFenceLost("run belongs to another session")
 	case runTenantID != fence.TenantID || runSubjectID != fence.SubjectID:
-		return "", sessionWriteFenceLost("run owner changed")
+		return "", 0, sessionWriteFenceLost("run owner changed")
 	case status != RunStatusRunning:
-		return "", sessionWriteFenceLost("run is not running")
+		return "", 0, sessionWriteFenceLost("run is not running")
 	case cancelRequested != 0:
-		return "", sessionWriteFenceLost("run cancellation was requested")
+		return "", 0, sessionWriteFenceLost("run cancellation was requested")
 	case workerID != fence.WorkerID:
-		return "", sessionWriteFenceLost("run queue worker changed")
+		return "", 0, sessionWriteFenceLost("run queue worker changed")
 	case generation != fence.QueueGeneration:
-		return "", sessionWriteFenceLost("run queue generation changed")
+		return "", 0, sessionWriteFenceLost("run queue generation changed")
 	case queueExpiry <= now:
-		return "", sessionWriteFenceLost("run queue lease expired")
+		return "", 0, sessionWriteFenceLost("run queue lease expired")
 	case leaseHolder != fence.LeaseHolder:
-		return "", sessionWriteFenceLost("session lease holder changed")
+		return "", 0, sessionWriteFenceLost("session lease holder changed")
 	case sessionLeaseExpiry <= now:
-		return "", sessionWriteFenceLost("session lease expired")
+		return "", 0, sessionWriteFenceLost("session lease expired")
 	case sessionTenantID != fence.TenantID || sessionUserID != fence.SubjectID:
-		return "", sessionWriteFenceLost("session catalog identity does not match fence")
-	case committed != expectedVersion:
-		return "", fmt.Errorf("%w: expected %d, found %d", core.ErrSessionConflict, expectedVersion, committed)
+		return "", 0, sessionWriteFenceLost("session catalog identity does not match fence")
 	default:
-		return header, nil
+		return header, committed, nil
 	}
 }
 
