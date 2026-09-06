@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -17,6 +18,7 @@ const (
 	discloseSearchTopK    = 8
 	discloseMaxSearchTopK = 32
 	discloseSummaryRunes  = 240
+	discloseActiveLimit   = 8
 )
 
 type libraryDoc struct {
@@ -54,6 +56,9 @@ func discloseToolRuntime(tools ToolRuntime) ToolRuntime {
 	if !ok || snap == nil {
 		return tools
 	}
+	if _, reserved := snap.providers[disclosedLibraryID]; reserved {
+		return tools // the host owns this discovery protocol and its dispatch
+	}
 	docs := []libraryDoc{}
 	hotSchemas := []ToolSchema{}
 	for _, capability := range snap.capabilities {
@@ -64,7 +69,7 @@ func discloseToolRuntime(tools ToolRuntime) ToolRuntime {
 		if capability.Manifest.Tool == nil {
 			continue
 		}
-		if hotKind(capability.Manifest.Kind) || id == disclosedLibraryID {
+		if hotKind(capability.Manifest.Kind) {
 			description := capability.Manifest.Tool.Description
 			if description == "" {
 				description = capability.Manifest.Description
@@ -140,6 +145,72 @@ func (d *disclosedRuntime) Schemas() []ToolSchema {
 		Description: "Search the tool library, then describe one id. Call discovered tools by their qualified id.",
 		Parameters:  discloseLibrarySchema(),
 	})
+	return out
+}
+
+// Rebuild the bounded selection from paired model history, not mutable runtime
+// state. A fresh Agent can resume with current, authorized schemas; old result
+// schemas never become authority. Compacted-away discoveries may be repeated.
+func (d *disclosedRuntime) schemasForMessages(messages []ChatMessage) []ToolSchema {
+	selected := make([]int, 0, discloseActiveLimit)
+	pending := map[string]ToolCall{}
+	for _, message := range messages {
+		if message.Role == RoleAssistant {
+			calls := message.ToolCalls
+			if len(calls) == 0 && message.ToolCall != nil {
+				calls = []ToolCall{*message.ToolCall}
+			}
+			for _, call := range calls {
+				pending[call.ID] = call
+			}
+			continue
+		}
+		if message.Role != RoleTool {
+			continue
+		}
+		call, paired := pending[message.ToolCallID]
+		delete(pending, message.ToolCallID)
+		if !paired {
+			continue
+		}
+		id := call.Name
+		if id == disclosedLibraryID {
+			if call.Args["action"] != "describe" || len(message.Content) > MaxCapabilityManifestBytes {
+				continue
+			}
+			var result struct{ Status, ID string }
+			if json.Unmarshal([]byte(message.Content), &result) != nil || result.Status != "ok" {
+				continue
+			}
+			index, visible := d.index.byID[result.ID]
+			if !visible {
+				continue
+			}
+			requestedID, _ := call.Args["id"].(string)
+			requestedName, _ := call.Args["name"].(string)
+			requestedID = strings.TrimSpace(requestedID)
+			if (requestedID != "" && requestedID != result.ID) || (requestedID == "" && strings.TrimSpace(requestedName) != d.index.docs[index].Name) {
+				continue
+			}
+			id = result.ID
+		}
+		index, visible := d.index.byID[id]
+		if !visible {
+			continue
+		}
+		if previous := slices.Index(selected, index); previous >= 0 {
+			selected = slices.Delete(selected, previous, previous+1)
+		} else if len(selected) == discloseActiveLimit {
+			copy(selected, selected[1:])
+			selected = selected[:len(selected)-1]
+		}
+		selected = append(selected, index)
+	}
+	out := d.Schemas()
+	for _, index := range selected {
+		doc := d.index.docs[index]
+		out = append(out, ToolSchema{Name: doc.ID, Description: doc.Description, Parameters: cloneMap(doc.Schema)})
+	}
 	return out
 }
 

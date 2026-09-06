@@ -52,6 +52,8 @@ func TestLiveModelSerialModuleAcceptance(t *testing.T) {
 		{"trace_history_restore", serialTraceHistoryRestore},
 		{"tool_budget_history", serialToolBudgetHistory},
 		{"wasm_computation", serialWASMComputation},
+		{"tool_disclosure_small", serialToolDisclosureSmall},
+		{"tool_disclosure_large", serialToolDisclosureLarge},
 	} {
 		if !t.Run(tc.name, func(t *testing.T) {
 			model.test = t
@@ -87,6 +89,7 @@ type serialAcceptanceModel struct {
 type serialModelObservation struct {
 	InputTokens, OutputTokens int64
 	Messages, Tools           int
+	ToolNames                 []string
 }
 
 func (m *serialAcceptanceModel) ModelContextLimits() (int, int) {
@@ -138,7 +141,7 @@ func (m *serialAcceptanceModel) Stream(ctx context.Context, options core.Generat
 	m.last = time.Now()
 	m.input += input
 	m.output += output
-	m.observations = append(m.observations, serialModelObservation{InputTokens: input, OutputTokens: output, Messages: len(options.Messages), Tools: len(options.Tools)})
+	m.observations = append(m.observations, serialModelObservation{InputTokens: input, OutputTokens: output, Messages: len(options.Messages), Tools: len(options.Tools), ToolNames: toolNames})
 	m.test.Logf("serial model_call=%d elapsed_ms=%d input_tokens=%d output_tokens=%d failed=%t", m.calls, time.Since(started).Milliseconds(), input, output, err != nil)
 	if err != nil {
 		// Do not leak URL credentials or upstream response bodies into a log.

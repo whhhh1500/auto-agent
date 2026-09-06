@@ -1,0 +1,523 @@
+{
+  "context_metrics_process_cumulative": {
+    "harness.model.context.dropped_groups": 0,
+    "harness.model.context.input_bytes": 5686,
+    "harness.model.context.input_tokens": 5264
+  },
+  "events": [
+    {
+      "data": {
+        "assignment_revision": "3aeabb4a3276cece593f9f4eb5a4278154b23b22703a5e3d07924ccdab645397",
+        "capability_snapshot_id": "9a677096ac36b3e8156ac1bfa77b78babfb3781de732230f1ba1cab3378d31b3",
+        "composition": {
+          "capabilities": [
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Retrieve the issued invoice and payment due date for an invoice record_id. This catalog contains billing documents and totals; use it to inspect a particular invoice.",
+                "id": "billing.invoice_lookup",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "record_id": {
+                      "description": "The exact record identifier from the user request.",
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "record_id"
+                  ],
+                  "type": "object"
+                },
+                "kind": "connector",
+                "name": "billing.invoice_lookup",
+                "tool": {
+                  "description": "Retrieve the issued invoice and payment due date for an invoice record_id. This catalog contains billing documents and totals; use it to inspect a particular invoice.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "description": "The exact record identifier from the user request.",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Retrieve the carrier tracking checkpoint and estimated delivery date for parcel record_id. Use this for a parcel already handed to a carrier.",
+                "id": "shipping.parcel_lookup",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "record_id": {
+                      "description": "The exact record identifier from the user request.",
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "record_id"
+                  ],
+                  "type": "object"
+                },
+                "kind": "connector",
+                "name": "shipping.parcel_lookup",
+                "tool": {
+                  "description": "Retrieve the carrier tracking checkpoint and estimated delivery date for parcel record_id. Use this for a parcel already handed to a carrier.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "description": "The exact record identifier from the user request.",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Retrieve customer support ticket status, assigned queue and last response for ticket record_id. This catalog concerns support cases and their resolution history.",
+                "id": "support.ticket_lookup",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "record_id": {
+                      "description": "The exact record identifier from the user request.",
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "record_id"
+                  ],
+                  "type": "object"
+                },
+                "kind": "connector",
+                "name": "support.ticket_lookup",
+                "tool": {
+                  "description": "Retrieve customer support ticket status, assigned queue and last response for ticket record_id. This catalog concerns support cases and their resolution history.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "description": "The exact record identifier from the user request.",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "description": "Retrieve the stock verification marker for an inventory item. Supply the item code as record_id. Returns the warehouse's current verification marker, not an estimate or a calculation.",
+                "id": "warehouse.stock_lookup",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "record_id": {
+                      "description": "The exact record identifier from the user request.",
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "record_id"
+                  ],
+                  "type": "object"
+                },
+                "kind": "connector",
+                "name": "warehouse.stock_lookup",
+                "tool": {
+                  "description": "Retrieve the stock verification marker for an inventory item. Supply the item code as record_id. Returns the warehouse's current verification marker, not an estimate or a calculation.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "description": "The exact record identifier from the user request.",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            }
+          ],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 8,
+          "metadata": {
+            "harness.executor.id": "sequential",
+            "harness.executor.implementation_revision": "core-runtime-v1",
+            "harness.executor.version": "1"
+          },
+          "model": {
+            "model": "gemini-3.8-flash",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": [
+              "billing.invoice_lookup",
+              "shipping.parcel_lookup",
+              "support.ticket_lookup",
+              "warehouse.stock_lookup"
+            ],
+            "created_at": "2026-09-06T06:39:02.0478015Z",
+            "fragments": [
+              {
+                "content": "Retrieve the user's requested value with exactly one business lookup and return only its exact result. Never invent or calculate a verification marker. If the needed tool is already declared, call it directly. If only a tool library is available, search for the relevant tool, describe its qualified id, then call it. Do not use the library again once the needed tool is declared.",
+                "id": "serial.disclosure.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "288aab2a27f88131a7672bd9c7e3b6f33afb3e64406e703e60e4b5cdad045470",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "gemini-3.8-flash",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.disclosure",
+            "profile_id": "serial.disclosure",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_6a342292f0f696846b430f870078b0a9",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "748d1c1b6f3c2036ce225890c09de046e5cd0d0bff3072010d2ca3cce7f7589e",
+        "profile_snapshot_id": "288aab2a27f88131a7672bd9c7e3b6f33afb3e64406e703e60e4b5cdad045470"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 0,
+      "time": "2026-09-06T06:39:02.0483616Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "Retrieve the stock verification marker for inventory item ORION-42. Reply only with that marker."
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 1,
+      "time": "2026-09-06T06:39:02.0483616Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 2,
+      "time": "2026-09-06T06:39:02.0483616Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "",
+        "tool_call": {
+          "args": {
+            "record_id": "ORION-42"
+          },
+          "id": "call_f1ef7a3322644410b9845f6328d10680",
+          "name": "warehouse.stock_lookup"
+        },
+        "tool_calls": [
+          {
+            "args": {
+              "record_id": "ORION-42"
+            },
+            "id": "call_f1ef7a3322644410b9845f6328d10680",
+            "name": "warehouse.stock_lookup"
+          }
+        ]
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 3,
+      "time": "2026-09-06T06:39:06.561437Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "args": {
+          "record_id": "ORION-42"
+        },
+        "call_id": "call_f1ef7a3322644410b9845f6328d10680",
+        "name": "warehouse.stock_lookup"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 4,
+      "time": "2026-09-06T06:39:06.561437Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "call_id": "call_f1ef7a3322644410b9845f6328d10680",
+        "content": "proof_ac2e8b9fa1d0a2b2264cdc287c0b92a1",
+        "ok": true
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 5,
+      "time": "2026-09-06T06:39:06.5646126Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 6,
+      "time": "2026-09-06T06:39:06.5646126Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 7,
+      "time": "2026-09-06T06:39:06.5646126Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "proof_ac2e8b9fa1d0a2b2"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 8,
+      "time": "2026-09-06T06:39:09.03104Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "264cdc287c0b92a1"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 9,
+      "time": "2026-09-06T06:39:09.0398467Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "proof_ac2e8b9fa1d0a2b2264cdc287c0b92a1"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 10,
+      "time": "2026-09-06T06:39:09.0702365Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 11,
+      "time": "2026-09-06T06:39:09.0702365Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "input_tokens": 1067,
+        "output_tokens": 333
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 12,
+      "time": "2026-09-06T06:39:09.0702365Z",
+      "type": "run/usage"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+      "seq": 13,
+      "time": "2026-09-06T06:39:09.0702365Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+  "session_id": "sess_6a342292f0f696846b430f870078b0a9",
+  "spans": [
+    {
+      "attributes": {
+        "claim.outcome": "claimed",
+        "run.id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "session.id": "sess_6a342292f0f696846b430f870078b0a9",
+        "worker.id": "serial-acceptance"
+      },
+      "duration_ms": 0,
+      "name": "harness.queue.claim",
+      "parent_id": "0000000000000000",
+      "span_id": "65c52e94cd9dffa6",
+      "status": "Unset",
+      "trace_id": "ecd93bc1b4fdbd173773f65c1c9fec50"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "2642",
+        "model.context.input_tokens": "2544",
+        "model.finish": "tool-calls",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.disclosure",
+        "run.id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "run.step": "0",
+        "session.id": "sess_6a342292f0f696846b430f870078b0a9"
+      },
+      "duration_ms": 4513,
+      "name": "harness.model.call",
+      "parent_id": "f7f8aad34e699625",
+      "span_id": "9f9958a66d864260",
+      "status": "Unset",
+      "trace_id": "eec5b2fd042f828a8553612344c4140f"
+    },
+    {
+      "attributes": {
+        "call.id": "call_f1ef7a3322644410b9845f6328d10680",
+        "capability.id": "warehouse.stock_lookup",
+        "run.id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "session.id": "sess_6a342292f0f696846b430f870078b0a9",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "ok"
+      },
+      "duration_ms": 0,
+      "name": "harness.tool.call",
+      "parent_id": "f7f8aad34e699625",
+      "span_id": "7b2e013eaf49d220",
+      "status": "Unset",
+      "trace_id": "eec5b2fd042f828a8553612344c4140f"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "3044",
+        "model.context.input_tokens": "2720",
+        "model.finish": "stop",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.disclosure",
+        "run.id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "run.step": "1",
+        "session.id": "sess_6a342292f0f696846b430f870078b0a9"
+      },
+      "duration_ms": 2505,
+      "name": "harness.model.call",
+      "parent_id": "f7f8aad34e699625",
+      "span_id": "00c3ee45040216d1",
+      "status": "Unset",
+      "trace_id": "eec5b2fd042f828a8553612344c4140f"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.disclosure",
+        "run.id": "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_6a342292f0f696846b430f870078b0a9",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 7022,
+      "name": "harness.run.segment",
+      "parent_id": "0000000000000000",
+      "span_id": "f7f8aad34e699625",
+      "status": "Unset",
+      "trace_id": "eec5b2fd042f828a8553612344c4140f"
+    }
+  ]
+}

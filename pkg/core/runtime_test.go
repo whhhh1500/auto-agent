@@ -23,14 +23,18 @@ func (revisionLLM) Provider() string         { return "revision-model" }
 func (revisionLLM) ArtifactRevision() string { return "model-build-sensitive-label" }
 
 type schemaCapturingLLM struct {
-	tools []ToolSchema
-	call  ToolCall
+	tools      []ToolSchema
+	firstTools []ToolSchema
+	call       ToolCall
 }
 
 func (l *schemaCapturingLLM) Provider() string { return "schema-capturing" }
 
 func (l *schemaCapturingLLM) Stream(_ context.Context, options GenerateOptions, emit func(StreamChunk)) error {
 	l.tools = append([]ToolSchema(nil), options.Tools...)
+	if l.firstTools == nil {
+		l.firstTools = append([]ToolSchema(nil), options.Tools...)
+	}
 	last := options.Messages[len(options.Messages)-1]
 	if last.Role == RoleTool {
 		emit(StreamChunk{Kind: StreamKindAssistant, Text: "Capability result: " + last.Content})
@@ -90,7 +94,10 @@ func TestRuntimeToolDisclosureIsOptInForRunAndResume(t *testing.T) {
 			if err != nil || result.Answer != "Capability result: slack-sent" {
 				t.Fatalf("run direct call failed: %#v %v", result, err)
 			}
-			assertRuntimeToolSchemas(t, modelAdapter.tools, test.disclose)
+			assertRuntimeToolSchemas(t, modelAdapter.firstTools, test.disclose)
+			if !hasToolSchema(modelAdapter.tools, "chat.send") || (test.disclose && hasToolSchema(modelAdapter.tools, "notify.send")) {
+				t.Fatal("completed direct call was not retained as a narrowly disclosed schema")
+			}
 
 			resumed, code, err := runtime.composeResumeAgent(context.Background(), principal, session, nil, nil)
 			if err != nil || code != "" {

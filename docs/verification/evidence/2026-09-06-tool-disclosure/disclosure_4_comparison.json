@@ -1,0 +1,138 @@
+{
+  "arms": [
+    {
+      "disclosed": false,
+      "elapsed_ms": 13428,
+      "input_tokens": 2373,
+      "output_tokens": 599,
+      "requests": [
+        {
+          "InputTokens": 499,
+          "Messages": 1,
+          "OutputTokens": 170,
+          "ToolNames": [
+            "billing.invoice_lookup",
+            "shipping.parcel_lookup",
+            "support.ticket_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 4
+        },
+        {
+          "InputTokens": 568,
+          "Messages": 3,
+          "OutputTokens": 163,
+          "ToolNames": [
+            "billing.invoice_lookup",
+            "shipping.parcel_lookup",
+            "support.ticket_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 4
+        },
+        {
+          "InputTokens": 620,
+          "Messages": 5,
+          "OutputTokens": 138,
+          "ToolNames": [
+            "billing.invoice_lookup",
+            "shipping.parcel_lookup",
+            "support.ticket_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 4
+        },
+        {
+          "InputTokens": 686,
+          "Messages": 7,
+          "OutputTokens": 128,
+          "ToolNames": [
+            "billing.invoice_lookup",
+            "shipping.parcel_lookup",
+            "support.ticket_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 4
+        }
+      ],
+      "run_ids": [
+        "run_c1b8b6e53323abf729ade5cdefe79ad3",
+        "run_f1b539a4cbbc08bd8c18c4d79f978032"
+      ],
+      "tool_calls": 2
+    },
+    {
+      "disclosed": true,
+      "elapsed_ms": 15960,
+      "input_tokens": 3562,
+      "output_tokens": 900,
+      "requests": [
+        {
+          "InputTokens": 234,
+          "Messages": 1,
+          "OutputTokens": 215,
+          "ToolNames": [
+            "harness.tool.library"
+          ],
+          "Tools": 1
+        },
+        {
+          "InputTokens": 353,
+          "Messages": 3,
+          "OutputTokens": 108,
+          "ToolNames": [
+            "harness.tool.library"
+          ],
+          "Tools": 1
+        },
+        {
+          "InputTokens": 626,
+          "Messages": 5,
+          "OutputTokens": 149,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 695,
+          "Messages": 7,
+          "OutputTokens": 124,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 841,
+          "Messages": 9,
+          "OutputTokens": 162,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 813,
+          "Messages": 11,
+          "OutputTokens": 142,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        }
+      ],
+      "run_ids": [
+        "run_0792895159440500e1abc77fb644e75e",
+        "run_734eafe66b2f20b73ce75dd296fffb53"
+      ],
+      "tool_calls": 4
+    }
+  ],
+  "catalog_size": 4,
+  "turns_per_arm": 2
+}

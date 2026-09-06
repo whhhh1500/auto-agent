@@ -119,6 +119,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | MCP | Outbound stdio tool integration | No inbound MCP server endpoint |
 | WASM execution | Per-call isolated runtime, default 128 MiB guest linear memory / 30 s timeout, context cancellation enabled; optional caller-owned compilation cache | [Real WASI, resource and cache acceptance](performance/2026-09-06-wasm-resource-and-cache.md); limits do not cap total host RSS or hard-preempt arbitrary file reads / compilation |
 | Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
+| Optional tool disclosure | Restores up to 8 recent tool schemas from projected history and the current authorized snapshot; host-owned library dispatch is preserved | [4/24-tool real conversation comparison](performance/2026-09-06-tool-disclosure.md); extra discovery calls can increase total tokens and latency; `toollib.SetSearcher` does not replace the core searcher |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking

@@ -1,0 +1,218 @@
+{
+  "arms": [
+    {
+      "disclosed": false,
+      "elapsed_ms": 12544,
+      "input_tokens": 9829,
+      "output_tokens": 636,
+      "requests": [
+        {
+          "InputTokens": 2361,
+          "Messages": 1,
+          "OutputTokens": 224,
+          "ToolNames": [
+            "analytics.report_lookup",
+            "assets.device_lookup",
+            "billing.invoice_lookup",
+            "calendar.event_lookup",
+            "compliance.audit_lookup",
+            "content.article_lookup",
+            "contracts.agreement_lookup",
+            "crm.customer_lookup",
+            "facilities.maintenance_lookup",
+            "finance.refund_lookup",
+            "hr.employee_lookup",
+            "legal.case_lookup",
+            "marketing.campaign_lookup",
+            "procurement.order_lookup",
+            "production.batch_lookup",
+            "quality.inspection_lookup",
+            "research.study_lookup",
+            "security.incident_lookup",
+            "shipping.parcel_lookup",
+            "subscriptions.plan_lookup",
+            "support.ticket_lookup",
+            "training.course_lookup",
+            "travel.booking_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 24
+        },
+        {
+          "InputTokens": 2431,
+          "Messages": 3,
+          "OutputTokens": 173,
+          "ToolNames": [
+            "analytics.report_lookup",
+            "assets.device_lookup",
+            "billing.invoice_lookup",
+            "calendar.event_lookup",
+            "compliance.audit_lookup",
+            "content.article_lookup",
+            "contracts.agreement_lookup",
+            "crm.customer_lookup",
+            "facilities.maintenance_lookup",
+            "finance.refund_lookup",
+            "hr.employee_lookup",
+            "legal.case_lookup",
+            "marketing.campaign_lookup",
+            "procurement.order_lookup",
+            "production.batch_lookup",
+            "quality.inspection_lookup",
+            "research.study_lookup",
+            "security.incident_lookup",
+            "shipping.parcel_lookup",
+            "subscriptions.plan_lookup",
+            "support.ticket_lookup",
+            "training.course_lookup",
+            "travel.booking_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 24
+        },
+        {
+          "InputTokens": 2484,
+          "Messages": 5,
+          "OutputTokens": 209,
+          "ToolNames": [
+            "analytics.report_lookup",
+            "assets.device_lookup",
+            "billing.invoice_lookup",
+            "calendar.event_lookup",
+            "compliance.audit_lookup",
+            "content.article_lookup",
+            "contracts.agreement_lookup",
+            "crm.customer_lookup",
+            "facilities.maintenance_lookup",
+            "finance.refund_lookup",
+            "hr.employee_lookup",
+            "legal.case_lookup",
+            "marketing.campaign_lookup",
+            "procurement.order_lookup",
+            "production.batch_lookup",
+            "quality.inspection_lookup",
+            "research.study_lookup",
+            "security.incident_lookup",
+            "shipping.parcel_lookup",
+            "subscriptions.plan_lookup",
+            "support.ticket_lookup",
+            "training.course_lookup",
+            "travel.booking_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 24
+        },
+        {
+          "InputTokens": 2553,
+          "Messages": 7,
+          "OutputTokens": 30,
+          "ToolNames": [
+            "analytics.report_lookup",
+            "assets.device_lookup",
+            "billing.invoice_lookup",
+            "calendar.event_lookup",
+            "compliance.audit_lookup",
+            "content.article_lookup",
+            "contracts.agreement_lookup",
+            "crm.customer_lookup",
+            "facilities.maintenance_lookup",
+            "finance.refund_lookup",
+            "hr.employee_lookup",
+            "legal.case_lookup",
+            "marketing.campaign_lookup",
+            "procurement.order_lookup",
+            "production.batch_lookup",
+            "quality.inspection_lookup",
+            "research.study_lookup",
+            "security.incident_lookup",
+            "shipping.parcel_lookup",
+            "subscriptions.plan_lookup",
+            "support.ticket_lookup",
+            "training.course_lookup",
+            "travel.booking_lookup",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 24
+        }
+      ],
+      "run_ids": [
+        "run_d7784fdda3d103aad2c13b14ec003ce3",
+        "run_14b69b2bfc316c5306705d164160c1ae"
+      ],
+      "tool_calls": 2
+    },
+    {
+      "disclosed": true,
+      "elapsed_ms": 19733,
+      "input_tokens": 3635,
+      "output_tokens": 1086,
+      "requests": [
+        {
+          "InputTokens": 234,
+          "Messages": 1,
+          "OutputTokens": 184,
+          "ToolNames": [
+            "harness.tool.library"
+          ],
+          "Tools": 1
+        },
+        {
+          "InputTokens": 358,
+          "Messages": 3,
+          "OutputTokens": 46,
+          "ToolNames": [
+            "harness.tool.library"
+          ],
+          "Tools": 1
+        },
+        {
+          "InputTokens": 631,
+          "Messages": 5,
+          "OutputTokens": 257,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 701,
+          "Messages": 7,
+          "OutputTokens": 165,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 754,
+          "Messages": 9,
+          "OutputTokens": 214,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        },
+        {
+          "InputTokens": 957,
+          "Messages": 11,
+          "OutputTokens": 220,
+          "ToolNames": [
+            "harness.tool.library",
+            "warehouse.stock_lookup"
+          ],
+          "Tools": 2
+        }
+      ],
+      "run_ids": [
+        "run_5d3f0ec8301727568850307aa3ea54d8",
+        "run_4fee6171396dabd3a66f8e4db815158d"
+      ],
+      "tool_calls": 4
+    }
+  ],
+  "catalog_size": 24,
+  "turns_per_arm": 2
+}

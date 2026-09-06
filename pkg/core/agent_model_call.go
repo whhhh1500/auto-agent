@@ -13,7 +13,12 @@ import (
 func (a *Agent) callModel(ctx context.Context, info RunInfo, step int, messages []ChatMessage) (modelStreamResult, string, error) {
 	var stream modelStreamResult
 	contextWindowTokens, maxOutputTokens := modelContextLimits(a.opts.LLM)
-	tools := a.tools.Schemas()
+	var tools []ToolSchema
+	if disclosed, ok := a.opts.Tools.(*disclosedRuntime); ok {
+		tools = disclosed.schemasForMessages(messages)
+	} else {
+		tools = a.tools.Schemas()
+	}
 	assembled, err := safeAssembleModelContext(a.opts.ContextAssembler, ctx, ModelContext{
 		System: a.opts.System, Messages: messages, Tools: tools, ContextWindowTokens: contextWindowTokens, MaxOutputTokens: maxOutputTokens,
 	})
