@@ -27,6 +27,107 @@ func TestAssemblerEstimatesEnglishCJKAndRequiredSystem(t *testing.T) {
 	}
 }
 
+func TestAssemblerNormalizesProjectedToolAliasWithoutLosingContinuation(t *testing.T) {
+	call := core.ToolCall{ID: "projected-call", Name: "memory.remember", Args: map[string]any{"key": "color", "content": "blue"}, Continuation: "opaque-continuation"}
+	messages := []core.ChatMessage{
+		{Role: core.RoleUser, Content: "remember my color", SourceSeq: 1},
+		{Role: core.RoleAssistant, ToolCall: &call, ToolCalls: []core.ToolCall{call}, SourceSeq: 2},
+		{Role: core.RoleTool, ToolCallID: call.ID, Content: "stored", SourceSeq: 3},
+	}
+	a, err := NewAssembler(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.AssembleModelContext(context.Background(), core.ModelContext{ContextWindowTokens: 32768, MaxOutputTokens: 4096, Messages: messages})
+	if err != nil {
+		t.Fatalf("valid Session projection rejected: %v", err)
+	}
+	if len(result.Messages) != 3 || result.Messages[1].ToolCall != nil || len(result.Messages[1].ToolCalls) != 1 || result.Messages[1].ToolCalls[0].Continuation != call.Continuation || result.Messages[2].ToolCallID != call.ID {
+		t.Fatalf("tool pairing or continuation changed: %#v", result.Messages)
+	}
+	if messages[1].ToolCall == nil || messages[1].ToolCalls[0].Args["content"] != "blue" {
+		t.Fatal("assembly mutated durable input")
+	}
+}
+
+func TestAssemblerRejectsConflictingProjectedToolAliases(t *testing.T) {
+	for _, field := range []string{"id", "name", "args", "continuation"} {
+		t.Run(field, func(t *testing.T) {
+			alias := core.ToolCall{ID: "call", Name: "tool", Args: map[string]any{"n": 1}, Continuation: "original"}
+			first := alias
+			switch field {
+			case "id":
+				first.ID = "different"
+			case "name":
+				first.Name = "different"
+			case "args":
+				first.Args = map[string]any{"n": 2}
+			case "continuation":
+				first.Continuation = "different"
+			}
+			a, _ := NewAssembler(Config{})
+			_, err := a.AssembleModelContext(context.Background(), core.ModelContext{ContextWindowTokens: 32768, MaxOutputTokens: 4096, Messages: []core.ChatMessage{{Role: core.RoleAssistant, ToolCall: &alias, ToolCalls: []core.ToolCall{first}}}})
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("conflicting %s alias accepted: %v", field, err)
+			}
+		})
+	}
+}
+
+func TestAssemblerKeepsOuterWorkflowResultAndDurableAuditInput(t *testing.T) {
+	call := core.ToolCall{ID: "flow", Name: "pipeline", Args: map[string]any{"n": 7}}
+	messages := []core.ChatMessage{
+		{Role: core.RoleUser, Content: "run pipeline", SourceSeq: 1},
+		{Role: core.RoleAssistant, ToolCall: &call, ToolCalls: []core.ToolCall{call}, SourceSeq: 2},
+		{Role: core.RoleTool, ToolCallID: "flow/double", Content: `{"value":14}`, SourceSeq: 4},
+		{Role: core.RoleTool, ToolCallID: "flow/plus", Content: `{"value":17}`, SourceSeq: 6},
+		{Role: core.RoleTool, ToolCallID: "flow", Content: `{"value":17}`, SourceSeq: 7},
+	}
+	a, err := NewAssembler(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := core.ModelContext{ContextWindowTokens: 32768, MaxOutputTokens: 4096, Messages: messages}
+	result, err := a.AssembleModelContext(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Messages) != 3 || result.Messages[2].ToolCallID != "flow" || result.Messages[2].Content != `{"value":17}` {
+		t.Fatalf("model context must contain only the outer response: %#v", result.Messages)
+	}
+	if messages[2].ToolCallID != "flow/double" || messages[2].Content != `{"value":14}` || messages[1].ToolCall == nil {
+		t.Fatal("durable audit projection mutated")
+	}
+	request.Messages = messages[:4]
+	if _, err := a.AssembleModelContext(context.Background(), request); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing outer result must fail closed: %v", err)
+	}
+	request.Messages = []core.ChatMessage{messages[0], messages[1], messages[4], messages[1], messages[2]}
+	if _, err := a.AssembleModelContext(context.Background(), request); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an earlier result with a reused call ID must not complete a later workflow: %v", err)
+	}
+}
+
+func TestAssemblerPreservesExplicitModelCallWithSlashID(t *testing.T) {
+	a, err := NewAssembler(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := core.ModelContext{ContextWindowTokens: 32768, MaxOutputTokens: 4096, Messages: []core.ChatMessage{
+		{Role: core.RoleUser, Content: "call both"},
+		{Role: core.RoleAssistant, ToolCalls: []core.ToolCall{{ID: "flow", Name: "first"}, {ID: "flow/step", Name: "second"}}},
+		{Role: core.RoleTool, ToolCallID: "flow/step", Content: "second"},
+		{Role: core.RoleTool, ToolCallID: "flow", Content: "first"},
+	}}
+	result, err := a.AssembleModelContext(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Messages) != 4 || result.Messages[2].ToolCallID != "flow/step" {
+		t.Fatalf("explicitly requested tool result removed: %#v", result.Messages)
+	}
+}
+
 func TestAssemblerPrioritizesLatestAndSummaryAndKeepsToolGroupsAtomic(t *testing.T) {
 	a, err := NewAssembler(Config{SafetyMarginTokens: 4, MaxToolResultBytes: 16})
 	if err != nil {

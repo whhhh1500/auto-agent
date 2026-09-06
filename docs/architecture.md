@@ -9,6 +9,9 @@ For the detailed implementation and extension audit, see the
 [framework comparison](agent-framework-comparison.md) explains scenario-based
 tradeoffs, and the [2026-09-06 benchmarks](performance/2026-09-06-module-benchmarks.md)
 separate measured local costs from historical integration evidence and unmeasured claims.
+The [serial live-model acceptance](verification/2026-09-06-serial-live-agent-acceptance.md)
+records actual Gemini requests, failures and fixes, and the HTTP history / SQL /
+OpenTelemetry audit standard with sanitized evidence.
 
 ```text
                          +------------------+
@@ -46,6 +49,9 @@ implementation.
 
 - `pkg/app/contextassembly` owns bounded context assembly plus deterministic
   extractive/optional LLM summarization policies behind a small core seam.
+  Its adapter normalizes matching legacy tool-call aliases and omits completed
+  workflow child audit results from model input, while durable events retain
+  every protected step. Conflicting aliases or missing outer results fail closed.
 - `pkg/app/modelcontrol` owns immutable catalog/provider/protocol evidence;
   `pkg/adapter/modelruntime` compiles persisted settings through explicit
   provider and protocol plugins.

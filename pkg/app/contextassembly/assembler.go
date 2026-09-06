@@ -1,12 +1,14 @@
 package contextassembly
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/cc-auto-agent/harness-core/pkg/core"
@@ -63,16 +65,33 @@ func (a *Assembler) AssembleModelContext(ctx context.Context, request core.Model
 
 func (a *Assembler) items(ctx context.Context, messages []core.ChatMessage) ([]Item, error) {
 	latestUser := -1
+	resultPositions := make(map[string]int)
 	for i := range messages {
 		if messages[i].Role == core.RoleUser && (messages[i].Provenance == nil || messages[i].Provenance.Kind != "summary") {
 			latestUser = i
 		}
+		if messages[i].Role == core.RoleTool {
+			resultPositions[messages[i].ToolCallID] = i
+		}
 	}
 	groups := make(map[string]string)
 	items := make([]Item, 0, len(messages))
+messagesLoop:
 	for i, message := range messages {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		// Session projections retain ToolCall as a compatibility alias of the
+		// first ToolCalls entry. Normalize that representation before the strict
+		// context contract validates and budgets a message. Never discard a
+		// conflicting alias or mutate the durable projection's message.
+		if message.ToolCall != nil && len(message.ToolCalls) > 0 {
+			alias, aliasErr := json.Marshal(message.ToolCall)
+			first, firstErr := json.Marshal(message.ToolCalls[0])
+			if aliasErr != nil || firstErr != nil || !bytes.Equal(alias, first) {
+				return nil, fmt.Errorf("%w: conflicting projected tool call alias", ErrInvalid)
+			}
+			message.ToolCall = nil
 		}
 		layer, priority := LayerRecent, priorityOlderExact
 		if message.Provenance != nil && message.Provenance.Kind == "summary" {
@@ -95,6 +114,22 @@ func (a *Assembler) items(ctx context.Context, messages []core.ChatMessage) ([]I
 		} else if message.Role == core.RoleTool {
 			layer = LayerToolResults
 			groupID = groups[message.ToolCallID]
+			if groupID == "" {
+				// Workflows journal protected child calls as parentID/step. Those
+				// results are audit events, not responses to model tool calls.
+				// Only elide a child when its model-visible parent has a result;
+				// never hide a missing outer result or an explicitly requested ID.
+				parent := message.ToolCallID
+				for slash := strings.LastIndexByte(parent, '/'); slash > 0; slash = strings.LastIndexByte(parent, '/') {
+					parent = parent[:slash]
+					if groups[parent] != "" {
+						if resultPositions[parent] <= i {
+							return nil, fmt.Errorf("%w: nested tool result has no completed parent", ErrInvalid)
+						}
+						continue messagesLoop
+					}
+				}
+			}
 			if i < latestUser && len(message.Content) > a.maxToolResultBytes {
 				message.Content = toolMarker(message.Content)
 			}

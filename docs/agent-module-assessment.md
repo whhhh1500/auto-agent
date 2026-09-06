@@ -1,8 +1,63 @@
 # Agent 模块实现、性能与扩展评估
 
-评估日期：2026-09-06。源码基线：本地 Git `5beed15`。对象仅为 `harness-core`，不包含父目录中的其他 Agent 仓库。本次是源码审阅、官方资料对照和离线微基准；没有新增运行功能，也没有再次调用计费模型。
+评估日期：2026-09-06。原始源码评估基线：本地 Git `5beed15`，初版文档提交 `af3a99f`；随后补做真实模型验收并修复上下文集成问题，修复与结果随本次文档一同提交。对象仅为 `harness-core`，不包含父目录中的其他 Agent 仓库。
 
 本文按 **44 个逻辑模块**解释实现与取舍，附录映射当前 **74 个 `pkg/...` Go 包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
+
+## 本轮真实验证覆盖：逐模块回答“跑过什么”
+
+2026-09-06 补做了真实串行验收。**当前端点和 Key 可用，指定模型为 `gemini-3.8-flash`。八类场景最终均取得通过结果，过程中发现并修复两处上下文集成问题。** 本轮累计 29 次真实模型请求，包含失败场景与新增 trace 验收；最多 1 个请求在途，未启用自动重试。精确时间、token、Run ID、失败过程和可复跑命令见[串行真实验收记录](verification/2026-09-06-serial-live-agent-acceptance.md)。
+
+下表的“已验证路径”只承诺右侧具体路径，不表示整个模块的全部功能均已验收。没有执行的模块直接写明没有执行。源码实现、单元测试通过和真实模型验收是三种不同证据。
+
+| 模块 | 职责 | 本轮真实验收状态 | 已跑通的边界 / 未覆盖内容 |
+| --- | --- | --- | --- |
+| [M01](#m01) | Agent 循环 | 已验证路径 | 真实模型→工具→模型→终态；含文本与工具循环。 |
+| [M02](#m02) | Scope / Principal | 部分验证 | RAG 排除另一租户文档；测试身份固定注入，未验证真实登录和完整授权矩阵。 |
+| [M03](#m03) | Capability | 已验证路径 | Go 注册的 Memory、RAG、Workflow、子 Agent 经过受保护调用；未穷举合同。 |
+| [M04](#m04) | Profile | 部分验证 | 直接 Bind 不同 Profile 与能力集合；未通过 Console 编辑、发布 Profile。 |
+| [M05](#m05) | PluginHost | 本轮未验 | 未安装插件或测试插件生命周期；接口存在不代表插件实装。 |
+| [M06](#m06) | 能力工厂 | 本轮未验 | 夹具直接注册 Go 能力，未走持久声明→动态工厂恢复。 |
+| [M07](#m07) | ModuleHost | 本轮未验 | 未启动该独立生命周期容器。 |
+| [M08](#m08) | 模型控制面 | 部分验证 | 兼容 adapter 构造最小目录和执行计划；未走完整模型管理 HTTP 配置流程。 |
+| [M09](#m09) | 模型协议 | 已验证路径 | 现有端点的 Chat Completions 兼容协议，model=gemini-3.8-flash；未测原生 Gemini / Responses / Anthropic。 |
+| [M10](#m10) | 模型设置 / Key | 部分验证 | 现有 env URL / Key 实际可用；没有验证数据库模型设置缓存和 Console 修改。 |
+| [M11](#m11) | Gate / Retry | 未作为生产能力验证 | 串行由验收包装器的互斥锁和间隔保证；未安装生产 Gate，自动重试为 0。 |
+| [M12](#m12) | FastRouter | 本轮未验 | 未安装 FastRouter，所有场景均进入模型循环。 |
+| [M13](#m13) | Session / 事件 | 已验证路径 | 会话重建后记住随机值；HTTP 历史分页与 SQL 原始事件逐项相等，保留终态。 |
+| [M14](#m14) | 上下文组装 | 发现问题后验证 | 修复 ToolCall / ToolCalls 兼容别名冲突，以及 Workflow 内部结果进入模型上下文；短上下文通过。工具 Schema 预算缺口仍存在。 |
+| [M15](#m15) | 摘要 / 压缩 | 部分接入，未触发阈值 | 安装 RecentTurnsCompactor；本轮短历史未触发长上下文摘要，不能称摘要已真实验收。 |
+| [M16](#m16) | 工具保护 / Hook | 已验证路径 | OnBeforeTool 拒绝后模型回答 BLOCKED，工具副作用为 0；未穷举全部策略。 |
+| [M17](#m17) | 人工审批 | 已验证路径 | 真实模型请求工具→持久暂停→替换服务实例→同 Run 恢复；副作用和终态各 1 次。该既有夹具未装 ContextAssembler。 |
+| [M18](#m18) | ToolJournal | 部分验证 | SQL journal 参与工具执行及审批恢复；非幂等崩溃窗口未在本轮注入。 |
+| [M19](#m19) | 队列 / 租约 | 部分验证 | HTTP async 入队、RunWorkerOnce 领取与 SQL 终态；未启动并发 worker，未做超时租约压力验证。 |
+| [M20](#m20) | 子 Agent | 已验证路径 | 真实父子模型调用、子工具随机值、SQL delegation link、父子历史及同 trace 的 span 关联；未测子审批中断恢复。 |
+| [M21](#m21) | Workflow | 发现问题后验证 | 7→double=14→plus=17，受保护内层调用与三份工具结果均可审计，真实最终回答 17；不是复杂 DAG 验收。 |
+| [M22](#m22) | Graph | 本轮未验 | 未切换 Graph RunExecutor；Workflow 通过不能替代 Graph 验收。 |
+| [M23](#m23) | Graph 检查点 | 本轮未验 | 没有真实模型驱动的图暂停/检查点恢复场景。 |
+| [M24](#m24) | 工具目录 / 搜索 | 本轮未验 | 没有要求模型调用工具目录 search / describe。 |
+| [M25](#m25) | MCP | 本轮未验 | 未启动真实 MCP server；LLM 工具调用不等于 MCP 通路验证。 |
+| [M26](#m26) | HTTP 执行工具 | 本轮未验 | 使用 HTTP 模型端点不等于通用 HTTP capability executor 通过。 |
+| [M27](#m27) | WASM | 本轮未验 | 未运行真实模型发起的 WASM 工具；已有资源治理缺口仍保留。 |
+| [M28](#m28) | Sandbox 合同 | 本轮未验 | 这些业务夹具没有请求操作系统沙箱。 |
+| [M29](#m29) | Windows Basic | 本轮未复验 | 另有原生 Basic 验收记录；本轮不把普通工具执行当作沙箱验收。 |
+| [M30](#m30) | Linux / E2B | 未实现项仍未实现 | 内置 E2B 客户端和 E2B 兼容服务端 API 均不存在；本轮没有 Linux / E2B 环境测试。 |
+| [M31](#m31) | Private Runner | 本轮未验 | 未启动独立 Worker 或验证远程任务协议。 |
+| [M32](#m32) | Memory | 发现问题后验证 | 真实 remember 写 SQL；关闭服务和连接；另一 Session 通过 recall 取回未出现在新提示中的随机值。 |
+| [M33](#m33) | RAG | 已验证路径 | SQL 关键词检索返回本租户随机值且不含另一租户值；未测试 embedding / 向量召回质量。 |
+| [M34](#m34) | 持久化 | 已验证路径 | 真实 PostgreSQL 的 Session / Run / Approval / Journal / Memory / RAG / Delegation 部分路径；不是所有存储后端验收。 |
+| [M35](#m35) | Artifact / 对象存储 | 本轮未验 | 审计 JSON 是测试本地文件，不是 Artifact/S3 生产链路。 |
+| [M36](#m36) | 身份与账号 | 本轮未验 | Authenticator 直接返回测试 Principal；没有真实账号登录/Token 生命周期测试。 |
+| [M37](#m37) | 配置管理 | 本轮未验 | 夹具 Go 注册和 env 读取不能替代持久配置管理 API 验收。 |
+| [M38](#m38) | 通知 | 本轮未验 | 没有发送通知或调用渠道 adapter。 |
+| [M39](#m39) | 评估引擎 | 本轮未验 | 本次为 Go 验收测试，未通过产品 Evaluation API 运行真实模型评估。 |
+| [M40](#m40) | 发布 / Canary | 本轮未验 | 没有真实模型驱动的发布、灰度或回滚操作。 |
+| [M41](#m41) | HTTP / SSE | 部分验证 | 真实 HTTP 创建 Session、async Run、历史分页和重建后读取；流式 chunk 已入库，未使用真实 SSE 断线客户端。 |
+| [M42](#m42) | Console | 本轮未验 UI | 已查其历史所依赖的事件 API；没有浏览器操作或页面渲染验收。 |
+| [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；metrics 使用 noop，未连接 OTLP / Grafana。 |
+| [M44](#m44) | 质量与验证 | 已有可执行标准 | 新增显式启用的串行真实模型测试和离线 HTTP/SQL 回归；验收包含 trace、聊天历史及失败记录。 |
+
+**统一审核标准已加入测试：** 同时核对业务结果、HTTP 聊天历史与 SQL 事件、工具调用/结果配对、OTel Run/Model/Tool 关联和唯一终态；子 Agent 还核对 SQL 父子关联与 span 父子关系。新增标准的真实样本为子 Agent 和 Workflow 历史恢复，不能追溯声称早先未采集的场景也有完整 OTel 证据。审计原始样本与边界见验收记录。
 
 ## 结论与阅读口径
 
@@ -224,6 +279,8 @@ flowchart TD
 
 ### M14 — 上下文组装、预算与近期压缩
 
+**真实验收补充：** 本轮先实际失败，再修复了匹配的 `ToolCall` / `ToolCalls` 别名被拒绝和 Workflow 内部结果混入模型消息两个问题。原始 SQL 事件与 trace 保留内部步骤，模型上下文只保留与外层请求对应的结果；参见[失败过程和回归](verification/2026-09-06-serial-live-agent-acceptance.md#失败记录与修复)。下列微基准是修复前的原源码基线，不是这次补丁的性能保证。
+
 **实现 / 状态：** [context.go](../pkg/core/context.go)、[contextassembly/assembler.go](../pkg/app/contextassembly/assembler.go)处理 System、历史消息及其中工具结果，保留输出预算；默认近期压缩可走融合投影路径。默认 token 估算按 UTF-8 字节保守计数，可能较早裁剪，并非厂商精确 tokenizer。`ModelContext` 当前不含独立工具 Schema；[callModel](../pkg/core/agent_model_call.go)在组装后才将 `Tools` 放进 GenerateOptions，因此不能声称该估算完整覆盖工具声明。外层请求字节上限与完整模型 token 窗口是两种不同限制。
 
 **扩展：** E1：提供 `ModelContextAssembler` 函数，实现 `ContextCompactor` 或应用层 `BudgetEstimator` / `TokenEstimator`，注入对应字段；保持工具调用—结果配对、continuation 与预算约束。新增资料源要分配预算；完整工具 Schema token 预留需在知道最终工具集合的边界补齐，不能只替换消息估算器便宣称解决。
@@ -309,6 +366,8 @@ flowchart TD
 <a id="m21"></a>
 
 ### M21 — 确定性 Workflow 能力
+
+**真实验收补充：** 模型请求 pipeline，内部 7→14→17，两步与外层结果均落入审计，最终回答 17；真实通过样本 8.23 秒。新增 trace/历史标准的另一份样本为 5.77 秒，17 个持久事件在替换服务实例后可完整读取。两次失败记录和修复原因见[真实验收报告](verification/2026-09-06-serial-live-agent-acceptance.md)。这些包含模型等待的单样本不是 Workflow CPU 性能基准。
 
 **实现 / 状态：** [workflow.go](../pkg/extensions/workflow/workflow.go)按顺序执行命名 Step，将前序输出引用传给后续能力；步骤数有界，使用受保护嵌套调用和稳定子 call ID，审批暂停可以向上传播。它不是并行 DAG 引擎。
 
@@ -579,6 +638,8 @@ flowchart TD
 <a id="m43"></a>
 
 ### M43 — Telemetry、日志与构建信息
+
+**真实验收补充：** 已采集真实 Gemini 运行的本地 OTel SDK span，与 HTTP/SQL 聊天事件及父子 delegation link 对照。子 Run 的 parent span 精确指向父 delegate 工具，Workflow 的 2 次模型调用和 3 个工具执行也有完整关联。已提交[三份脱敏记录](verification/2026-09-06-serial-live-agent-acceptance.md#可直接审核的真实样本)；未验远端 OTLP、Console 可视化和 metrics 后端。
 
 **实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。
 

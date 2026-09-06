@@ -1,0 +1,491 @@
+{
+  "events": [
+    {
+      "data": {
+        "assignment_revision": "3aeabb4a3276cece593f9f4eb5a4278154b23b22703a5e3d07924ccdab645397",
+        "capability_snapshot_id": "d1f2e42aca33e1f023246dd9ea62bd80ef85671613f66bd3dbe38ce0ebd6ff48",
+        "composition": {
+          "capabilities": [
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "id": "serial.double",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.double",
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.workflow/v1",
+                "description": "Double n, then add three through protected steps.",
+                "id": "serial.pipeline",
+                "idempotent": true,
+                "kind": "workflow",
+                "name": "serial.pipeline",
+                "tool": {
+                  "description": "Double n, then add three through protected steps.",
+                  "parameters": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "n": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "n"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "version": "1.0.0"
+              },
+              "provider_revision": "sha256:a39d8829498cea3c35250450fde446777990029700bdc5e6c440e9fd0ec70d6d",
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            },
+            {
+              "manifest": {
+                "contract": "harness.tool/v1",
+                "id": "serial.plus",
+                "idempotent": true,
+                "input_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "n": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "n"
+                  ],
+                  "type": "object"
+                },
+                "kind": "tool",
+                "name": "serial.plus",
+                "version": "1"
+              },
+              "source": [
+                {
+                  "id": "acceptance",
+                  "kind": "product"
+                }
+              ]
+            }
+          ],
+          "effective_permissions": {
+            "data.read": true,
+            "data.write": true
+          },
+          "max_steps": 6,
+          "max_tool_calls": 8,
+          "metadata": {
+            "harness.executor.id": "sequential",
+            "harness.executor.implementation_revision": "core-runtime-v1",
+            "harness.executor.version": "1"
+          },
+          "model": {
+            "model": "gemini-3.8-flash",
+            "provider": "openai-compatible"
+          },
+          "profile": {
+            "capabilities": [
+              "serial.double",
+              "serial.pipeline",
+              "serial.plus"
+            ],
+            "created_at": "2026-09-06T05:16:03.1147081Z",
+            "fragments": [
+              {
+                "content": "Call serial.pipeline exactly once with n 7. serial.double and serial.plus are internal workflow steps: never call them directly. After the pipeline returns, reply only with its numeric value.",
+                "id": "serial.workflow.instructions",
+                "section": "instructions",
+                "source": [
+                  {
+                    "id": "acceptance",
+                    "kind": "product"
+                  }
+                ]
+              }
+            ],
+            "id": "a97258267aff29099dbce35724edd3e09ef630f8d021a89a8b90cf5baca40853",
+            "max_steps": 6,
+            "max_tool_calls": 8,
+            "model": {
+              "model": "gemini-3.8-flash",
+              "provider": "openai-compatible"
+            },
+            "name": "serial.workflow",
+            "profile_id": "serial.workflow",
+            "scope": [
+              {
+                "id": "acceptance",
+                "kind": "product"
+              },
+              {
+                "id": "acceptance-tenant",
+                "kind": "tenant"
+              },
+              {
+                "id": "acceptance-user",
+                "kind": "user"
+              },
+              {
+                "id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+                "kind": "session"
+              }
+            ]
+          },
+          "resolved_provider": "openai-compatible"
+        },
+        "composition_revision": "3ee1ade60cf93814f55ebd616836842bb9b34d99f91476b1d1323ec60c97d10f",
+        "profile_snapshot_id": "a97258267aff29099dbce35724edd3e09ef630f8d021a89a8b90cf5baca40853"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 0,
+      "time": "2026-09-06T05:16:03.1147081Z",
+      "type": "run/start"
+    },
+    {
+      "data": {
+        "text": "Run the pipeline on 7 and return its result."
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 1,
+      "time": "2026-09-06T05:16:03.1147081Z",
+      "type": "user/message"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 2,
+      "time": "2026-09-06T05:16:03.1147081Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "",
+        "tool_call": {
+          "args": {
+            "n": 7
+          },
+          "id": "call_58d24423d1f542a3b68d39a1af70651b",
+          "name": "serial.pipeline"
+        },
+        "tool_calls": [
+          {
+            "args": {
+              "n": 7
+            },
+            "id": "call_58d24423d1f542a3b68d39a1af70651b",
+            "name": "serial.pipeline"
+          }
+        ]
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 3,
+      "time": "2026-09-06T05:16:06.2496581Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "args": {
+          "n": 7
+        },
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b",
+        "name": "serial.pipeline"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 4,
+      "time": "2026-09-06T05:16:06.2496581Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "args": {
+          "n": 7
+        },
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b/double",
+        "name": "serial.double"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 5,
+      "time": "2026-09-06T05:16:06.2528745Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b/double",
+        "content": "{\"value\":14}",
+        "ok": true
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 6,
+      "time": "2026-09-06T05:16:06.2544507Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "args": {
+          "n": 14
+        },
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b/plus",
+        "name": "serial.plus"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 7,
+      "time": "2026-09-06T05:16:06.2544507Z",
+      "type": "tool/call"
+    },
+    {
+      "data": {
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b/plus",
+        "content": "{\"value\":17}",
+        "ok": true
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 8,
+      "time": "2026-09-06T05:16:06.2560507Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "call_id": "call_58d24423d1f542a3b68d39a1af70651b",
+        "content": "{\"value\":17}",
+        "metadata": {
+          "workflow.steps": [
+            {
+              "name": "double",
+              "ok": true
+            },
+            {
+              "name": "plus",
+              "ok": true
+            }
+          ]
+        },
+        "ok": true
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 9,
+      "time": "2026-09-06T05:16:06.2574136Z",
+      "type": "tool/result"
+    },
+    {
+      "data": {
+        "index": 0
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 10,
+      "time": "2026-09-06T05:16:06.2574136Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 11,
+      "time": "2026-09-06T05:16:06.2574136Z",
+      "type": "step/start"
+    },
+    {
+      "data": {
+        "text": "17"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 12,
+      "time": "2026-09-06T05:16:08.4415587Z",
+      "type": "assistant/chunk"
+    },
+    {
+      "data": {
+        "text": "17"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 13,
+      "time": "2026-09-06T05:16:08.4587378Z",
+      "type": "assistant/message"
+    },
+    {
+      "data": {
+        "index": 1
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 14,
+      "time": "2026-09-06T05:16:08.4587378Z",
+      "type": "step/end"
+    },
+    {
+      "data": {
+        "input_tokens": 233,
+        "output_tokens": 240
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 15,
+      "time": "2026-09-06T05:16:08.4587378Z",
+      "type": "run/usage"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+      "seq": 16,
+      "time": "2026-09-06T05:16:08.4587378Z",
+      "type": "run/end"
+    }
+  ],
+  "run_id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+  "session_id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+  "spans": [
+    {
+      "attributes": {
+        "claim.outcome": "claimed",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+        "worker.id": "serial-acceptance"
+      },
+      "duration_ms": 0,
+      "name": "harness.queue.claim",
+      "parent_id": "0000000000000000",
+      "span_id": "dd1e44a7f68e1d54",
+      "status": "Unset",
+      "trace_id": "f7e5fd5cc61d65b69786fcab1e27b2db"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "359",
+        "model.context.input_tokens": "261",
+        "model.finish": "tool-calls",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.workflow",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "run.step": "0",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26"
+      },
+      "duration_ms": 3134,
+      "name": "harness.model.call",
+      "parent_id": "643f9622c1f50ffb",
+      "span_id": "a693d40ba6adc143",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    },
+    {
+      "attributes": {
+        "call.id": "call_58d24423d1f542a3b68d39a1af70651b/double",
+        "capability.id": "serial.double",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "ok"
+      },
+      "duration_ms": 0,
+      "name": "harness.tool.call",
+      "parent_id": "3def61a6a90a9611",
+      "span_id": "f9e7b5908ab4668e",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    },
+    {
+      "attributes": {
+        "call.id": "call_58d24423d1f542a3b68d39a1af70651b/plus",
+        "capability.id": "serial.plus",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "ok"
+      },
+      "duration_ms": 0,
+      "name": "harness.tool.call",
+      "parent_id": "3def61a6a90a9611",
+      "span_id": "b214018b91a74c3e",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    },
+    {
+      "attributes": {
+        "call.id": "call_58d24423d1f542a3b68d39a1af70651b",
+        "capability.id": "serial.pipeline",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+        "tool.approval_required": "false",
+        "tool.idempotent": "true",
+        "tool.outcome": "ok"
+      },
+      "duration_ms": 3,
+      "name": "harness.tool.call",
+      "parent_id": "643f9622c1f50ffb",
+      "span_id": "3def61a6a90a9611",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    },
+    {
+      "attributes": {
+        "model.context.dropped_groups": "0",
+        "model.context.input_bytes": "713",
+        "model.context.input_tokens": "387",
+        "model.finish": "stop",
+        "model.name": "gemini-3.8-flash",
+        "model.outcome": "ok",
+        "model.provider": "openai-compatible",
+        "profile.id": "serial.workflow",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "run.step": "1",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26"
+      },
+      "duration_ms": 2201,
+      "name": "harness.model.call",
+      "parent_id": "643f9622c1f50ffb",
+      "span_id": "7ab426f02cfb6311",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    },
+    {
+      "attributes": {
+        "profile.id": "serial.workflow",
+        "run.id": "run_b7a5a0b4e968f1f8ac19a05838a9fcb6",
+        "run.resume": "false",
+        "run.status": "completed",
+        "session.id": "sess_4342e62d20ed969e37dc42d8b2a4bc26",
+        "tenant.id": "acceptance-tenant"
+      },
+      "duration_ms": 5344,
+      "name": "harness.run.segment",
+      "parent_id": "0000000000000000",
+      "span_id": "643f9622c1f50ffb",
+      "status": "Unset",
+      "trace_id": "0857ee33d51c2683ab600038300856d3"
+    }
+  ]
+}
