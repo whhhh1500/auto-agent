@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -472,10 +473,206 @@ func TestPostgresSQLSessionStoreAppendCompletedToolResultFenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := newCompletedToolResultFixture(t, store, "session-pg-completed-result", "run-pg-completed-result")
-	event, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, fixture.invocation, fixture.digest)
-	if err != nil || !appended || event.Type != core.EvToolResult {
-		t.Fatalf("postgres completed result: event=%+v appended=%t err=%v", event, appended, err)
+	newFixture := func(t *testing.T, suffix string) *completedToolResultFixture {
+		t.Helper()
+		return newCompletedToolResultFixture(t, store, "session-pg-completed-result-"+suffix, "run-pg-completed-result-"+suffix)
 	}
-	assertCompletedResultDurable(t, fixture, 3)
+	assertNoWrite := func(t *testing.T, fixture *completedToolResultFixture, wantVersion int64) {
+		t.Helper()
+		assertFencedSessionVersion(t, fixture.fencedSQLFixture, wantVersion)
+		var chunks int
+		if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM event_chunks WHERE session_id = $1`, fixture.fence.SessionID).Scan(&chunks); err != nil {
+			t.Fatal(err)
+		}
+		if chunks != int(wantVersion) {
+			t.Fatalf("event chunks=%d want=%d", chunks, wantVersion)
+		}
+	}
+
+	t.Run("success", func(t *testing.T) {
+		fixture := newFixture(t, "success")
+		event, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, fixture.invocation, fixture.digest)
+		if err != nil || !appended || event.Type != core.EvToolResult {
+			t.Fatalf("postgres completed result: event=%+v appended=%t err=%v", event, appended, err)
+		}
+		assertCompletedResultDurable(t, fixture, 3)
+	})
+
+	t.Run("wrong_generation_fails_without_write", func(t *testing.T) {
+		fixture := newFixture(t, "wrong-generation")
+		fence := fixture.fence
+		fence.QueueGeneration++
+		_, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fence, 2, fixture.invocation, fixture.digest)
+		if appended || !errors.Is(err, ErrSessionWriteFenceLost) {
+			t.Fatalf("wrong generation: appended=%t err=%v", appended, err)
+		}
+		assertNoWrite(t, fixture, 2)
+	})
+
+	t.Run("journal_state_and_digest_proof_fail_closed", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			mutate func(*completedToolResultFixture) (core.ToolInvocation, string)
+		}{
+			{
+				name: "state_uncertain",
+				mutate: func(fixture *completedToolResultFixture) (core.ToolInvocation, string) {
+					if _, err := db.ExecContext(context.Background(), `UPDATE tool_invocations SET state = 'uncertain', result_json = '', completed_at = 0 WHERE session_id = $1 AND run_id = $2 AND call_id = $3`, fixture.invocation.SessionID, fixture.invocation.RunID, fixture.invocation.CallID); err != nil {
+						t.Fatal(err)
+					}
+					return fixture.invocation, fixture.digest
+				},
+			},
+			{
+				name: "digest_mismatch",
+				mutate: func(fixture *completedToolResultFixture) (core.ToolInvocation, string) {
+					return fixture.invocation, strings.Repeat("a", 64)
+				},
+			},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				fixture := newFixture(t, test.name)
+				invocation, digest := test.mutate(fixture)
+				_, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, invocation, digest)
+				if appended || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+					t.Fatalf("%s: appended=%t err=%v", test.name, appended, err)
+				}
+				assertNoWrite(t, fixture, 2)
+			})
+		}
+	})
+
+	t.Run("response_lost_retry_returns_exact_event", func(t *testing.T) {
+		fixture := newFixture(t, "response-lost")
+		first, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, fixture.invocation, fixture.digest)
+		if err != nil || !appended {
+			t.Fatalf("first append: appended=%t err=%v", appended, err)
+		}
+		second, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, fixture.invocation, fixture.digest)
+		if err != nil || appended || !reflect.DeepEqual(second, first) {
+			t.Fatalf("response-lost retry: first=%+v second=%+v appended=%t err=%v", first, second, appended, err)
+		}
+		assertCompletedResultDurable(t, fixture, 3)
+	})
+
+	t.Run("final_fence_recheck_rolls_back_transaction", func(t *testing.T) {
+		fixture := newFixture(t, "rollback")
+		if _, err := db.ExecContext(context.Background(), `CREATE FUNCTION completed_result_change_owner_after_chunk() RETURNS trigger LANGUAGE plpgsql AS $$
+			BEGIN
+				UPDATE run_queue SET worker_id = 'worker-triggered' WHERE run_id = 'run-pg-completed-result-rollback';
+				RETURN NEW;
+			END;
+		$$`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER completed_result_change_owner_after_chunk AFTER INSERT ON event_chunks
+			FOR EACH ROW WHEN (NEW.session_id = 'session-pg-completed-result-rollback')
+			EXECUTE FUNCTION completed_result_change_owner_after_chunk()`); err != nil {
+			t.Fatal(err)
+		}
+		_, appended, err := fixture.store.AppendCompletedToolResultFenced(ctx, fixture.fence, 2, fixture.invocation, fixture.digest)
+		if appended || !errors.Is(err, ErrSessionWriteFenceLost) {
+			t.Fatalf("triggered fence loss: appended=%t err=%v", appended, err)
+		}
+		assertNoWrite(t, fixture, 2)
+		assertCompletedJournalUnchanged(t, fixture)
+		var worker, status string
+		if err := db.QueryRowContext(context.Background(), `SELECT worker_id FROM run_queue WHERE run_id = $1`, fixture.fence.RunID).Scan(&worker); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRowContext(context.Background(), `SELECT status FROM run_evidence WHERE session_id = $1 AND run_id = $2`, fixture.fence.SessionID, fixture.fence.RunID).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if worker != fixture.fence.WorkerID || status != RunStatusRunning {
+			t.Fatalf("rollback leaked worker=%q status=%q", worker, status)
+		}
+	})
+
+	t.Run("append_and_renew_do_not_deadlock", func(t *testing.T) {
+		const iterations = 30
+		for iteration := 0; iteration < iterations; iteration++ {
+			fixture := newFixture(t, fmt.Sprintf("renew-%d", iteration))
+			roundCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ready := make(chan struct{}, 2)
+			start := make(chan struct{})
+			errs := make(chan error, 2)
+			go func() {
+				ready <- struct{}{}
+				<-start
+				_, appended, err := fixture.store.AppendCompletedToolResultFenced(roundCtx, fixture.fence, 2, fixture.invocation, fixture.digest)
+				if err == nil && !appended {
+					err = errors.New("completed-result append unexpectedly converged before any prior append")
+				}
+				errs <- err
+			}()
+			go func() {
+				ready <- struct{}{}
+				<-start
+				ok, err := fixture.queue.RenewRunClaim(roundCtx, fixture.fence.RunID, fixture.fence.WorkerID, fixture.fence.QueueGeneration, time.Hour)
+				if err == nil && !ok {
+					err = errors.New("renewal lost its live PostgreSQL claim")
+				}
+				errs <- err
+			}()
+			<-ready
+			<-ready
+			close(start)
+			first, second := <-errs, <-errs
+			cancel()
+			if first != nil || second != nil {
+				t.Fatalf("iteration %d append/renew errors=(%v, %v)", iteration, first, second)
+			}
+			assertCompletedResultDurable(t, fixture, 3)
+		}
+	})
+
+	t.Run("complete_reader_and_primitive_do_not_deadlock", func(t *testing.T) {
+		const iterations = 30
+		for iteration := 0; iteration < iterations; iteration++ {
+			fixture := newFixture(t, fmt.Sprintf("journal-lock-%d", iteration))
+			journal, err := NewSQLToolInvocationJournal(db, SQLDialectPostgres)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roundCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ready := make(chan struct{}, 3)
+			start := make(chan struct{})
+			errs := make(chan error, 3)
+			go func() {
+				ready <- struct{}{}
+				<-start
+				_, appended, err := fixture.store.AppendCompletedToolResultFenced(roundCtx, fixture.fence, 2, fixture.invocation, fixture.digest)
+				if err == nil && !appended {
+					err = errors.New("completed-result append unexpectedly converged before any prior append")
+				}
+				errs <- err
+			}()
+			go func() {
+				ready <- struct{}{}
+				<-start
+				_, err := journal.CompleteToolInvocation(roundCtx, fixture.invocation, fixture.result)
+				errs <- err
+			}()
+			go func() {
+				ready <- struct{}{}
+				<-start
+				record, found, err := journal.GetToolInvocation(roundCtx, fixture.invocation)
+				if err == nil && (!found || record.State != core.ToolInvocationCompleted || record.Result == nil) {
+					err = errors.New("reader did not observe the completed journal record")
+				}
+				errs <- err
+			}()
+			<-ready
+			<-ready
+			<-ready
+			close(start)
+			var first, second, third error
+			first, second, third = <-errs, <-errs, <-errs
+			cancel()
+			if first != nil || second != nil || third != nil {
+				t.Fatalf("iteration %d primitive/complete/reader errors=(%v, %v, %v)", iteration, first, second, third)
+			}
+			assertCompletedResultDurable(t, fixture, 3)
+		}
+	})
 }
