@@ -45,6 +45,12 @@ type RunExecutor interface {
 	ResumeTurn(context.Context, core.Principal, *core.Session, core.ResumeInput, func(core.SessionEvent)) (core.TurnResult, error)
 }
 
+// ContinuingRunExecutor is the optional post-result continuation protocol.
+// Implementations resume only facts already durable in the supplied Session.
+type ContinuingRunExecutor interface {
+	ContinueTurn(context.Context, core.Principal, *core.Session, core.ResumeInput, func(core.SessionEvent)) (core.TurnResult, error)
+}
+
 // Metadata is stable, bounded selection evidence. It has no provider, graph,
 // server, database, or implementation-locator fields.
 type Metadata struct {
@@ -251,4 +257,8 @@ func (executor *Sequential) RunTurn(ctx context.Context, principal core.Principa
 
 func (executor *Sequential) ResumeTurn(ctx context.Context, principal core.Principal, session *core.Session, input core.ResumeInput, emit func(core.SessionEvent)) (core.TurnResult, error) {
 	return executor.runtime.ResumeTurn(ctx, principal, session, input, emit)
+}
+
+func (executor *Sequential) ContinueTurn(ctx context.Context, principal core.Principal, session *core.Session, input core.ResumeInput, emit func(core.SessionEvent)) (core.TurnResult, error) {
+	return executor.runtime.ContinueTurn(ctx, principal, session, input, emit)
 }

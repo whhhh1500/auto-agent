@@ -17,6 +17,20 @@ func TestSequentialUsesPerResolveRuntime(t *testing.T) {
 		t.Fatal("runtime leaked")
 	}
 }
+
+func TestSequentialImplementsOptionalContinuation(t *testing.T) {
+	var executor any = &Sequential{}
+	if _, ok := executor.(ContinuingRunExecutor); !ok {
+		t.Fatal("sequential does not implement optional continuation")
+	}
+}
+
+func TestSequentialContinueTurnDelegates(t *testing.T) {
+	executor := any(&Sequential{}).(ContinuingRunExecutor)
+	if _, err := executor.ContinueTurn(context.Background(), core.Principal{}, nil, core.ResumeInput{}, nil); err == nil || err.Error() != "runtime is nil" {
+		t.Fatalf("err=%v", err)
+	}
+}
 func TestRegistryFrozenAndExact(t *testing.T) {
 	r, e := NewRegistry(2, testRegistration("a", "1"), testRegistration("b", "1"))
 	if e != nil {

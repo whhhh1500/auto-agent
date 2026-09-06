@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -77,7 +78,9 @@ type TurnInput struct {
 	CompositionMetadata  map[string]string
 }
 
-// ResumeInput identifies an approval-resumed execution segment.
+// ResumeInput identifies an existing run and optional composition metadata for
+// one runtime resumption operation. ResumeTurn requires approval/requested;
+// ContinueTurn instead requires an already durable post-result tool prefix.
 type ResumeInput struct {
 	RunID               string
 	CompositionMetadata map[string]string
@@ -253,137 +256,97 @@ func (a *Agent) RunTurn(ctx context.Context, input TurnInput) (turnResult TurnRe
 
 func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) (TurnResult, error) {
 	session := a.opts.Session
-	for step := startStep; step < a.opts.MaxSteps; step++ {
-		info.Step = step
-		if usageLimitReached(session.runUsageTotal(info.RunID)) {
-			return a.complete(info, RunLimited)
+	if startStep >= a.opts.MaxSteps {
+		return a.complete(info, RunLimited)
+	}
+	step := startStep
+	info.Step = step
+	if usageLimitReached(session.runUsageTotal(info.RunID)) {
+		return a.complete(info, RunLimited)
+	}
+	if a.opts.Hooks != nil {
+		if err := safeCallError("run hook OnBeforeStep panicked", func() error { return a.opts.Hooks.OnBeforeStep(ctx, info) }); err != nil {
+			return a.fail(info, "step_rejected", err, false)
 		}
-		if a.opts.Hooks != nil {
-			if err := safeCallError("run hook OnBeforeStep panicked", func() error { return a.opts.Hooks.OnBeforeStep(ctx, info) }); err != nil {
-				return a.fail(info, "step_rejected", err, false)
-			}
-		}
-		if err := a.append(info.RunID, EvStepStart, StepData{Index: step}); err != nil {
-			return a.fail(info, "event_append_failed", err, false)
-		}
-		stepStartSeq := session.Version() - 1
+	}
+	if err := a.append(info.RunID, EvStepStart, StepData{Index: step}); err != nil {
+		return a.fail(info, "event_append_failed", err, false)
+	}
+	stepStartSeq := session.Version() - 1
 
-		var (
-			messages []ChatMessage
-			err      error
-		)
-		fused := false
-		if a.opts.Summarizer == nil {
-			if compactor, ok := asRecentTurnsCompactor(a.opts.Compactor); ok {
-				messages, fused = session.deriveRecentCompactedMessages(compactor)
-			}
+	var (
+		messages []ChatMessage
+		err      error
+	)
+	fused := false
+	if a.opts.Summarizer == nil {
+		if compactor, ok := asRecentTurnsCompactor(a.opts.Compactor); ok {
+			messages, fused = session.deriveRecentCompactedMessages(compactor)
 		}
-		if !fused {
-			messages, err = session.DeriveMessages()
-			if err != nil {
-				_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("history_projection_failed", err, false))
-				return a.fail(info, "history_projection_failed", err, false)
-			}
-			if a.opts.Summarizer != nil {
-				messages, err = safeCallValueError("run summarizer panicked", func() ([]ChatMessage, error) {
-					return a.opts.Summarizer.EnsureSummarized(ctx, session, info.RunID, a.emit, messages)
-				})
-				if err != nil {
-					_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("summarization_failed", err, isRetryable(err)))
-					return a.fail(info, "summarization_failed", err, isRetryable(err))
-				}
-				if usageLimitReached(session.runUsageTotal(info.RunID)) {
-					return a.completeStep(ctx, info, RunLimited)
-				}
-			}
-			if a.opts.Compactor != nil {
-				messages, err = safeCallValueError("context compactor panicked", func() ([]ChatMessage, error) {
-					return a.opts.Compactor.Compact(messages), nil
-				})
-				if err != nil {
-					_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("compaction_failed", err, false))
-					return a.fail(info, "compaction_failed", err, false)
-				}
-			}
-		}
-
-		stream, failureCode, err := a.callModel(ctx, info, step, messages)
+	}
+	if !fused {
+		messages, err = session.DeriveMessages()
 		if err != nil {
-			if stream.usageReported {
-				if usageErr := a.appendModelUsage(info.RunID, stepStartSeq, stream.Usage); usageErr != nil {
-					err = errors.Join(err, usageErr)
-				}
-			}
-			if failureCode == "model_gate_rejected" {
-				return a.fail(info, failureCode, err, false)
-			}
-			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData(failureCode, err, isRetryable(err)))
-			return a.fail(info, failureCode, err, isRetryable(err))
+			_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("history_projection_failed", err, false))
+			return a.fail(info, "history_projection_failed", err, false)
 		}
-		text, calls := stream.Text, stream.ToolCalls
+		if a.opts.Summarizer != nil {
+			messages, err = safeCallValueError("run summarizer panicked", func() ([]ChatMessage, error) {
+				return a.opts.Summarizer.EnsureSummarized(ctx, session, info.RunID, a.emit, messages)
+			})
+			if err != nil {
+				_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("summarization_failed", err, isRetryable(err)))
+				return a.fail(info, "summarization_failed", err, isRetryable(err))
+			}
+			if usageLimitReached(session.runUsageTotal(info.RunID)) {
+				return a.completeStep(ctx, info, RunLimited)
+			}
+		}
+		if a.opts.Compactor != nil {
+			messages, err = safeCallValueError("context compactor panicked", func() ([]ChatMessage, error) {
+				return a.opts.Compactor.Compact(messages), nil
+			})
+			if err != nil {
+				_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("compaction_failed", err, false))
+				return a.fail(info, "compaction_failed", err, false)
+			}
+		}
+	}
 
-		if err := a.appendAssistantUsage(info.RunID, stepStartSeq, AssistantMessageData{
-			Text: text, ToolCall: firstCall(calls), ToolCalls: calls,
-		}, stream.Usage); err != nil {
-			return a.fail(info, "event_append_failed", err, false)
-		}
-		if usageLimitReached(session.runUsageTotal(info.RunID)) {
-			return a.completeStep(ctx, info, RunLimited)
-		}
-		if len(calls) == 0 {
-			if err := a.append(info.RunID, EvStepEnd, StepData{Index: step}); err != nil {
-				return a.fail(info, "event_append_failed", err, false)
+	stream, failureCode, err := a.callModel(ctx, info, step, messages)
+	if err != nil {
+		if stream.usageReported {
+			if usageErr := a.appendModelUsage(info.RunID, stepStartSeq, stream.Usage); usageErr != nil {
+				err = errors.Join(err, usageErr)
 			}
-			if a.opts.Hooks != nil {
-				safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
-			}
-			return a.complete(info, RunCompleted)
 		}
+		if failureCode == "model_gate_rejected" {
+			return a.fail(info, failureCode, err, false)
+		}
+		_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData(failureCode, err, isRetryable(err)))
+		return a.fail(info, failureCode, err, isRetryable(err))
+	}
+	text, calls := stream.Text, stream.ToolCalls
 
-		for callIndex, call := range calls {
-			if a.toolCalls >= a.opts.MaxToolCalls {
-				if err := a.append(info.RunID, EvAssistantMessage, AssistantMessageData{Text: "Tool call budget reached; the run stopped."}); err != nil {
-					return a.fail(info, "event_append_failed", err, false)
-				}
-				_ = a.append(info.RunID, EvStepEnd, StepData{Index: step})
-				if a.opts.Hooks != nil {
-					safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
-				}
-				return a.complete(info, RunLimited)
-			}
-			if err := a.append(info.RunID, EvToolCall, ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}); err != nil {
-				return a.fail(info, "event_append_failed", err, false)
-			}
-			result, executeErr := a.tools.Execute(ctx, call)
-			if executeErr != nil {
-				if pending, ok := IsApprovalPending(executeErr); ok {
-					return a.pauseForApproval(info, pending, call, calls[callIndex+1:], false)
-				}
-				if errors.Is(executeErr, context.Canceled) || errors.Is(executeErr, context.DeadlineExceeded) {
-					if ctx.Err() != nil {
-						return a.fail(info, "tool_cancelled", executeErr, false)
-					}
-				}
-				result = CapabilityResult{Content: boundedText(executeErr.Error(), DefaultMaxCapabilityOutputBytes), OK: false}
-			}
-			if err := a.append(info.RunID, EvToolResult, ToolResultData{
-				CallID: call.ID, Content: result.Content, OK: result.OK, Metadata: result.Metadata,
-			}); err != nil {
-				return a.fail(info, "event_append_failed", err, false)
-			}
-			if err := a.appendApprovalResolutions(info.RunID); err != nil {
-				return a.fail(info, "event_append_failed", err, false)
-			}
-		}
+	if err := a.appendAssistantUsage(info.RunID, stepStartSeq, AssistantMessageData{
+		Text: text, ToolCall: firstCall(calls), ToolCalls: calls,
+	}, stream.Usage); err != nil {
+		return a.fail(info, "event_append_failed", err, false)
+	}
+	if usageLimitReached(session.runUsageTotal(info.RunID)) {
+		return a.completeStep(ctx, info, RunLimited)
+	}
+	if len(calls) == 0 {
 		if err := a.append(info.RunID, EvStepEnd, StepData{Index: step}); err != nil {
 			return a.fail(info, "event_append_failed", err, false)
 		}
 		if a.opts.Hooks != nil {
 			safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 		}
+		return a.complete(info, RunCompleted)
 	}
 
-	return a.complete(info, RunLimited)
+	return a.continueToolCalls(ctx, info, calls, true, true)
 }
 
 // ResumeTurn continues one run suspended at an approval checkpoint.
@@ -440,11 +403,33 @@ func (a *Agent) ResumeTurn(ctx context.Context, runID string) (turnResult TurnRe
 	return a.resumeApproval(ctx, info, pending)
 }
 
-func compositionMetadata(composition *RunCompositionData) map[string]string {
-	if composition == nil {
-		return nil
+func (a *Agent) continueTurn(ctx context.Context, runID string) (TurnResult, error) {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
+	if a.opts.Fast != nil {
+		return TurnResult{}, fmt.Errorf("post-result continuation does not support fast routing")
 	}
-	return composition.Metadata
+	step, calls, completed, err := postResultContinuation(a.opts.Session.Events(), runID)
+	if err != nil {
+		return TurnResult{}, err
+	}
+	for _, call := range calls {
+		if !a.tools.Authorized(call.Name) {
+			return TurnResult{}, fmt.Errorf("current capabilities do not authorize %q", call.Name)
+		}
+	}
+	a.restoreRunState(runID)
+	if a.compositionRevision, err = CompositionRevision(a.opts.Composition); err != nil {
+		return TurnResult{}, err
+	}
+	return a.continueToolCalls(ctx, RunInfo{RunID: runID, SessionID: a.opts.Session.ID(), ProfileID: a.opts.Session.ProfileID(), Step: step, Principal: a.opts.Session.Principal()}, calls[completed:], false, true)
+}
+
+func compositionMetadata(composition *RunCompositionData) map[string]string {
+	if composition != nil {
+		return composition.Metadata
+	}
+	return nil
 }
 
 func compositionWithMetadata(base *RunCompositionData, metadata map[string]string) (*RunCompositionData, error) {
@@ -533,59 +518,44 @@ func (a *Agent) restoreRunState(runID string) {
 }
 
 func (a *Agent) resumeApproval(ctx context.Context, info RunInfo, pending ApprovalRequestedData) (TurnResult, error) {
-	result, executeErr := a.tools.Execute(ctx, pending.ResumeCall)
-	if executeErr != nil {
-		if next, ok := IsApprovalPending(executeErr); ok {
-			return a.pauseForApproval(info, next, pending.ResumeCall, pending.RemainingCalls, pending.Fast)
-		}
-		if errors.Is(executeErr, context.Canceled) || errors.Is(executeErr, context.DeadlineExceeded) {
-			if ctx.Err() != nil {
-				return a.fail(info, "tool_cancelled", executeErr, false)
-			}
-		}
-		result = CapabilityResult{Content: boundedText(executeErr.Error(), DefaultMaxCapabilityOutputBytes), OK: false}
-	}
-	if err := a.append(info.RunID, EvToolResult, ToolResultData{
-		CallID: pending.ResumeCall.ID, Content: result.Content, OK: result.OK, Metadata: result.Metadata,
-	}); err != nil {
-		return a.fail(info, "event_append_failed", err, false)
-	}
-	if err := a.appendApprovalResolutions(info.RunID); err != nil {
-		return a.fail(info, "event_append_failed", err, false)
+	if result, stopped, err := a.executeLoggedToolCall(ctx, info, pending.ResumeCall, pending.RemainingCalls, pending.Fast); stopped {
+		return result, err
 	}
 	if pending.Fast {
+		result, ok, err := a.opts.Session.ToolResult(info.RunID, pending.ResumeCall.ID)
+		if err != nil {
+			return TurnResult{}, fmt.Errorf("read approved fast tool result: %w", err)
+		}
+		if !ok {
+			return TurnResult{}, fmt.Errorf("approved fast tool result is unavailable")
+		}
 		if err := a.append(info.RunID, EvAssistantMessage, AssistantMessageData{Text: result.Content}); err != nil {
 			return a.fail(info, "event_append_failed", err, false)
 		}
 		return a.complete(info, RunCompleted)
 	}
-	for index, call := range pending.RemainingCalls {
+	return a.continueToolCalls(ctx, info, pending.RemainingCalls, false, false)
+}
+
+func (a *Agent) continueToolCalls(ctx context.Context, info RunInfo, calls []ToolCall, announceLimit, notifyLimit bool) (TurnResult, error) {
+	for index, call := range calls {
 		if a.toolCalls >= a.opts.MaxToolCalls {
+			if announceLimit {
+				if err := a.append(info.RunID, EvAssistantMessage, AssistantMessageData{Text: "Tool call budget reached; the run stopped."}); err != nil {
+					return a.fail(info, "event_append_failed", err, false)
+				}
+			}
 			_ = a.append(info.RunID, EvStepEnd, StepData{Index: info.Step})
+			if notifyLimit && a.opts.Hooks != nil {
+				safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+			}
 			return a.complete(info, RunLimited)
 		}
 		if err := a.append(info.RunID, EvToolCall, ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}); err != nil {
 			return a.fail(info, "event_append_failed", err, false)
 		}
-		callResult, callErr := a.tools.Execute(ctx, call)
-		if callErr != nil {
-			if next, ok := IsApprovalPending(callErr); ok {
-				return a.pauseForApproval(info, next, call, pending.RemainingCalls[index+1:], false)
-			}
-			if errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded) {
-				if ctx.Err() != nil {
-					return a.fail(info, "tool_cancelled", callErr, false)
-				}
-			}
-			callResult = CapabilityResult{Content: boundedText(callErr.Error(), DefaultMaxCapabilityOutputBytes), OK: false}
-		}
-		if err := a.append(info.RunID, EvToolResult, ToolResultData{
-			CallID: call.ID, Content: callResult.Content, OK: callResult.OK, Metadata: callResult.Metadata,
-		}); err != nil {
-			return a.fail(info, "event_append_failed", err, false)
-		}
-		if err := a.appendApprovalResolutions(info.RunID); err != nil {
-			return a.fail(info, "event_append_failed", err, false)
+		if result, stopped, err := a.executeLoggedToolCall(ctx, info, call, calls[index+1:], false); stopped {
+			return result, err
 		}
 	}
 	if err := a.append(info.RunID, EvStepEnd, StepData{Index: info.Step}); err != nil {
@@ -595,6 +565,145 @@ func (a *Agent) resumeApproval(ctx context.Context, info RunInfo, pending Approv
 		safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 	}
 	return a.runModelSteps(ctx, info, info.Step+1)
+}
+
+func (a *Agent) executeLoggedToolCall(ctx context.Context, info RunInfo, call ToolCall, remaining []ToolCall, fast bool) (TurnResult, bool, error) {
+	result, executeErr := a.tools.Execute(ctx, call)
+	if executeErr != nil {
+		if pending, ok := IsApprovalPending(executeErr); ok {
+			result, err := a.pauseForApproval(info, pending, call, remaining, fast)
+			return result, true, err
+		}
+		if (errors.Is(executeErr, context.Canceled) || errors.Is(executeErr, context.DeadlineExceeded)) && ctx.Err() != nil {
+			result, err := a.fail(info, "tool_cancelled", executeErr, false)
+			return result, true, err
+		}
+		result = CapabilityResult{Content: boundedText(executeErr.Error(), DefaultMaxCapabilityOutputBytes), OK: false}
+	}
+	if err := a.append(info.RunID, EvToolResult, ToolResultData{CallID: call.ID, Content: result.Content, OK: result.OK, Metadata: result.Metadata}); err != nil {
+		result, err := a.fail(info, "event_append_failed", err, false)
+		return result, true, err
+	}
+	if err := a.appendApprovalResolutions(info.RunID); err != nil {
+		result, err := a.fail(info, "event_append_failed", err, false)
+		return result, true, err
+	}
+	return TurnResult{}, false, nil
+}
+
+func postResultContinuation(events []SessionEvent, runID string) (int, []ToolCall, int, error) {
+	open := map[string]int{}
+	for index, event := range events {
+		if event.Type == EvRunStart {
+			open[event.RunID] = index
+		}
+		if event.Type == EvRunEnd {
+			delete(open, event.RunID)
+		}
+	}
+	start, ok := open[runID]
+	if !ok {
+		return 0, nil, 0, fmt.Errorf("run %s is not open", runID)
+	}
+	for id, index := range open {
+		if index > start || index == start && id != runID {
+			return 0, nil, 0, fmt.Errorf("run %s is not the latest open run", runID)
+		}
+	}
+	step, last, stepSeq, state, completed := -1, -1, int64(-1), 0, 0
+	var calls []ToolCall
+	seenCalls, seenResults, userSeen := map[string]bool{}, map[string]bool{}, false
+	for index := start; index < len(events); index++ {
+		event := events[index]
+		if event.RunID != runID {
+			return 0, nil, 0, fmt.Errorf("run %s has interleaved session events", runID)
+		}
+		if err := validateSessionEvent(event); err != nil {
+			return 0, nil, 0, fmt.Errorf("run %s has malformed continuation event: %w", runID, err)
+		}
+		switch event.Type {
+		case EvRunStart:
+			if index != start {
+				return 0, nil, 0, fmt.Errorf("run %s has duplicate starts", runID)
+			}
+		case EvUserMessage:
+			if state != 0 || userSeen {
+				return 0, nil, 0, fmt.Errorf("run %s has an interleaved user message", runID)
+			}
+			userSeen = true
+		case EvStepStart:
+			var data StepData
+			if json.Unmarshal(event.Data, &data) != nil || state != 0 || !userSeen || data.Index != last+1 {
+				return 0, nil, 0, fmt.Errorf("run %s has an invalid step sequence", runID)
+			}
+			step, last, stepSeq, state = data.Index, data.Index, event.Seq, 1
+		case EvAssistantChunk, EvContextSummary:
+			if state != 1 {
+				return 0, nil, 0, fmt.Errorf("run %s has an interleaved model artifact", runID)
+			}
+		case EvRunUsage:
+			var data RunUsageData
+			if json.Unmarshal(event.Data, &data) != nil || validateRunUsageData("", data) != nil {
+				return 0, nil, 0, fmt.Errorf("run %s has invalid usage", runID)
+			}
+			if state == 1 && len(data.InvocationID) > 8 && data.InvocationID[:8] == "summary:" {
+				continue
+			}
+			if state != 2 || data.InvocationID != fmt.Sprintf("model:%d", stepSeq) {
+				return 0, nil, 0, fmt.Errorf("run %s lacks matching model usage", runID)
+			}
+			state = 3
+		case EvAssistantMessage:
+			var data AssistantMessageData
+			if json.Unmarshal(event.Data, &data) != nil || state != 1 {
+				return 0, nil, 0, fmt.Errorf("run %s has an invalid assistant message", runID)
+			}
+			calls = cloneToolCalls(data.ToolCalls)
+			if data.ToolCall != nil {
+				if len(calls) == 0 {
+					calls = []ToolCall{cloneToolCall(*data.ToolCall)}
+				} else if !reflect.DeepEqual(calls[0], *data.ToolCall) {
+					return 0, nil, 0, fmt.Errorf("run %s has conflicting legacy tool calls", runID)
+				}
+			}
+			if len(calls) == 0 {
+				return 0, nil, 0, fmt.Errorf("run %s has no assistant tool calls", runID)
+			}
+			for _, call := range calls {
+				if validateToolCall(call) != nil || seenCalls[call.ID] {
+					return 0, nil, 0, fmt.Errorf("run %s has duplicate or invalid tool calls", runID)
+				}
+				seenCalls[call.ID] = true
+			}
+			state = 2
+		case EvToolCall:
+			var data ToolCallData
+			if json.Unmarshal(event.Data, &data) != nil || (state != 3 && state != 5) || completed >= len(calls) || calls[completed].ID != data.CallID || calls[completed].Name != data.Name || !reflect.DeepEqual(calls[completed].Args, data.Args) {
+				return 0, nil, 0, fmt.Errorf("run %s has an invalid tool call sequence", runID)
+			}
+			state = 4
+		case EvToolResult:
+			var data ToolResultData
+			if json.Unmarshal(event.Data, &data) != nil || state != 4 || data.CallID != calls[completed].ID || seenResults[data.CallID] {
+				return 0, nil, 0, fmt.Errorf("run %s has an invalid tool result sequence", runID)
+			}
+			seenResults[data.CallID], completed, state = true, completed+1, 5
+		case EvStepEnd:
+			if state != 5 || completed != len(calls) {
+				return 0, nil, 0, fmt.Errorf("run %s has an unbalanced step", runID)
+			}
+			calls, completed, state = nil, 0, 0
+		default:
+			return 0, nil, 0, fmt.Errorf("run %s has unsupported continuation events", runID)
+		}
+	}
+	if state == 1 {
+		return 0, nil, 0, fmt.Errorf("model_outcome_unknown: run %s has no assistant outcome", runID)
+	}
+	if state != 5 || completed == 0 {
+		return 0, nil, 0, fmt.Errorf("run %s is not a post-result continuation", runID)
+	}
+	return step, calls, completed, nil
 }
 
 func (a *Agent) append(runID string, eventType SessionEventType, data any) error {

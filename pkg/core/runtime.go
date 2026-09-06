@@ -78,27 +78,11 @@ func (r *Runtime) RunTurn(
 	input TurnInput,
 	emit func(SessionEvent),
 ) (TurnResult, error) {
-	if ctx == nil {
-		return TurnResult{}, fmt.Errorf("run context is nil")
-	}
-	if err := r.Validate(); err != nil {
-		return TurnResult{}, err
-	}
-	if session == nil {
-		return TurnResult{}, fmt.Errorf("session is nil")
-	}
-	if err := ValidateRunID(input.RunID); err != nil {
-		return TurnResult{}, err
-	}
-	if err := ValidateRunCompositionMetadata(input.CompositionMetadata); err != nil {
+	if err := r.validateSessionRun(ctx, principal, session, input.RunID, input.CompositionMetadata); err != nil {
 		return TurnResult{}, err
 	}
 	if input.MaxToolCallsOverride < 0 || input.MaxToolCallsOverride > HardMaxToolCalls {
 		return TurnResult{}, fmt.Errorf("max tool calls override must be between 0 and %d", HardMaxToolCalls)
-	}
-	owner := session.Principal()
-	if principal.SubjectID != owner.SubjectID || principal.TenantID != owner.TenantID || !principal.Scope.Equal(owner.Scope) {
-		return TurnResult{}, fmt.Errorf("principal does not own session %q", session.ID())
 	}
 
 	// Run-scoped bindings (one-shot capabilities) are mounted under
@@ -115,80 +99,9 @@ func (r *Runtime) RunTurn(
 		capabilityTarget = runScope
 	}
 
-	profile, err := r.Profiles.Resolve(principal, sessionScope, session.ProfileID())
+	agent, code, err := r.composeAgent(ctx, principal, session, capabilityTarget, input.CompositionMetadata, input.MaxToolCallsOverride, input.CapabilityFilter, emit, unmountRun)
 	if err != nil {
-		unmountRun()
-		return compositionFailure(session, input, emit, "profile_resolution_failed", err)
-	}
-	capabilities, err := (CapabilityResolver{
-		Registry: r.Capabilities, Credentials: r.Credentials,
-	}).resolveForProfile(principal, capabilityTarget)
-	if err != nil {
-		unmountRun()
-		return compositionFailure(session, input, emit, "capability_resolution_failed", err)
-	}
-	unmountRun()
-	capabilities, err = profile.FilterCapabilities(capabilities)
-	if err != nil {
-		return compositionFailure(session, input, emit, "profile_capability_mismatch", err)
-	}
-	capabilities = capabilities.FilterByPermissions(principal.Grants)
-
-	maxSteps := profile.MaxSteps
-	maxToolCalls := profile.MaxToolCalls
-	if input.MaxToolCallsOverride > 0 && input.MaxToolCallsOverride < maxToolCalls {
-		maxToolCalls = input.MaxToolCallsOverride
-	}
-	effectivePermissions := principal.Grants.Clone()
-	if r.Policy != nil {
-		policy, err := r.Policy.Resolve(principal, sessionScope)
-		if err != nil {
-			return compositionFailure(session, input, emit, "policy_resolution_failed", err)
-		}
-		// Policy narrowing silently drops capabilities the effective
-		// permissions no longer cover; composition errors stay reserved for
-		// profile mistakes.
-		capabilities = capabilities.FilterByPermissions(policy.Permissions)
-		effectivePermissions = policy.Permissions.Clone()
-		if policy.MaxSteps != nil && *policy.MaxSteps < maxSteps {
-			maxSteps = *policy.MaxSteps
-		}
-		if policy.MaxToolCalls != nil && *policy.MaxToolCalls < maxToolCalls {
-			maxToolCalls = *policy.MaxToolCalls
-		}
-	}
-	capabilities = capabilities.FilterByPredicate(input.CapabilityFilter)
-
-	model, err := safeResolveModel(r.Models, ctx, profile.Model)
-	if err != nil {
-		return compositionFailure(session, input, emit, "model_resolution_failed", err)
-	}
-	var fast *FastRouter
-	if r.FastRouters != nil {
-		fast, err = safeResolveFastRouter(r.FastRouters, ctx, profile)
-		if err != nil {
-			return compositionFailure(session, input, emit, "fast_router_resolution_failed", err)
-		}
-	}
-	agent, err := NewAgent(AgentOptions{
-		LLM: model, Tools: capabilities, Session: session,
-		System: profile.SystemPrompt(), Provider: profile.Model.Provider, Model: profile.Model.Model,
-		MaxSteps: maxSteps, MaxToolCalls: maxToolCalls, ProfileSnapshotID: profile.ID,
-		CapabilitySnapshotID: capabilities.ID,
-		Composition: &RunCompositionData{
-			Profile: runAuditProfile(profile), Capabilities: runAuditCapabilities(capabilities),
-			EffectivePermissions: effectivePermissions,
-			Model:                profile.Model, ResolvedProvider: safeModelProvider(model),
-			ModelRevision: artifactRevision(model),
-			MaxSteps:      maxSteps, MaxToolCalls: maxToolCalls,
-		},
-		OnEvent: emit, Fast: fast,
-		Hooks: r.Hooks, Approver: r.Approver, Compactor: r.Compactor, ContextAssembler: r.ContextAssembler, StreamChunks: r.StreamChunks,
-		DiscloseTools: r.DiscloseTools,
-		Summarizer:    r.Summarizer, RateLimiter: r.RateLimiter, ToolJournal: r.ToolJournal, ModelCallGate: r.ModelCallGate, Telemetry: r.Telemetry,
-	})
-	if err != nil {
-		return compositionFailure(session, input, emit, "agent_composition_failed", err)
+		return compositionFailure(session, input, emit, code, err)
 	}
 	return agent.RunTurn(ctx, input)
 }
@@ -204,24 +117,8 @@ func (r *Runtime) ResumeTurn(
 	input ResumeInput,
 	emit func(SessionEvent),
 ) (TurnResult, error) {
-	if ctx == nil {
-		return TurnResult{}, fmt.Errorf("run context is nil")
-	}
-	if err := r.Validate(); err != nil {
+	if err := r.validateSessionRun(ctx, principal, session, input.RunID, input.CompositionMetadata); err != nil {
 		return TurnResult{}, err
-	}
-	if session == nil {
-		return TurnResult{}, fmt.Errorf("session is nil")
-	}
-	if err := ValidateRunID(input.RunID); err != nil {
-		return TurnResult{}, err
-	}
-	if err := ValidateRunCompositionMetadata(input.CompositionMetadata); err != nil {
-		return TurnResult{}, err
-	}
-	owner := session.Principal()
-	if principal.SubjectID != owner.SubjectID || principal.TenantID != owner.TenantID || !principal.Scope.Equal(owner.Scope) {
-		return TurnResult{}, fmt.Errorf("principal does not own session %q", session.ID())
 	}
 	if status, exists := session.RunStatus(input.RunID); !exists || status != RunWaitingApproval {
 		return TurnResult{}, fmt.Errorf("run %s is not waiting for approval", input.RunID)
@@ -233,13 +130,66 @@ func (r *Runtime) ResumeTurn(
 	return agent.ResumeTurn(ctx, input.RunID)
 }
 
+// ContinueTurn resumes a verified post-result tool sequence without replaying
+// its already-durable results. Remaining calls and any next model step use
+// the current runtime policy and capability snapshot.
+func (r *Runtime) ContinueTurn(ctx context.Context, principal Principal, session *Session, input ResumeInput, emit func(SessionEvent)) (TurnResult, error) {
+	if err := r.validateSessionRun(ctx, principal, session, input.RunID, input.CompositionMetadata); err != nil {
+		return TurnResult{}, err
+	}
+	if status, exists := session.RunStatus(input.RunID); !exists || status != "" {
+		return TurnResult{}, fmt.Errorf("run %s is not an open post-result continuation", input.RunID)
+	}
+	if _, _, _, err := postResultContinuation(session.Events(), input.RunID); err != nil {
+		return TurnResult{}, err
+	}
+	agent, code, err := r.composeResumeAgent(ctx, principal, session, input.CompositionMetadata, emit)
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("%s: %w", code, err)
+	}
+	return agent.continueTurn(ctx, input.RunID)
+}
+
+func (r *Runtime) validateSessionRun(ctx context.Context, principal Principal, session *Session, runID string, metadata map[string]string) error {
+	if ctx == nil {
+		return fmt.Errorf("run context is nil")
+	}
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if err := ValidateRunID(runID); err != nil {
+		return err
+	}
+	if err := ValidateRunCompositionMetadata(metadata); err != nil {
+		return err
+	}
+	owner := session.Principal()
+	if principal.SubjectID != owner.SubjectID || principal.TenantID != owner.TenantID || !principal.Scope.Equal(owner.Scope) {
+		return fmt.Errorf("principal does not own session %q", session.ID())
+	}
+	return nil
+}
+
 func (r *Runtime) composeResumeAgent(ctx context.Context, principal Principal, session *Session, metadata map[string]string, emit func(SessionEvent)) (*Agent, string, error) {
+	return r.composeAgent(ctx, principal, session, session.Scope(), metadata, 0, nil, emit, nil)
+}
+
+func (r *Runtime) composeAgent(ctx context.Context, principal Principal, session *Session, capabilityScope ScopePath, metadata map[string]string, maxToolCallsOverride int, filter CapabilityFilter, emit func(SessionEvent), release func()) (*Agent, string, error) {
 	sessionScope := session.Scope()
 	profile, err := r.Profiles.Resolve(principal, sessionScope, session.ProfileID())
 	if err != nil {
+		if release != nil {
+			release()
+		}
 		return nil, "profile_resolution_failed", err
 	}
-	capabilities, err := (CapabilityResolver{Registry: r.Capabilities, Credentials: r.Credentials}).resolveForProfile(principal, sessionScope)
+	capabilities, err := (CapabilityResolver{Registry: r.Capabilities, Credentials: r.Credentials}).resolveForProfile(principal, capabilityScope)
+	if release != nil {
+		release()
+	}
 	if err != nil {
 		return nil, "capability_resolution_failed", err
 	}
@@ -250,12 +200,18 @@ func (r *Runtime) composeResumeAgent(ctx context.Context, principal Principal, s
 	capabilities = capabilities.FilterByPermissions(principal.Grants)
 	maxSteps := profile.MaxSteps
 	maxToolCalls := profile.MaxToolCalls
+	if maxToolCallsOverride > 0 && maxToolCallsOverride < maxToolCalls {
+		maxToolCalls = maxToolCallsOverride
+	}
 	effectivePermissions := principal.Grants.Clone()
 	if r.Policy != nil {
 		policy, err := r.Policy.Resolve(principal, sessionScope)
 		if err != nil {
 			return nil, "policy_resolution_failed", err
 		}
+		// Policy narrowing silently drops capabilities the effective
+		// permissions no longer cover; composition errors stay reserved for
+		// profile mistakes.
 		capabilities = capabilities.FilterByPermissions(policy.Permissions)
 		effectivePermissions = policy.Permissions.Clone()
 		if policy.MaxSteps != nil && *policy.MaxSteps < maxSteps {
@@ -265,6 +221,7 @@ func (r *Runtime) composeResumeAgent(ctx context.Context, principal Principal, s
 			maxToolCalls = *policy.MaxToolCalls
 		}
 	}
+	capabilities = capabilities.FilterByPredicate(filter)
 	model, err := safeResolveModel(r.Models, ctx, profile.Model)
 	if err != nil {
 		return nil, "model_resolution_failed", err
@@ -425,49 +382,22 @@ func compositionFailure(
 	code string,
 	cause error,
 ) (TurnResult, error) {
-	appendEvent := func(eventType SessionEventType, data any) error {
-		event, err := session.Append(input.RunID, eventType, data)
-		if err != nil {
-			return err
-		}
-		if emit != nil {
-			_ = safeEventCallback(emit, event)
-		}
-		return nil
-	}
-	composition, metadataErr := failureComposition(session, input.CompositionMetadata)
-	if metadataErr != nil {
-		return TurnResult{}, metadataErr
-	}
-	compositionRevision, err := CompositionRevision(composition)
-	if err != nil {
-		return TurnResult{}, err
-	}
-	assignmentRevision, err := CompositionMetadataRevision(compositionMetadata(composition))
-	if err != nil {
-		return TurnResult{}, err
-	}
-	if err := appendEvent(EvRunStart, RunStartData{
-		CompositionRevision: compositionRevision, AssignmentRevision: assignmentRevision,
-		Composition: composition,
-	}); err != nil {
-		return TurnResult{}, err
-	}
-	if err := appendEvent(EvUserMessage, UserMessageData{Text: input.Text}); err != nil {
-		return TurnResult{}, err
-	}
-	if err := appendEvent(EvRunError, NewRuntimeErrorData(code, cause, false)); err != nil {
-		return TurnResult{}, err
-	}
-	if err := appendEvent(EvRunEnd, RunEndData{Status: RunFailed}); err != nil {
+	if err := appendCompositionFailure(session, input.RunID, input.CompositionMetadata, emit, EvRunStart, input.Text, code, cause); err != nil {
 		return TurnResult{}, err
 	}
 	return TurnResult{RunID: input.RunID, Status: RunFailed}, cause
 }
 
 func resumeCompositionFailure(session *Session, input ResumeInput, emit func(SessionEvent), code string, cause error) (TurnResult, error) {
+	if err := appendCompositionFailure(session, input.RunID, input.CompositionMetadata, emit, EvRunResume, "", code, cause); err != nil {
+		return TurnResult{}, err
+	}
+	return TurnResult{RunID: input.RunID, Status: RunFailed}, cause
+}
+
+func appendCompositionFailure(session *Session, runID string, metadata map[string]string, emit func(SessionEvent), start SessionEventType, text, code string, cause error) error {
 	appendEvent := func(eventType SessionEventType, data any) error {
-		event, err := session.Append(input.RunID, eventType, data)
+		event, err := session.Append(runID, eventType, data)
 		if err != nil {
 			return err
 		}
@@ -476,31 +406,38 @@ func resumeCompositionFailure(session *Session, input ResumeInput, emit func(Ses
 		}
 		return nil
 	}
-	composition, metadataErr := failureComposition(session, input.CompositionMetadata)
+	composition, metadataErr := failureComposition(session, metadata)
 	if metadataErr != nil {
-		return TurnResult{}, metadataErr
+		return metadataErr
 	}
 	compositionRevision, err := CompositionRevision(composition)
 	if err != nil {
-		return TurnResult{}, err
+		return err
 	}
 	assignmentRevision, err := CompositionMetadataRevision(compositionMetadata(composition))
 	if err != nil {
-		return TurnResult{}, err
+		return err
 	}
-	if err := appendEvent(EvRunResume, RunResumeData{
-		CompositionRevision: compositionRevision, AssignmentRevision: assignmentRevision,
-		Composition: composition,
-	}); err != nil {
-		return TurnResult{}, err
+	if start == EvRunStart {
+		err = appendEvent(start, RunStartData{CompositionRevision: compositionRevision, AssignmentRevision: assignmentRevision, Composition: composition})
+	} else {
+		err = appendEvent(start, RunResumeData{CompositionRevision: compositionRevision, AssignmentRevision: assignmentRevision, Composition: composition})
+	}
+	if err != nil {
+		return err
+	}
+	if start == EvRunStart {
+		if err := appendEvent(EvUserMessage, UserMessageData{Text: text}); err != nil {
+			return err
+		}
 	}
 	if err := appendEvent(EvRunError, NewRuntimeErrorData(code, cause, false)); err != nil {
-		return TurnResult{}, err
+		return err
 	}
 	if err := appendEvent(EvRunEnd, RunEndData{Status: RunFailed}); err != nil {
-		return TurnResult{}, err
+		return err
 	}
-	return TurnResult{RunID: input.RunID, Status: RunFailed}, cause
+	return nil
 }
 
 func failureComposition(session *Session, metadata map[string]string) (*RunCompositionData, error) {
