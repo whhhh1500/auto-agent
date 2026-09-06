@@ -106,7 +106,7 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 		result := deniedResult(CodeBudgetExceeded,
 			fmt.Sprintf("run reached its maximum of %d tool calls", agent.opts.MaxToolCalls))
 		if agent.opts.Hooks != nil {
-			safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+			safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 		}
 		return result, nil
 	}
@@ -126,17 +126,17 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 		if err := ValidateArgs(schema, call.Args); err != nil {
 			result := deniedResult(CodeInvalidArgs, err.Error())
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
 	}
 
 	if agent.opts.Hooks != nil {
-		if err := safeHookError("OnBeforeTool", func() error { return agent.opts.Hooks.OnBeforeTool(ctx, info, call) }); err != nil {
+		if err := safeCallError("run hook OnBeforeTool panicked", func() error { return agent.opts.Hooks.OnBeforeTool(ctx, info, call) }); err != nil {
 			result := deniedResult(CodeHookDenied, err.Error())
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
@@ -149,17 +149,19 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 					result := deniedResult(CodeBudgetExceeded,
 						fmt.Sprintf("tool %s reached its per-run budget of %d calls", call.Name, limit))
 					if agent.opts.Hooks != nil {
-						safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+						safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 					}
 					return result, nil
 				}
 			}
 		}
-		if !resuming && agent.opts.RateLimiter != nil && !safeAllowCall(agent.opts.RateLimiter, ctx, info.Principal.TenantID, call.Name) {
+		if !resuming && agent.opts.RateLimiter != nil && !safeCallValue(false, func() bool {
+			return agent.opts.RateLimiter.AllowCall(ctx, info.Principal.TenantID, call.Name)
+		}) {
 			result := deniedResult(CodeRateLimited,
 				fmt.Sprintf("tool %s exceeded its cross-run rate limit for this tenant", call.Name))
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
@@ -170,7 +172,7 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 			}
 			if !approved {
 				if agent.opts.Hooks != nil {
-					safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+					safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 				}
 				return result, nil
 			}
@@ -188,7 +190,7 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 		if invocationErr != nil {
 			result := deniedResult(CodeInvalidArgs, invocationErr.Error())
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
@@ -200,7 +202,7 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 			}
 			result := deniedResult(CodeToolJournalUnavailable, "tool invocation journal is unavailable")
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
@@ -212,21 +214,21 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 				result = deniedResult(CodeToolJournalUnavailable, resultErr.Error())
 			}
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		case ToolInvocationUnknown:
 			result := deniedResult(CodeToolOutcomeUnknown,
 				fmt.Sprintf("tool %s may already have executed; automatic replay is unsafe", call.Name))
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		case ToolInvocationConflict:
 			result := deniedResult(CodeToolIdempotencyConflict,
 				fmt.Sprintf("tool call identity %s was reused with different capability or arguments", call.ID))
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		case ToolInvocationExecuteNew:
@@ -234,14 +236,14 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 			if !invocation.Idempotent {
 				result := deniedResult(CodeToolJournalUnavailable, "journal requested an unsafe non-idempotent retry")
 				if agent.opts.Hooks != nil {
-					safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+					safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 				}
 				return result, nil
 			}
 		default:
 			result := deniedResult(CodeToolJournalUnavailable, "journal returned an invalid tool invocation decision")
 			if agent.opts.Hooks != nil {
-				safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+				safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 			}
 			return result, nil
 		}
@@ -292,7 +294,7 @@ func (g *guardedToolRuntime) Execute(ctx context.Context, call ToolCall) (Capabi
 		}
 	}
 	if agent.opts.Hooks != nil {
-		safeHookNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
+		safeCallNotify(func() { agent.opts.Hooks.OnAfterTool(ctx, info, call, result) })
 	}
 	return result, err
 }

@@ -43,6 +43,88 @@ func TestAgentPreservesReportedUsageWhenModelFails(t *testing.T) {
 	}
 }
 
+func TestAgentUsageAppendErrorKeepsPendingUsage(t *testing.T) {
+	modelFailure := errors.New("model failed")
+	for _, test := range []struct {
+		name string
+		call func(*Agent, RunInfo) (TurnResult, error)
+	}{
+		{
+			name: "complete",
+			call: func(agent *Agent, info RunInfo) (TurnResult, error) {
+				return agent.complete(info, RunCompleted)
+			},
+		},
+		{
+			name: "fail",
+			call: func(agent *Agent, info RunInfo) (TurnResult, error) {
+				return agent.fail(info, "model_failed", modelFailure, false)
+			},
+		},
+		{
+			name: "approval_pause",
+			call: func(agent *Agent, info RunInfo) (TurnResult, error) {
+				return agent.pauseForApproval(info, &ApprovalPendingError{
+					Request:    ApprovalRequest{ToolCall: ToolCall{ID: "call-usage", Name: "market.quote"}},
+					Resolution: ApprovalResolution{ApprovalID: "apr_0123456789abcdef0123456789abcdef", Decision: ApprovalPending},
+				}, ToolCall{ID: "call-usage", Name: "market.quote"}, nil, false)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, _, user := testScopes()
+			principal := testPrincipal(user)
+			snapshot, err := (CapabilityResolver{Registry: NewCapabilityRegistry()}).Resolve(principal, user)
+			if err != nil {
+				t.Fatal(err)
+			}
+			session := mustSession(t, user, principal)
+			agent, err := NewAgent(AgentOptions{
+				LLM: MockLlmAdapter{}, Tools: snapshot, Session: session,
+				OnEvent: func(event SessionEvent) {
+					if event.Type == EvRunUsage {
+						panic("usage delivery failed")
+					}
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			const runID = "run-usage-append-error"
+			if _, err := session.Append(runID, EvRunStart, RunStartData{}); err != nil {
+				t.Fatal(err)
+			}
+			agent.usage = TokenUsage{InputTokens: 3, OutputTokens: 2}
+
+			_, err = test.call(agent, RunInfo{RunID: runID})
+			if err == nil || !strings.Contains(err.Error(), "event callback panicked") {
+				t.Fatalf("error = %v", err)
+			}
+			if test.name == "fail" && !errors.Is(err, modelFailure) {
+				t.Fatalf("joined error no longer preserves original failure: %v", err)
+			}
+			if agent.usage != (TokenUsage{InputTokens: 3, OutputTokens: 2}) {
+				t.Fatalf("pending usage was cleared: %#v", agent.usage)
+			}
+			usageEvents, approvalEvents := 0, 0
+			for _, event := range session.Events() {
+				switch event.Type {
+				case EvRunUsage:
+					usageEvents++
+				case EvApprovalRequested:
+					approvalEvents++
+				}
+			}
+			if usageEvents != 1 {
+				t.Fatalf("usage events = %d, want 1", usageEvents)
+			}
+			if test.name == "approval_pause" && approvalEvents != 0 {
+				t.Fatalf("approval was appended after usage callback failure: %d", approvalEvents)
+			}
+		})
+	}
+}
+
 func TestConsumeModelStreamUsageKeepsOnlyFirstValidReport(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

@@ -234,13 +234,15 @@ func (a *Agent) RunTurn(ctx context.Context, input TurnInput) (turnResult TurnRe
 		return a.fail(info, "event_append_failed", err, false)
 	}
 	if a.opts.Hooks != nil {
-		if err := safeHookError("OnRunStart", func() error { return a.opts.Hooks.OnRunStart(ctx, info) }); err != nil {
+		if err := safeCallError("run hook OnRunStart panicked", func() error { return a.opts.Hooks.OnRunStart(ctx, info) }); err != nil {
 			return a.fail(info, "input_rejected", err, false)
 		}
 	}
 
 	if a.opts.Fast != nil {
-		dispatch, err := safeFastDispatch(a.opts.Fast, ctx, input.Text, a.tools)
+		dispatch, err := safeCallValueError("fast router panicked", func() (FastDispatch, error) {
+			return a.opts.Fast.Dispatch(ctx, input.Text, a.tools)
+		})
 		if err != nil {
 			if errors.Is(err, errFastToolCallAppend) {
 				return a.fail(info, "event_append_failed", err, false)
@@ -277,7 +279,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 	for step := startStep; step < a.opts.MaxSteps; step++ {
 		info.Step = step
 		if a.opts.Hooks != nil {
-			if err := safeHookError("OnBeforeStep", func() error { return a.opts.Hooks.OnBeforeStep(ctx, info) }); err != nil {
+			if err := safeCallError("run hook OnBeforeStep panicked", func() error { return a.opts.Hooks.OnBeforeStep(ctx, info) }); err != nil {
 				return a.fail(info, "step_rejected", err, false)
 			}
 		}
@@ -302,14 +304,18 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 				return a.fail(info, "history_projection_failed", err, false)
 			}
 			if a.opts.Summarizer != nil {
-				messages, err = safeEnsureSummarized(a.opts.Summarizer, ctx, session, info.RunID, a.emit, messages)
+				messages, err = safeCallValueError("run summarizer panicked", func() ([]ChatMessage, error) {
+					return a.opts.Summarizer.EnsureSummarized(ctx, session, info.RunID, a.emit, messages)
+				})
 				if err != nil {
 					_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("summarization_failed", err, isRetryable(err)))
 					return a.fail(info, "summarization_failed", err, isRetryable(err))
 				}
 			}
 			if a.opts.Compactor != nil {
-				messages, err = safeCompact(a.opts.Compactor, messages)
+				messages, err = safeCallValueError("context compactor panicked", func() ([]ChatMessage, error) {
+					return a.opts.Compactor.Compact(messages), nil
+				})
 				if err != nil {
 					_ = a.append(info.RunID, EvStepError, NewRuntimeErrorData("compaction_failed", err, false))
 					return a.fail(info, "compaction_failed", err, false)
@@ -341,7 +347,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 				return a.fail(info, "event_append_failed", err, false)
 			}
 			if a.opts.Hooks != nil {
-				safeHookNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+				safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 			}
 			return a.complete(info, RunCompleted)
 		}
@@ -353,7 +359,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 				}
 				_ = a.append(info.RunID, EvStepEnd, StepData{Index: step})
 				if a.opts.Hooks != nil {
-					safeHookNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+					safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 				}
 				return a.complete(info, RunLimited)
 			}
@@ -389,7 +395,7 @@ func (a *Agent) runModelSteps(ctx context.Context, info RunInfo, startStep int) 
 			return a.fail(info, "event_append_failed", err, false)
 		}
 		if a.opts.Hooks != nil {
-			safeHookNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+			safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 		}
 	}
 
@@ -606,7 +612,7 @@ func (a *Agent) resumeApproval(ctx context.Context, info RunInfo, pending Approv
 		return a.fail(info, "event_append_failed", err, false)
 	}
 	if a.opts.Hooks != nil {
-		safeHookNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
+		safeCallNotify(func() { a.opts.Hooks.OnAfterStep(ctx, info) })
 	}
 	return a.runModelSteps(ctx, info, info.Step+1)
 }
@@ -650,7 +656,9 @@ func safeEventCallback(callback func(SessionEvent), event SessionEvent) (err err
 }
 
 func (a *Agent) complete(info RunInfo, status RunStatus) (TurnResult, error) {
-	a.appendUsage(info.RunID)
+	if err := a.appendUsage(info.RunID); err != nil {
+		return TurnResult{}, err
+	}
 	if err := a.append(info.RunID, EvRunEnd, RunEndData{Status: status}); err != nil {
 		return TurnResult{}, err
 	}
@@ -665,7 +673,9 @@ func (a *Agent) fail(info RunInfo, code string, cause error, retryable bool) (Tu
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		status = RunCancelled
 	}
-	a.appendUsage(info.RunID)
+	if usageErr := a.appendUsage(info.RunID); usageErr != nil {
+		cause = errors.Join(cause, usageErr)
+	}
 	_ = a.append(info.RunID, EvRunError, NewRuntimeErrorData(code, cause, retryable))
 	_ = a.append(info.RunID, EvRunEnd, RunEndData{Status: status})
 	if a.opts.Hooks != nil {
@@ -683,7 +693,7 @@ func (a *Agent) notifyRunEnd(info RunInfo, status RunStatus) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		safeHookNotify(func() { a.opts.Hooks.OnRunEnd(ctx, info, status) })
+		safeCallNotify(func() { a.opts.Hooks.OnRunEnd(ctx, info, status) })
 	}()
 	select {
 	case <-done:
@@ -693,18 +703,21 @@ func (a *Agent) notifyRunEnd(info RunInfo, status RunStatus) {
 
 // appendUsage records this segment's ordinary model usage. Summarizer usage
 // contributions and approval checkpoints are independent additive events.
-func (a *Agent) appendUsage(runID string) {
+func (a *Agent) appendUsage(runID string) error {
 	if a.usage.InputTokens == 0 && a.usage.OutputTokens == 0 {
-		return
+		return nil
 	}
-	_ = a.append(runID, EvRunUsage, RunUsageData{
+	return a.append(runID, EvRunUsage, RunUsageData{
 		InputTokens: a.usage.InputTokens, OutputTokens: a.usage.OutputTokens,
 	})
 }
 
-func (a *Agent) checkpointUsage(runID string) {
-	a.appendUsage(runID)
+func (a *Agent) checkpointUsage(runID string) error {
+	if err := a.appendUsage(runID); err != nil {
+		return err
+	}
 	a.usage = TokenUsage{}
+	return nil
 }
 
 func (a *Agent) appendApprovalResolutions(runID string) error {
@@ -761,7 +774,9 @@ func (a *Agent) pauseForApproval(info RunInfo, pending *ApprovalPendingError, re
 		}
 		return TurnResult{RunID: info.RunID, Status: RunWaitingApproval}, nil
 	}
-	a.checkpointUsage(info.RunID)
+	if err := a.checkpointUsage(info.RunID); err != nil {
+		return TurnResult{}, err
+	}
 	if err := a.append(info.RunID, EvApprovalRequested, ApprovalRequestedData{
 		ApprovalID: pending.Resolution.ApprovalID, ToolCall: pending.Request.ToolCall,
 		ResumeCall: resumeCall, RemainingCalls: remaining, Step: info.Step,

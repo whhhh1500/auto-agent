@@ -16,7 +16,9 @@ func (g *guardedToolRuntime) requestApproval(ctx context.Context, info RunInfo, 
 		ToolCall: call, Manifest: manifest,
 	}
 	if durable, ok := agent.opts.Approver.(DurableApprover); ok {
-		resolution, err := safeRequestApproval(durable, ctx, request)
+		resolution, err := safeCallValueError("durable approver panicked", func() (ApprovalResolution, error) {
+			return durable.RequestApproval(ctx, request)
+		})
 		if err != nil {
 			recordApprovalTelemetry(agent.opts.Telemetry, ctx, call.Name, ApprovalDecision("error"), ApprovalResolution{})
 			return approvalDeniedFor(CodeApprovalFailed, call), false, nil
@@ -39,7 +41,9 @@ func (g *guardedToolRuntime) requestApproval(ctx context.Context, info RunInfo, 
 			return approvalDeniedFor(CodeApprovalUnavailable, call), false, nil
 		}
 	}
-	decision, err := safeApprove(agent.opts.Approver, ctx, request)
+	decision, err := safeCallValueError("approver panicked", func() (ApprovalDecision, error) {
+		return agent.opts.Approver.Approve(ctx, request)
+	})
 	if err != nil {
 		recordApprovalTelemetry(agent.opts.Telemetry, ctx, call.Name, ApprovalDecision("error"), ApprovalResolution{})
 		return approvalDeniedFor(CodeApprovalFailed, call), false, nil
@@ -69,71 +73,35 @@ func recordApprovalTelemetry(telemetry Telemetry, ctx context.Context, capabilit
 	}
 }
 
-func safeHookError(name string, call func() error) (err error) {
+func safeCallError(message string, call func() error) (err error) {
 	defer func() {
 		if recover() != nil {
-			err = fmt.Errorf("run hook %s panicked", name)
+			err = fmt.Errorf("%s", message)
 		}
 	}()
 	return call()
 }
 
-func safeHookNotify(call func()) {
+func safeCallValue[T any](fallback T, call func() T) (value T) {
+	defer func() {
+		if recover() != nil {
+			value = fallback
+		}
+	}()
+	return call()
+}
+
+func safeCallValueError[T any](message string, call func() (T, error)) (value T, err error) {
+	defer func() {
+		if recover() != nil {
+			value = *new(T)
+			err = fmt.Errorf("%s", message)
+		}
+	}()
+	return call()
+}
+
+func safeCallNotify(call func()) {
 	defer func() { _ = recover() }()
 	call()
-}
-
-func safeFastDispatch(router *FastRouter, ctx context.Context, text string, tools ToolRuntime) (dispatch FastDispatch, err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("fast router panicked")
-		}
-	}()
-	return router.Dispatch(ctx, text, tools)
-}
-
-func safeEnsureSummarized(summarizer RunSummarizer, ctx context.Context, session *Session, runID string, emit func(SessionEvent), messages []ChatMessage) (out []ChatMessage, err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("run summarizer panicked")
-		}
-	}()
-	return summarizer.EnsureSummarized(ctx, session, runID, emit, messages)
-}
-
-func safeCompact(compactor ContextCompactor, messages []ChatMessage) (out []ChatMessage, err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("context compactor panicked")
-		}
-	}()
-	return compactor.Compact(messages), nil
-}
-
-func safeAllowCall(limiter CallRateLimiter, ctx context.Context, tenantID, capability string) (allowed bool) {
-	defer func() {
-		if recover() != nil {
-			allowed = false
-		}
-	}()
-	return limiter.AllowCall(ctx, tenantID, capability)
-}
-
-func safeApprove(approver Approver, ctx context.Context, request ApprovalRequest) (decision ApprovalDecision, err error) {
-	defer func() {
-		if recover() != nil {
-			err = fmt.Errorf("approver panicked")
-		}
-	}()
-	return approver.Approve(ctx, request)
-}
-
-func safeRequestApproval(approver DurableApprover, ctx context.Context, request ApprovalRequest) (resolution ApprovalResolution, err error) {
-	defer func() {
-		if recover() != nil {
-			resolution = ApprovalResolution{}
-			err = fmt.Errorf("durable approver panicked")
-		}
-	}()
-	return approver.RequestApproval(ctx, request)
 }
