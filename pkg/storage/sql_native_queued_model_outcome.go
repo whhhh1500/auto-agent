@@ -46,6 +46,24 @@ type nativeQueuedModelOutcome struct {
 // This method does not prove provider execution or transport receipt,
 // authorize continuation, or permit provider replay.
 func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, events []core.SessionEvent) (bool, error) {
+	return s.appendNativeQueuedModelOutcomeBatchFenced(ctx, fence, expectedVersion, len(events), events)
+}
+
+// AppendNativeQueuedModelOutcomeBatchFenced atomically appends one native
+// queued model outcome prefix and its same-Run Session suffix. outcomeEnd is
+// the number of events in the outcome prefix; that prefix contains exactly one
+// assistant/message plus model usage pair and retains the v46 hash semantics.
+// The complete batch is validated and committed under one fenced transaction,
+// so a suffix failure cannot leave a durable outcome ahead of WriteBehind.
+//
+// appended is true only for a first full-batch commit. A false nil result is
+// the response-lost convergence case, which requires the whole supplied batch
+// and its v46 row to match exactly. A later successor never converges here.
+func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeBatchFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, outcomeEnd int, events []core.SessionEvent) (bool, error) {
+	return s.appendNativeQueuedModelOutcomeBatchFenced(ctx, fence, expectedVersion, outcomeEnd, events)
+}
+
+func (s *SQLSessionStore) appendNativeQueuedModelOutcomeBatchFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, outcomeEnd int, events []core.SessionEvent) (bool, error) {
 	if ctx == nil {
 		return false, fmt.Errorf("native queued model outcome requires a context")
 	}
@@ -55,7 +73,7 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 	if err := validateSessionWriteFence(fence); err != nil {
 		return false, err
 	}
-	if expectedVersion < 1 || len(events) < 2 {
+	if expectedVersion < 1 || outcomeEnd < 2 || outcomeEnd > len(events) {
 		return false, completedToolResultProofInvalid()
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -75,6 +93,9 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 		return false, sessionWriteFenceLost("fenced identity does not own the session")
 	}
 	targetVersion := expectedVersion + int64(len(events))
+	if targetVersion < expectedVersion {
+		return false, completedToolResultProofInvalid()
+	}
 	if committed != expectedVersion && committed != targetVersion {
 		return false, fmt.Errorf("%w: expected %d or %d, found %d", core.ErrSessionConflict, expectedVersion, targetVersion, committed)
 	}
@@ -82,7 +103,7 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 	if err != nil {
 		return false, err
 	}
-	outcome, err := deriveNativeQueuedModelOutcome(session, options, expectedVersion, events)
+	outcome, err := deriveNativeQueuedModelOutcomeBatch(session, options, expectedVersion, outcomeEnd, events)
 	if err != nil {
 		return false, err
 	}
@@ -94,12 +115,15 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 		return false, completedToolResultProofInvalid()
 	}
 	outcome.attemptRequestSHA256 = attempt.requestSHA256
+	if err := validateNativeQueuedModelOutcomeBase(session, options, fence, attempt, expectedVersion); err != nil {
+		return false, err
+	}
 	if committed == targetVersion {
 		stored, found, err := loadNativeQueuedModelOutcome(ctx, tx, s.dialect, fence.SessionID, fence.RunID, outcome.invocationID, true)
 		if err != nil {
 			return false, err
 		}
-		if !found || !nativeQueuedModelOutcomeMatches(stored, outcome) || validateNativeQueuedModelOutcomeCommitted(session, expectedVersion, events, outcome) != nil {
+		if !found || !nativeQueuedModelOutcomeMatches(stored, outcome) || validateNativeQueuedModelOutcomeBatchCommitted(session, options, expectedVersion, events, outcome) != nil {
 			return false, completedToolResultProofInvalid()
 		}
 		if err := tx.Commit(); err != nil {
@@ -109,9 +133,6 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 	}
 	if attempt.queueGeneration != fence.QueueGeneration || attempt.leaseHolderSHA256 != sha256String(fence.LeaseHolder) {
 		return false, sessionWriteFenceLost("model attempt was admitted by another queued owner")
-	}
-	if err := validateNativeQueuedModelOutcomeBase(session, attempt, expectedVersion); err != nil {
-		return false, err
 	}
 	if err := s.insertChunk(ctx, tx, fence.SessionID, expectedVersion, events); err != nil {
 		return false, err
@@ -164,6 +185,50 @@ func (s *SQLSessionStore) AppendNativeQueuedModelOutcomeFenced(ctx context.Conte
 	return true, nil
 }
 
+func deriveNativeQueuedModelOutcomeBatch(session *core.Session, options core.SessionOptions, expectedVersion int64, outcomeEnd int, events []core.SessionEvent) (nativeQueuedModelOutcome, error) {
+	if outcomeEnd < 2 || outcomeEnd > len(events) {
+		return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+	}
+	modelOutcomes := 0
+	for index, event := range events {
+		if event.Type != core.EvRunUsage {
+			continue
+		}
+		var usage core.RunUsageData
+		if json.Unmarshal(event.Data, &usage) != nil || !strings.HasPrefix(usage.InvocationID, "model:") {
+			continue
+		}
+		modelOutcomes++
+		if index == 0 || events[index-1].Type != core.EvAssistantMessage || index+1 != outcomeEnd {
+			return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+		}
+	}
+	if modelOutcomes != 1 {
+		return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+	}
+	outcome, err := deriveNativeQueuedModelOutcome(session, options, expectedVersion, events[:outcomeEnd])
+	if err != nil {
+		return nativeQueuedModelOutcome{}, err
+	}
+	for index, event := range events {
+		if event.Seq != expectedVersion+int64(index) || event.RunID != outcome.runID {
+			return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+		}
+	}
+	baseEvents := session.Events()
+	if int64(len(baseEvents)) < expectedVersion {
+		return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+	}
+	base, err := core.RestoreSession(options, baseEvents[:expectedVersion])
+	if err != nil {
+		return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+	}
+	if _, err := core.RestoreSession(options, append(base.Events(), events...)); err != nil {
+		return nativeQueuedModelOutcome{}, completedToolResultProofInvalid()
+	}
+	return outcome, nil
+}
+
 func deriveNativeQueuedModelOutcome(session *core.Session, options core.SessionOptions, expectedVersion int64, events []core.SessionEvent) (nativeQueuedModelOutcome, error) {
 	assistant, usage := events[len(events)-2], events[len(events)-1]
 	if assistant.Type != core.EvAssistantMessage || usage.Type != core.EvRunUsage || assistant.RunID == "" || assistant.RunID != usage.RunID || assistant.RunID != events[0].RunID {
@@ -203,11 +268,23 @@ func deriveNativeQueuedModelOutcome(session *core.Session, options core.SessionO
 		outcomeSHA256: hex.EncodeToString(sum[:]), createdAt: time.Now().UTC()}, nil
 }
 
-func validateNativeQueuedModelOutcomeBase(session *core.Session, attempt nativeQueuedModelInvocation, expectedVersion int64) error {
-	if session == nil || session.Version() != expectedVersion || attempt.sessionVersionAtAdmission > expectedVersion || attempt.invocationID != fmt.Sprintf("model:%d", attempt.stepStartSeq) {
+func validateNativeQueuedModelOutcomeBase(session *core.Session, options core.SessionOptions, fence SessionWriteFence, attempt nativeQueuedModelInvocation, expectedVersion int64) error {
+	if session == nil || session.Version() < expectedVersion || attempt.sessionVersionAtAdmission > expectedVersion || attempt.invocationID != fmt.Sprintf("model:%d", attempt.stepStartSeq) {
 		return completedToolResultProofInvalid()
 	}
-	for _, event := range session.Events()[attempt.sessionVersionAtAdmission:expectedVersion] {
+	events := session.Events()
+	if int64(len(events)) < expectedVersion || attempt.sessionVersionAtAdmission < 1 || int64(len(events)) < attempt.sessionVersionAtAdmission {
+		return completedToolResultProofInvalid()
+	}
+	base, err := core.RestoreSession(options, events[:attempt.sessionVersionAtAdmission])
+	if err != nil {
+		return completedToolResultProofInvalid()
+	}
+	derived, err := deriveNativeQueuedModelInvocation(base, fence, attempt.sessionVersionAtAdmission, attempt.input)
+	if err != nil || !nativeQueuedModelInvocationAttemptMatches(attempt, derived) {
+		return completedToolResultProofInvalid()
+	}
+	for _, event := range events[attempt.sessionVersionAtAdmission:expectedVersion] {
 		if event.RunID != attempt.input.Request.RunID || event.Type != core.EvAssistantChunk {
 			return completedToolResultProofInvalid()
 		}
@@ -215,21 +292,21 @@ func validateNativeQueuedModelOutcomeBase(session *core.Session, attempt nativeQ
 	return nil
 }
 
-func validateNativeQueuedModelOutcomeCommitted(session *core.Session, expectedVersion int64, events []core.SessionEvent, outcome nativeQueuedModelOutcome) error {
-	if session == nil || session.Version() != outcome.versionAfterOutcome || int64(len(session.Events())) != session.Version() {
+func validateNativeQueuedModelOutcomeBatchCommitted(session *core.Session, options core.SessionOptions, expectedVersion int64, events []core.SessionEvent, outcome nativeQueuedModelOutcome) error {
+	if session == nil || session.Version() != expectedVersion+int64(len(events)) || int64(len(session.Events())) != session.Version() || outcome.versionAfterOutcome > session.Version() {
 		return completedToolResultProofInvalid()
 	}
 	actual := session.Events()[expectedVersion:]
-	if len(actual) != len(events) {
-		return completedToolResultProofInvalid()
-	}
-	encoded, err := json.Marshal(actual)
+	expected, err := json.Marshal(events)
 	if err != nil {
 		return completedToolResultProofInvalid()
 	}
-	sum := sha256.Sum256(encoded)
-	if hex.EncodeToString(sum[:]) != outcome.outcomeSHA256 {
+	stored, err := json.Marshal(actual)
+	if err != nil || !reflect.DeepEqual(expected, stored) {
 		return completedToolResultProofInvalid()
+	}
+	if _, err := deriveNativeQueuedModelOutcomeBatch(session, options, expectedVersion, int(outcome.versionAfterOutcome-expectedVersion), events); err != nil {
+		return err
 	}
 	return nil
 }

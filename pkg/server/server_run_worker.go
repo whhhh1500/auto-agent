@@ -434,7 +434,15 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	}
 
 	expectedVersion := session.Version()
-	writer, err := storage.NewFencedWriteBehind(s.sessions, fence, session, expectedVersion, s.maxWriteDelay)
+	writerStore, err := s.nativeQueuedWriteBehindStore()
+	if err != nil {
+		claim.stop()
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		}
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "fenced_writer_init_failed", err, true)
+	}
+	writer, err := storage.NewFencedWriteBehind(writerStore, fence, session, expectedVersion, s.maxWriteDelay)
 	if err != nil {
 		claim.stop()
 		if claim.reason.Load() == claimStopLost {

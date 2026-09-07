@@ -136,6 +136,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
 | Optional tool disclosure | Restores up to 8 recent tool schemas from projected history and the current authorized snapshot; host-owned library dispatch is preserved | [4/24-tool real conversation comparison](performance/2026-09-06-tool-disclosure.md); extra discovery calls can increase total tokens and latency; `toollib.SetSearcher` does not replace the core searcher |
 | Queued worker process-crash recovery | Before a journaled tool begins, the server durably checkpoints the assistant/tool-call prefix; an unknown non-idempotent outcome is repaired as `run_interrupted` without provider replay | [Hard-kill PostgreSQL acceptance](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery); recovery is fail-closed, including a journal row already marked completed |
+| Native-static queued model worker (v45/v46) | Implemented and accepted for queued main-model admission and atomic model-outcome plus same-Run suffix persistence; completed-tool-result recovery and automatic continuation remain disabled | [First-batch native worker acceptance](verification/2026-09-07-native-model-worker.md#first-batch-acceptance-recorded-2026-09-08) |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking
@@ -225,15 +226,24 @@ to the adapter configuration, outside the core contract.
 - Schema v45 adds one immutable native queued main-model admission per durable
   `step/start`. It binds the exact non-secret `ModelCallRequest`, current epoch,
   queue generation, session lease, and durable model contract before Stream.
+  Its `run_start_seq` remains the Run-origin identity. Its profile/capability,
+  composition revision/hash, assignment revision, and model-contract fields
+  bind the latest validated composition segment: `run/start` initially, or the
+  one allowed `run/resume` that follows an approved durable tool checkpoint.
+  They never treat the historical start composition as authorization for a
+  later resumed model call.
   An existing row forbids another provider request. This first slice has no
   prompt/tool digest, canonical assistant outcome, summary support, or replay.
 - Schema v46 adds immutable canonical model-outcome delivery evidence. One
   fenced SQL transaction appends the Core-validated assistant/message plus
-  model usage suffix and binds it to the v45 attempt. It does not authorize
-  continuation or provider replay, prove provider execution or transport
-  receipt. SQL retention may delete an old outcome/attempt pair only after
-  strict proof validation and either a terminal run or a durable Session
-  successor; attempts without outcomes remain permanent replay fences.
+  model usage prefix, binds it to the v45 attempt, and may atomically include
+  an already-batched, same-Run canonical suffix. The v46 digest remains over
+  the outcome prefix; a response-lost retry must match both that evidence and
+  the complete submitted batch exactly. It does not authorize continuation or
+  provider replay, prove provider execution or transport receipt. SQL
+  retention may delete an old outcome/attempt pair only after strict proof
+  validation and either a terminal run or a durable Session successor;
+  attempts without outcomes remain permanent replay fences.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -308,10 +318,20 @@ to the adapter configuration, outside the core contract.
   authority must be dedicated to native-static instances, never shared with a
   generic server or dynamic-control writer. The authorization-epoch gate is a
   fail-closed lag detector, not a transaction-level authorization grant held
-  through `run/start` or a queued claim. V43 sidecars, v44 effect-admission
-  witnesses, v45 model attempts, and v46 outcomes only provide storage evidence; completed-result recovery remains disabled. Detached control
-  projection, current execution admission, and a model-invocation journal are
-  still required before any strict recovery coordinator can exist.
+  through `run/start` or a queued claim. Native strict execution is queued-only:
+  the synchronous run endpoint is rejected. Each queued main-model call
+  checkpoints `step/start`, revalidates the SQL projection/principal, and must
+  win v45 admission before the provider runs; its canonical assistant/message
+  plus model-usage prefix and any already-batched same-Run suffix commit in
+  one v46-fenced transaction.
+  Generic servers, synchronous runs, summary calls, and FastRouter do not enter
+  this path. V43 sidecars, v44 effect-admission witnesses, v45 model attempts,
+  and v46 outcomes only provide storage evidence; completed-result recovery and
+  automatic continuation remain disabled. The accepted first batch covers
+  main-model admission and atomic outcome persistence, not a recovery
+  coordinator. Detached control projection, current execution admission, and a
+  model-invocation journal are still required before any strict recovery
+  coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or

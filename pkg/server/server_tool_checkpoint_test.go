@@ -345,46 +345,6 @@ func TestToolJournalCheckpointFailurePreventsBegin(t *testing.T) {
 	}
 }
 
-func enableNativeQueuedWitness(t *testing.T, fixture *runWorkerFixture) {
-	t.Helper()
-	journal, err := storage.NewSQLToolInvocationJournal(fixture.db, storage.SQLDialectSQLite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.server.runtime.ToolJournal = journal
-	accounts, err := storage.NewSQLAccountStore(fixture.db, storage.SQLDialectSQLite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := accounts.CreateTenant(context.Background(), fixture.principal.TenantID, "Acme"); err != nil {
-		t.Fatal(err)
-	}
-	if err := accounts.CreateAccount(context.Background(), storage.Account{
-		AccountID: fixture.principal.SubjectID, Email: "alice@example.test", Role: storage.RoleAccountUser,
-		TenantID: fixture.principal.TenantID, Status: storage.AccountActive,
-	}, "native-password"); err != nil {
-		t.Fatal(err)
-	}
-	root := fixture.principal.Scope.Segments()[:2]
-	resolver, err := storage.NewSQLQueuedPrincipalResolver(accounts, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.server.runPrincipal = resolver
-	fixture.server.nativeStrict = &nativeStrictOwnership{
-		bootstrapRevision: "native-witness-v1", phase: nativeStrictPhaseStaticBootstrap,
-		db: fixture.db, dialect: storage.SQLDialectSQLite,
-	}
-	fixture.server.executionProjection = newExecutionProjectionCoordinator(resolver)
-	epoch, err := resolver.AuthorizationEpoch(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.server.initializeNativeStrictExecutionProjection(epoch); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func nativeQueuedWitnessCount(t *testing.T, fixture *runWorkerFixture) int {
 	t.Helper()
 	var count int
@@ -394,25 +354,104 @@ func nativeQueuedWitnessCount(t *testing.T, fixture *runWorkerFixture) int {
 	return count
 }
 
+func nativeStrictQueuedWitnessCount(t *testing.T, db *sql.DB, sessionID string) int {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM native_queued_tool_effect_witnesses WHERE session_id = ?", sessionID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+type nativeStrictApprovalFixture struct {
+	api       *Server
+	db        *sql.DB
+	session   *core.Session
+	runID     string
+	toolCalls *atomic.Int32
+}
+
+func newNativeStrictApprovalFixture(t *testing.T) *nativeStrictApprovalFixture {
+	t.Helper()
+	ctx := context.Background()
+	db := openNativeStrictTestDB(t)
+	if _, err := storage.OpenSQLSessionStore(ctx, db, storage.SQLDialectSQLite); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := storage.NewSQLAccountStore(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.CreateTenant(ctx, "acme", "Acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.CreateAccount(ctx, storage.Account{
+		AccountID: "alice", Email: "alice@example.test", Role: storage.RoleAccountUser,
+		TenantID: "acme", Status: storage.AccountActive,
+	}, "native-password"); err != nil {
+		t.Fatal(err)
+	}
+	root := nativeStrictTestRoot()
+	model := core.ModelSelection{Provider: "approval-worker", Model: "native-approval"}
+	name := "Native approval"
+	var toolCalls atomic.Int32
+	api, err := NewNativeStrictServer(ctx, NativeStrictServerConfig{
+		DB: db, Dialect: storage.SQLDialectSQLite,
+		Bootstrap: NativeStrictBootstrap{
+			Revision: "native-approval-v1", Root: root.Segments(), DefaultProfileID: "native.approval",
+			Profiles: []core.AgentProfileLayer{{
+				Scope: root, ProfileID: "native.approval", Name: &name, Model: &model,
+				AddCapabilities: []string{"payment.release"},
+			}},
+			Capabilities: []NativeStrictCapability{{Scope: root, Capability: approvalWorkerTool{calls: &toolCalls}}},
+			Model:        NativeStrictModel{Selection: model, Adapter: approvalWorkerModel{}},
+		},
+		MaxWriteDelay: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = api.Shutdown(context.Background()) })
+	account, err := accounts.GetAccount(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := storage.PrincipalForAccount(account, root.Segments())
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := principal.Scope.Child(core.ScopeRef{Kind: core.ScopeSession, ID: "session-native-approval"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := core.NewSession(core.SessionOptions{ID: "session-native-approval", ProfileID: "native.approval", Principal: principal, Scope: scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := api.sessions.Create(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	runID := "run-native-approval"
+	if err := api.runQueue.EnqueueRun(ctx, storage.QueuedRun{RunRecord: storage.RunRecord{
+		RunID: runID, SessionID: session.ID(), TenantID: principal.TenantID, SubjectID: principal.SubjectID,
+	}, Message: "release payment", MaxAttempts: 3}); err != nil {
+		t.Fatal(err)
+	}
+	return &nativeStrictApprovalFixture{api: api, db: db, session: session, runID: runID, toolCalls: &toolCalls}
+}
+
 func TestNativeQueuedWorkerWritesEffectAdmissionWitness(t *testing.T) {
-	fixture := newRunWorkerFixture(t)
-	toolCalls, _, _ := enableCheckpointTool(t, fixture)
-	record := enqueueRunHTTP(t, fixture, "write")
-	enableNativeQueuedWitness(t, fixture)
-	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-witness")
+	fixture := newNativeStrictWitnessFixture(t, false)
+	claimed, err := fixture.api.RunWorkerOnce(context.Background(), "worker-native-witness")
 	if err != nil || !claimed {
 		t.Fatalf("worker claimed=%t err=%v", claimed, err)
 	}
-	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	terminal, err := fixture.api.runQueue.GetRun(context.Background(), fixture.runID)
 	if err != nil || terminal.Status != string(core.RunCompleted) {
-		loaded, _ := fixture.sessions.Load(context.Background(), fixture.session.ID())
-		var durable core.RunStartData
-		_ = json.Unmarshal(loaded.Events()[0].Data, &durable)
-		snapshot, _ := (core.CapabilityResolver{Registry: fixture.server.runtime.Capabilities}).Resolve(fixture.principal, fixture.session.Scope())
-		t.Fatalf("terminal=%+v durable=%#v current=%#v err=%v", terminal, durable.Composition.Capabilities, snapshot.Capabilities(), err)
+		t.Fatalf("terminal=%+v err=%v", terminal, err)
 	}
-	if toolCalls.Load() != 1 || nativeQueuedWitnessCount(t, fixture) != 1 {
-		t.Fatalf("tool calls=%d witnesses=%d", toolCalls.Load(), nativeQueuedWitnessCount(t, fixture))
+	if fixture.toolCalls.Load() != 1 || nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()) != 1 {
+		t.Fatalf("tool calls=%d witnesses=%d", fixture.toolCalls.Load(), nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()))
 	}
 }
 
@@ -432,50 +471,37 @@ func TestGenericQueuedWorkerDoesNotWriteNativeEffectWitness(t *testing.T) {
 }
 
 func TestNativeQueuedApprovalKeepsOrdinaryJournalPath(t *testing.T) {
-	fixture := newRunWorkerFixture(t)
-	providerCalls := enableApprovalWorker(t, fixture)
-	record := enqueueRunHTTP(t, fixture, "release payment")
-	enableNativeQueuedWitness(t, fixture)
-	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-approval-first")
+	fixture := newNativeStrictApprovalFixture(t)
+	claimed, err := fixture.api.RunWorkerOnce(context.Background(), "worker-native-approval-first")
 	if err != nil || !claimed {
 		t.Fatalf("first claimed=%t err=%v", claimed, err)
 	}
-	approvals, err := fixture.approvals.ListApprovals(context.Background(), storage.ApprovalFilter{TenantID: "acme", Status: core.ApprovalPending})
+	approvals, err := fixture.api.approvals.ListApprovals(context.Background(), storage.ApprovalFilter{TenantID: "acme", Status: core.ApprovalPending})
 	if err != nil || len(approvals) != 1 {
 		t.Fatalf("approvals=%+v err=%v", approvals, err)
 	}
-	if _, changed, err := fixture.approvals.DecideApproval(context.Background(), approvals[0].ID, core.ApprovalApproved, "admin@acme"); err != nil || !changed {
+	if _, changed, err := fixture.api.approvals.DecideApproval(context.Background(), approvals[0].ID, core.ApprovalApproved, "admin@acme"); err != nil || !changed {
 		t.Fatalf("approval changed=%t err=%v", changed, err)
 	}
-	claimed, err = fixture.server.RunWorkerOnce(context.Background(), "worker-native-approval-resume")
+	claimed, err = fixture.api.RunWorkerOnce(context.Background(), "worker-native-approval-resume")
 	if err != nil || !claimed {
 		t.Fatalf("resume claimed=%t err=%v", claimed, err)
 	}
-	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
-	if err != nil || terminal.Status != string(core.RunCompleted) || providerCalls.Load() != 1 || nativeQueuedWitnessCount(t, fixture) != 0 {
-		t.Fatalf("terminal=%+v calls=%d witnesses=%d err=%v", terminal, providerCalls.Load(), nativeQueuedWitnessCount(t, fixture), err)
+	terminal, err := fixture.api.runQueue.GetRun(context.Background(), fixture.runID)
+	if err != nil || terminal.Status != string(core.RunCompleted) || fixture.toolCalls.Load() != 1 || nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()) != 0 {
+		t.Fatalf("terminal=%+v calls=%d witnesses=%d err=%v", terminal, fixture.toolCalls.Load(), nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()), err)
 	}
 }
 
 func TestNativeQueuedWorkerRechecksPrincipalBeforeToolAdmission(t *testing.T) {
-	fixture := newRunWorkerFixture(t)
-	toolCalls, modelCalls, _ := enableCheckpointTool(t, fixture)
-	record := enqueueRunHTTP(t, fixture, "write")
-	enableNativeQueuedWitness(t, fixture)
-	accounts, err := storage.NewSQLAccountStore(fixture.db, storage.SQLDialectSQLite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
-		return disablingCheckpointModel{accounts: accounts, inner: checkpointTestModel{calls: modelCalls}}, nil
-	})
-	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-principal-recheck")
+	fixture := newNativeStrictWitnessFixture(t, true)
+	claimed, err := fixture.api.RunWorkerOnce(context.Background(), "worker-native-principal-recheck")
 	if err != nil || !claimed {
 		t.Fatalf("claimed=%t err=%v", claimed, err)
 	}
-	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
-	if err != nil || terminal.Status != string(core.RunCancelled) || toolCalls.Load() != 0 || nativeQueuedWitnessCount(t, fixture) != 0 {
-		t.Fatalf("terminal=%+v tools=%d witnesses=%d err=%v", terminal, toolCalls.Load(), nativeQueuedWitnessCount(t, fixture), err)
+	terminal, err := fixture.api.runQueue.GetRun(context.Background(), fixture.runID)
+	if err != nil || terminal.Status != string(core.RunCancelled) || fixture.toolCalls.Load() != 0 || nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()) != 0 {
+		t.Fatalf("terminal=%+v tools=%d witnesses=%d err=%v", terminal, fixture.toolCalls.Load(), nativeStrictQueuedWitnessCount(t, fixture.db, fixture.session.ID()), err)
 	}
 }
 

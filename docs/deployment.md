@@ -97,12 +97,28 @@ sidecars provide fenced historical-delivery evidence, and schema v44 witnesses
 record generation-scoped queued effect admission before provider execution.
 Schema v45 records one main-model attempt before Stream and forbids replay of
 an existing attempt; schema v46 records canonical assistant/message and model
-usage delivery. Old v45/v46 pairs are prunable only after a terminal run or a
-durable Session successor, while attempts without outcomes remain permanent.
-None proves current account state or enables completed-result continuation; they do not
-provide consume/ack state or a recovery
-coordinator. Detached control projection, current execution admission, and a
-native WriteBehind outcome route, native retention wiring, and current
+usage delivery. A native SQL batch may include a same-Run suffix in that same
+fenced transaction, while the immutable v46 digest remains scoped to the
+assistant/message plus usage prefix. For a post-approval model step, v45 keeps
+the original Run-start sequence as Run identity but binds its contract fields
+to the latest validated `run/resume` composition, under that new admission's
+current authorization epoch. Old v45/v46 pairs are prunable only after a
+terminal run or a durable Session successor, while attempts without outcomes
+remain permanent.
+Native-static execution is queued-only: `POST /v1/sessions/{id}/runs` returns
+405, while `/runs/async` is the admitted execution entry. Before each main
+provider call the worker durably checkpoints `step/start`, revalidates the SQL
+projection and account principal, and requires a new v45 admission. Successful
+assistant/message plus model usage and any already-batched same-Run
+step/tool/run suffix are persisted through one v46-fenced SQL transaction.
+Generic servers, summary calls, and FastRouter do not use this native model
+path. The first-batch v45/v46 storage and worker tests passed their SQLite,
+PostgreSQL, and race gates; separate generic queued-worker hard-kill gates also
+passed, as recorded in the [native worker verification](verification/2026-09-07-native-model-worker.md).
+The hard-kill checks do not exercise Native completed-result delivery or
+automatic continuation. None of these gates proves current account state or
+enables completed-result continuation: this deployment still has no consume/ack
+state or recovery coordinator. Detached control projection, native retention wiring, and current
 continuation admission are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.

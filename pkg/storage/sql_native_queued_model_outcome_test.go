@@ -72,6 +72,129 @@ func TestSQLSessionStoreAppendNativeQueuedModelOutcomeFenced(t *testing.T) {
 	}
 }
 
+func nativeQueuedModelOutcomeBatchEvents(t *testing.T, fixture *nativeQueuedModelOutcomeFixture) []core.SessionEvent {
+	t.Helper()
+	staged, err := fixture.session.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "model outcome"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InputTokens: 4, OutputTokens: 2, InvocationID: "model:2"}); err != nil {
+		t.Fatal(err)
+	}
+	// This is a legal non-model assistant suffix: Core emits it after the one
+	// model outcome when the tool-call budget stops the run. It must stay in
+	// the same atomic batch without being mistaken for a second v46 outcome.
+	if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "Tool call budget reached; the run stopped."}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvStepEnd, core.StepData{Index: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvRunEnd, core.RunEndData{Status: core.RunLimited}); err != nil {
+		t.Fatal(err)
+	}
+	return staged.EventsFrom(fixture.version)
+}
+
+func assertNativeQueuedModelOutcomeBatch(t *testing.T, fixture *nativeQueuedModelOutcomeFixture, events []core.SessionEvent) {
+	t.Helper()
+	loaded, err := fixture.store.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version() != fixture.version+int64(len(events)) {
+		t.Fatalf("version=%d want=%d", loaded.Version(), fixture.version+int64(len(events)))
+	}
+	actual := loaded.EventsFrom(fixture.version)
+	if len(actual) != len(events) || actual[0].Type != core.EvAssistantMessage || actual[1].Type != core.EvRunUsage || actual[2].Type != core.EvAssistantMessage || actual[3].Type != core.EvStepEnd || actual[4].Type != core.EvRunEnd {
+		t.Fatalf("batch events=%+v", actual)
+	}
+	var rows int
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT COUNT(*) FROM native_queued_model_invocation_outcomes WHERE session_id = ? AND run_id = ?"}).bind(fixture.store.dialect), fixture.session.ID(), fixture.fence.RunID).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("outcome rows=%d err=%v", rows, err)
+	}
+}
+
+func assertNativeQueuedModelBatchRolledBack(t *testing.T, fixture *nativeQueuedModelOutcomeFixture) {
+	t.Helper()
+	loaded, err := fixture.store.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version() != fixture.version {
+		t.Fatalf("leaked batch prefix: version=%d want=%d", loaded.Version(), fixture.version)
+	}
+	var rows int
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT COUNT(*) FROM native_queued_model_invocation_outcomes WHERE session_id = ? AND run_id = ?"}).bind(fixture.store.dialect), fixture.session.ID(), fixture.fence.RunID).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("leaked outcome rows=%d err=%v", rows, err)
+	}
+}
+
+func TestSQLSessionStoreAppendNativeQueuedModelOutcomeBatchFenced(t *testing.T) {
+	fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-outcome-batch", "run-model-outcome-batch")
+	events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 2, events); err != nil || !appended {
+		t.Fatalf("append=%t err=%v", appended, err)
+	}
+	assertNativeQueuedModelOutcomeBatch(t, fixture, events)
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 2, events); err != nil || appended {
+		t.Fatalf("exact response-lost append=%t err=%v", appended, err)
+	}
+	mutated := append([]core.SessionEvent(nil), events...)
+	mutated[4].Data = mustJSON(t, core.RunEndData{Status: core.RunFailed})
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 2, mutated); appended || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+		t.Fatalf("mutated suffix append=%t err=%v", appended, err)
+	}
+}
+
+func TestSQLSessionStoreNativeQueuedModelOutcomeBatchRollsBackOnSuffixCommitFailure(t *testing.T) {
+	fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-outcome-batch-abort", "run-model-outcome-batch-abort")
+	events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+	if _, err := fixture.store.db.ExecContext(context.Background(), `CREATE TRIGGER abort_native_model_batch_tip
+		BEFORE UPDATE OF version ON sessions
+		WHEN NEW.id = 'session-model-outcome-batch-abort'
+		BEGIN SELECT RAISE(ABORT, 'abort native model batch tip'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 2, events); appended || err == nil {
+		t.Fatalf("append=%t err=%v", appended, err)
+	}
+	assertNativeQueuedModelBatchRolledBack(t, fixture)
+}
+
+func TestSQLSessionStoreNativeQueuedModelOutcomeBatchRollsBackOnCancellationFenceLoss(t *testing.T) {
+	fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-outcome-batch-cancel", "run-model-outcome-batch-cancel")
+	events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+	if _, err := fixture.store.db.ExecContext(context.Background(), `CREATE TRIGGER cancel_native_model_batch
+		AFTER INSERT ON event_chunks
+		WHEN NEW.session_id = 'session-model-outcome-batch-cancel'
+		BEGIN UPDATE run_control SET cancel_requested = 1 WHERE run_id = 'run-model-outcome-batch-cancel'; END`); err != nil {
+		t.Fatal(err)
+	}
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 2, events); appended || !errors.Is(err, ErrSessionWriteFenceLost) {
+		t.Fatalf("append=%t err=%v", appended, err)
+	}
+	assertNativeQueuedModelBatchRolledBack(t, fixture)
+}
+
+func TestSQLSessionStoreNativeQueuedModelOutcomeBatchRejectsUnpairedModelUsage(t *testing.T) {
+	fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-outcome-batch-unpaired", "run-model-outcome-batch-unpaired")
+	staged, err := fixture.session.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InvocationID: "model:2"}); err != nil {
+		t.Fatal(err)
+	}
+	if appended, err := fixture.store.AppendNativeQueuedModelOutcomeBatchFenced(context.Background(), fixture.fence, fixture.version, 1, staged.EventsFrom(fixture.version)); appended || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+		t.Fatalf("append=%t err=%v", appended, err)
+	}
+	assertNativeQueuedModelBatchRolledBack(t, fixture)
+}
+
 func TestSQLSessionStoreNativeQueuedModelOutcomeFailsClosed(t *testing.T) {
 	t.Run("missing_attempt", func(t *testing.T) {
 		fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-no-attempt", "run-model-no-attempt")
@@ -451,6 +574,74 @@ func TestSQLSessionStorePruneNativeQueuedModelInvocations(t *testing.T) {
 		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
 			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
 		}
+	})
+}
+
+func TestPostgresSQLSessionStoreAppendNativeQueuedModelOutcomeBatchFenced(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
+	db := newPostgresTestDB(t)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("exact_response_lost_requires_the_complete_batch", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-outcome-batch", "run-pg-model-outcome-batch")
+		events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+		if appended, err := store.AppendNativeQueuedModelOutcomeBatchFenced(ctx, fixture.fence, fixture.version, 2, events); err != nil || !appended {
+			t.Fatalf("append=%t err=%v", appended, err)
+		}
+		assertNativeQueuedModelOutcomeBatch(t, fixture, events)
+		if appended, err := store.AppendNativeQueuedModelOutcomeBatchFenced(ctx, fixture.fence, fixture.version, 2, events); err != nil || appended {
+			t.Fatalf("response-lost append=%t err=%v", appended, err)
+		}
+		mutated := append([]core.SessionEvent(nil), events...)
+		mutated[len(mutated)-1].Data = mustJSON(t, core.RunEndData{Status: core.RunFailed})
+		if appended, err := store.AppendNativeQueuedModelOutcomeBatchFenced(ctx, fixture.fence, fixture.version, 2, mutated); appended || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("mutated suffix append=%t err=%v", appended, err)
+		}
+	})
+
+	t.Run("suffix_tip_failure_rolls_back_model_outcome_and_session_prefix", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-outcome-batch-tip", "run-pg-model-outcome-batch-tip")
+		events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+		const function = "abort_native_model_batch_tip"
+		const trigger = "abort_native_model_batch_tip_trigger"
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'abort native model batch tip'; END; $$ LANGUAGE plpgsql`, function)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE TRIGGER %s BEFORE UPDATE OF version ON sessions FOR EACH ROW WHEN (NEW.id = 'session-pg-model-outcome-batch-tip') EXECUTE FUNCTION %s()`, trigger, function)); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON sessions", trigger))
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP FUNCTION IF EXISTS %s()", function))
+		})
+		if appended, err := store.AppendNativeQueuedModelOutcomeBatchFenced(ctx, fixture.fence, fixture.version, 2, events); appended || err == nil {
+			t.Fatalf("append=%t err=%v", appended, err)
+		}
+		assertNativeQueuedModelBatchRolledBack(t, fixture)
+	})
+
+	t.Run("cancellation_fence_loss_rolls_back_model_outcome_and_session_prefix", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-outcome-batch-cancel", "run-pg-model-outcome-batch-cancel")
+		events := nativeQueuedModelOutcomeBatchEvents(t, fixture)
+		const function = "cancel_native_model_batch"
+		const trigger = "cancel_native_model_batch_trigger"
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger AS $$ BEGIN UPDATE run_control SET cancel_requested = 1 WHERE run_id = 'run-pg-model-outcome-batch-cancel'; RETURN NEW; END; $$ LANGUAGE plpgsql`, function)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TRIGGER %s AFTER INSERT ON event_chunks FOR EACH ROW WHEN (NEW.session_id = 'session-pg-model-outcome-batch-cancel') EXECUTE FUNCTION %s()", trigger, function)); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON event_chunks", trigger))
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP FUNCTION IF EXISTS %s()", function))
+		})
+		if appended, err := store.AppendNativeQueuedModelOutcomeBatchFenced(ctx, fixture.fence, fixture.version, 2, events); appended || !errors.Is(err, ErrSessionWriteFenceLost) {
+			t.Fatalf("append=%t err=%v", appended, err)
+		}
+		assertNativeQueuedModelBatchRolledBack(t, fixture)
 	})
 }
 

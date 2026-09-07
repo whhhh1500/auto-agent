@@ -21,7 +21,7 @@ func (s *Server) nativeStrictHandler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions", s.handleCreateSession)
 	mux.HandleFunc("GET /v1/sessions/{id}", s.handleGetSession)
 	mux.HandleFunc("GET /v1/sessions/{id}/events", s.handleEvents)
-	mux.HandleFunc("POST /v1/sessions/{id}/runs", s.handleRun)
+	mux.HandleFunc("POST /v1/sessions/{id}/runs", nativeStrictQueuedOnly)
 	mux.HandleFunc("POST /v1/sessions/{id}/runs/async", s.handleEnqueueRun)
 	mux.HandleFunc("GET /v1/sessions/{id}/runs", s.handleListRuns)
 	mux.HandleFunc("GET /v1/sessions/{id}/runs/{runID}", s.handleGetRun)
@@ -87,6 +87,12 @@ func (s *Server) nativeStrictHandler() http.Handler {
 func nativeStrictUnavailable(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusNotImplemented, map[string]string{
 		"error": "operation is unavailable in native strict Phase 1",
+	})
+}
+
+func nativeStrictQueuedOnly(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+		"error": "native strict execution requires the queued run endpoint",
 	})
 }
 

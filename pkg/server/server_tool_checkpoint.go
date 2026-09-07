@@ -32,14 +32,18 @@ func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *
 		return copyOf, failure, nil
 	}
 	store, ok := s.sessions.(*storage.SQLSessionStore)
-	if !ok || runtime == nil || runtime.ToolJournal == nil {
-		return nil, nil, fmt.Errorf("native queued tool admission requires the native SQL runtime")
+	if !ok || runtime == nil || runtime.ToolJournal == nil || runtime.ModelCallGate != nil {
+		return nil, nil, fmt.Errorf("native queued admission requires the unwrapped native SQL runtime")
 	}
 	copyOf := *runtime
 	failure := &toolCheckpointFailure{}
 	copyOf.ToolJournal = &nativeQueuedToolInvocationJournal{
 		ToolInvocationJournal: runtime.ToolJournal, server: s, store: store, writer: writer,
 		cancel: cancel, failure: failure, fence: fence, session: session, principal: principal, runtime: runtime,
+	}
+	copyOf.ModelCallGate = &nativeQueuedModelCallGate{
+		server: s, store: store, writer: writer, cancel: cancel, failure: failure,
+		fence: fence, session: session, principal: principal,
 	}
 	return &copyOf, failure, nil
 }

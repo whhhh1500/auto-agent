@@ -75,7 +75,7 @@ func newNativeQueuedModelFixture(t *testing.T, store *SQLSessionStore, sessionID
 		WorkerID: claim.WorkerID, QueueGeneration: claim.Generation, LeaseHolder: holder,
 	}}
 	return &nativeQueuedModelFixture{fencedSQLFixture: base, version: session.Version(), input: NativeQueuedModelInvocationInput{
-		Request:            core.ModelCallRequest{Principal: principal, Scope: session.Scope(), SessionID: session.ID(), RunID: runID, Step: 0, Provider: composition.ResolvedProvider, Model: composition.Model.Model},
+		Request:            core.ModelCallRequest{Principal: principal, Scope: session.Scope(), SessionID: session.ID(), RunID: runID, Step: 0, Provider: composition.Model.Provider, Model: composition.Model.Model},
 		AuthorizationEpoch: epoch, BootstrapRevision: "bootstrap-model-v1",
 	}}
 }
@@ -96,6 +96,48 @@ func advanceNativeQueuedModelGeneration(t *testing.T, fixture *nativeQueuedModel
 	return next
 }
 
+func completeNativeQueuedModelStep(t *testing.T, session *core.Session, runID string, step int, usageID string, toolCalls []core.ToolCall) {
+	t.Helper()
+	assistant := core.AssistantMessageData{Text: "completed model step"}
+	if len(toolCalls) > 0 {
+		first := toolCalls[0]
+		assistant.ToolCall = &first
+		assistant.ToolCalls = append([]core.ToolCall(nil), toolCalls...)
+	}
+	if _, err := session.Append(runID, core.EvAssistantMessage, assistant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Append(runID, core.EvRunUsage, core.RunUsageData{InputTokens: 3, OutputTokens: 2, InvocationID: usageID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range toolCalls {
+		if _, err := session.Append(runID, core.EvToolCall, core.ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := session.Append(runID, core.EvToolResult, core.ToolResultData{CallID: call.ID, Content: "completed tool result", OK: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := session.Append(runID, core.EvStepEnd, core.StepData{Index: step}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func advanceNativeQueuedModelFixtureToNextStep(t *testing.T, fixture *nativeQueuedModelFixture, usageID string, toolCalls []core.ToolCall) int64 {
+	t.Helper()
+	previousVersion := fixture.version
+	completeNativeQueuedModelStep(t, fixture.session, fixture.fence.RunID, fixture.input.Request.Step, usageID, toolCalls)
+	if _, err := fixture.session.Append(fixture.fence.RunID, core.EvStepStart, core.StepData{Index: fixture.input.Request.Step + 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, previousVersion, fixture.session.EventsFrom(previousVersion)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.version = fixture.session.Version()
+	fixture.input.Request.Step++
+	return fixture.version - 1
+}
+
 func TestSQLSessionStoreBeginNativeQueuedModelInvocationFenced(t *testing.T) {
 	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-attempt", "run-model-attempt")
 	admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input)
@@ -112,6 +154,212 @@ func TestSQLSessionStoreBeginNativeQueuedModelInvocationFenced(t *testing.T) {
 	var rows int
 	if err := fixture.store.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM native_queued_model_invocations").Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("rows=%d err=%v", rows, err)
+	}
+}
+
+func TestSQLSessionStoreNativeQueuedModelInvocationCanonicalizesEmptyPrincipalAttributes(t *testing.T) {
+	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-principal-empty", "run-model-principal-empty")
+	if fixture.input.Request.Principal.Attributes == nil || len(fixture.input.Request.Principal.Attributes) != 0 {
+		t.Fatalf("fixture must exercise the empty map representation: %#v", fixture.input.Request.Principal.Attributes)
+	}
+	if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); err != nil || !admitted {
+		t.Fatalf("admitted=%t err=%v", admitted, err)
+	}
+	tx, err := fixture.store.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, found, err := loadNativeQueuedModelInvocation(context.Background(), tx, fixture.store.dialect, fixture.fence.SessionID, fixture.fence.RunID, "model:2", false)
+	if err != nil || !found {
+		_ = tx.Rollback()
+		t.Fatalf("load admission found=%t err=%v", found, err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if attempt.input.Request.Principal.Attributes != nil {
+		t.Fatalf("JSON omitempty should round-trip empty attributes as nil, got %#v", attempt.input.Request.Principal.Attributes)
+	}
+	loaded, err := fixture.store.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := deriveNativeQueuedModelInvocation(loaded, fixture.fence, fixture.version, attempt.input); err != nil {
+		t.Fatalf("empty/nil attribute representations must reconstruct the same principal: %v", err)
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedRejectsChangedPrincipalClaims(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*core.Principal)
+	}{
+		{
+			name: "permission_removed",
+			mutate: func(principal *core.Principal) {
+				principal.Grants = core.NewPermissionSet(core.PermRead)
+			},
+		},
+		{
+			name: "permission_false_value",
+			mutate: func(principal *core.Principal) {
+				principal.Grants = core.PermissionSet{core.PermRead: true, core.PermWrite: false}
+			},
+		},
+		{
+			name: "role_changed",
+			mutate: func(principal *core.Principal) {
+				principal.Attributes = map[string]string{"role": "tenant_admin"}
+			},
+		},
+		{
+			name: "attribute_changed",
+			mutate: func(principal *core.Principal) {
+				principal.Attributes = map[string]string{"region": "other"}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-principal-"+test.name, "run-model-principal-"+test.name)
+			test.mutate(&fixture.input.Request.Principal)
+			if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); admitted || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+				t.Fatalf("admitted=%t err=%v", admitted, err)
+			}
+		})
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedAdmitsAfterCompletedStep(t *testing.T) {
+	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-second-step", "run-model-second-step")
+	oldStepStart := fixture.version - 1
+	currentStepStart := advanceNativeQueuedModelFixtureToNextStep(t, fixture, fmt.Sprintf("model:%d", oldStepStart), []core.ToolCall{{ID: "call-step-0", Name: "native.echo"}})
+
+	admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input)
+	if err != nil || !admitted {
+		t.Fatalf("admitted=%t err=%v", admitted, err)
+	}
+	var invocationID string
+	var stepIndex int
+	var stepStartSeq int64
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT invocation_id, step_index, step_start_seq FROM native_queued_model_invocations WHERE session_id = ? AND run_id = ?"}).bind(fixture.store.dialect), fixture.fence.SessionID, fixture.fence.RunID).Scan(&invocationID, &stepIndex, &stepStartSeq); err != nil {
+		t.Fatal(err)
+	}
+	if invocationID != fmt.Sprintf("model:%d", currentStepStart) || stepIndex != 1 || stepStartSeq != currentStepStart {
+		t.Fatalf("invocation=%q step=%d start=%d", invocationID, stepIndex, stepStartSeq)
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedRejectsDamagedCompletedStep(t *testing.T) {
+	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-damaged-step", "run-model-damaged-step")
+	advanceNativeQueuedModelFixtureToNextStep(t, fixture, "model:999", nil)
+
+	if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); admitted || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+		t.Fatalf("admitted=%t err=%v", admitted, err)
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedRejectsUnclosedOldTool(t *testing.T) {
+	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-unclosed-tool", "run-model-unclosed-tool")
+	stepStart := fixture.version - 1
+	staged, err := fixture.session.Clone()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := core.ToolCall{ID: "call-unclosed", Name: "native.echo"}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "tool request", ToolCall: &call, ToolCalls: []core.ToolCall{call}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InvocationID: fmt.Sprintf("model:%d", stepStart)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvToolCall, core.ToolCallData{CallID: call.ID, Name: call.Name}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staged.Append(fixture.fence.RunID, core.EvStepStart, core.StepData{Index: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, fixture.version, staged.EventsFrom(fixture.version)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.session, fixture.version = staged, staged.Version()
+	fixture.input.Request.Step = 1
+
+	if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); admitted || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+		t.Fatalf("admitted=%t err=%v", admitted, err)
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedRejectsHistoricalToolIdentityMismatch(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*core.ToolCallData)
+	}{
+		{
+			name:   "name",
+			mutate: func(data *core.ToolCallData) { data.Name = "native.other" },
+		},
+		{
+			name:   "arguments",
+			mutate: func(data *core.ToolCallData) { data.Args = map[string]any{"n": 8} },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-tool-identity-"+test.name, "run-model-tool-identity-"+test.name)
+			previousVersion := fixture.version
+			staged, err := fixture.session.Clone()
+			if err != nil {
+				t.Fatal(err)
+			}
+			call := core.ToolCall{ID: "call-tool-identity", Name: "native.echo", Args: map[string]any{"n": 7}}
+			if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "tool request", ToolCall: &call, ToolCalls: []core.ToolCall{call}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InvocationID: fmt.Sprintf("model:%d", previousVersion-1)}); err != nil {
+				t.Fatal(err)
+			}
+			toolCall := core.ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}
+			test.mutate(&toolCall)
+			if _, err := staged.Append(fixture.fence.RunID, core.EvToolCall, toolCall); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := staged.Append(fixture.fence.RunID, core.EvToolResult, core.ToolResultData{CallID: call.ID, Content: "completed tool result", OK: true}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := staged.Append(fixture.fence.RunID, core.EvStepEnd, core.StepData{Index: 0}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := staged.Append(fixture.fence.RunID, core.EvStepStart, core.StepData{Index: 1}); err != nil {
+				t.Fatal(err)
+			}
+			if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, previousVersion, staged.EventsFrom(previousVersion)); err != nil {
+				t.Fatal(err)
+			}
+			fixture.session, fixture.version = staged, staged.Version()
+			fixture.input.Request.Step = 1
+
+			if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); admitted || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+				t.Fatalf("admitted=%t err=%v", admitted, err)
+			}
+		})
+	}
+}
+
+func TestSQLSessionStoreBeginNativeQueuedModelInvocationFencedBindsLatestOpenStep(t *testing.T) {
+	fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-latest-step", "run-model-latest-step")
+	firstStepStart := fixture.version - 1
+	secondStepStart := advanceNativeQueuedModelFixtureToNextStep(t, fixture, fmt.Sprintf("model:%d", firstStepStart), nil)
+	thirdStepStart := advanceNativeQueuedModelFixtureToNextStep(t, fixture, fmt.Sprintf("model:%d", secondStepStart), nil)
+
+	if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); err != nil || !admitted {
+		t.Fatalf("admitted=%t err=%v", admitted, err)
+	}
+	var stepIndex int
+	var stepStartSeq int64
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT step_index, step_start_seq FROM native_queued_model_invocations WHERE session_id = ? AND run_id = ?"}).bind(fixture.store.dialect), fixture.fence.SessionID, fixture.fence.RunID).Scan(&stepIndex, &stepStartSeq); err != nil {
+		t.Fatal(err)
+	}
+	if stepIndex != 2 || stepStartSeq != thirdStepStart {
+		t.Fatalf("step=%d start=%d want step=2 start=%d", stepIndex, stepStartSeq, thirdStepStart)
 	}
 }
 

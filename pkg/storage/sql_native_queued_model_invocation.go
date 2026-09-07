@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -167,7 +168,7 @@ func validateNativeQueuedModelInvocationInput(fence SessionWriteFence, expectedV
 }
 
 func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWriteFence, expectedVersion int64, input NativeQueuedModelInvocationInput) (nativeQueuedModelInvocation, error) {
-	if session == nil || session.Version() != expectedVersion || !reflect.DeepEqual(session.Principal(), input.Request.Principal) || !session.Scope().Equal(input.Request.Scope) {
+	if session == nil || session.Version() != expectedVersion || !nativeQueuedModelPrincipalEqual(session.Principal(), input.Request.Principal) || !session.Scope().Equal(input.Request.Scope) {
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
 	status, exists := session.RunStatus(input.Request.RunID)
@@ -175,9 +176,26 @@ func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWrite
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
 	events := session.Events()
-	var start core.RunStartData
+	const (
+		awaitStepStart = iota
+		awaitAssistant
+		awaitModelUsage
+		awaitToolOrStepEnd
+		awaitToolResult
+		awaitApprovalResume
+		awaitApprovalResult
+		awaitApprovalResolution
+	)
 	runStartSeq, stepStartSeq := int64(-1), int64(-1)
-	stepIndex := -1
+	stepIndex, nextStepIndex := -1, 0
+	state := awaitStepStart
+	initialUserMessage := false
+	modelChunked := false
+	var toolCalls []core.ToolCall
+	toolCallIndex := 0
+	pendingToolCallID := ""
+	var start, composition nativeQueuedModelCompositionEvidence
+	var approval nativeQueuedModelApproval
 	for index, event := range events {
 		if event.RunID != input.Request.RunID {
 			if runStartSeq >= 0 {
@@ -185,46 +203,129 @@ func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWrite
 			}
 			continue
 		}
+		if runStartSeq < 0 {
+			if event.Type != core.EvRunStart {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			var err error
+			start, err = nativeQueuedModelCompositionEvidenceFromEvent(event)
+			if err != nil || !start.matchesSession(session) {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			composition = start
+			runStartSeq = int64(index)
+			continue
+		}
 		switch event.Type {
 		case core.EvRunStart:
-			if runStartSeq >= 0 || json.Unmarshal(event.Data, &start) != nil {
-				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
-			}
-			runStartSeq = int64(index)
-		case core.EvRunResume, core.EvApprovalRequested, core.EvApprovalResolved:
 			return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
-		case core.EvAssistantMessage, core.EvToolCall, core.EvToolResult, core.EvStepError, core.EvRunError, core.EvRunEnd, core.EvUserMessage, core.EvAssistantChunk:
-			if stepStartSeq >= 0 {
+		case core.EvRunResume:
+			if state != awaitApprovalResume {
 				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 			}
+			resume, err := nativeQueuedModelCompositionEvidenceFromEvent(event)
+			if err != nil || !resume.matchesSession(session) || resume.composition.Model != start.composition.Model || resume.composition.ResolvedProvider != start.composition.ResolvedProvider || resume.composition.ModelRevision != start.composition.ModelRevision {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			composition = resume
+			state = awaitApprovalResult
+		case core.EvApprovalRequested:
+			var requested core.ApprovalRequestedData
+			if state != awaitToolResult || json.Unmarshal(event.Data, &requested) != nil || requested.Step != stepIndex || requested.Fast || toolCallIndex >= len(toolCalls) || !nativeQueuedModelToolCallEqual(requested.ToolCall, toolCalls[toolCallIndex]) || !nativeQueuedModelToolCallEqual(requested.ResumeCall, toolCalls[toolCallIndex]) || !nativeQueuedModelToolCallSliceEqual(requested.RemainingCalls, toolCalls[toolCallIndex+1:]) {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			approval = nativeQueuedModelApproval{approvalID: requested.ApprovalID, call: requested.ToolCall}
+			state = awaitApprovalResume
+		case core.EvApprovalResolved:
+			var resolved core.ApprovalResolvedData
+			if state != awaitApprovalResolution || json.Unmarshal(event.Data, &resolved) != nil || resolved.ApprovalID != approval.approvalID || resolved.CallID != approval.call.ID || resolved.Decision != core.ApprovalApproved {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			approval = nativeQueuedModelApproval{}
+			toolCallIndex++
+			pendingToolCallID = ""
+			state = awaitToolOrStepEnd
+		case core.EvUserMessage:
+			if state != awaitStepStart || nextStepIndex != 0 || initialUserMessage {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			initialUserMessage = true
 		case core.EvStepStart:
 			var data core.StepData
-			if stepStartSeq >= 0 || json.Unmarshal(event.Data, &data) != nil {
+			if state != awaitStepStart || stepStartSeq >= 0 || json.Unmarshal(event.Data, &data) != nil || data.Index != nextStepIndex {
 				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 			}
 			stepStartSeq, stepIndex = int64(index), data.Index
-		case core.EvStepEnd:
-			stepStartSeq, stepIndex = -1, -1
+			state, modelChunked = awaitAssistant, false
+			toolCalls, toolCallIndex, pendingToolCallID = nil, 0, ""
+		case core.EvAssistantChunk:
+			if state != awaitAssistant {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			modelChunked = true
+		case core.EvAssistantMessage:
+			var message core.AssistantMessageData
+			if state != awaitAssistant || json.Unmarshal(event.Data, &message) != nil {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			calls := append([]core.ToolCall(nil), message.ToolCalls...)
+			if message.ToolCall != nil {
+				if len(calls) == 0 {
+					calls = []core.ToolCall{*message.ToolCall}
+				} else if !reflect.DeepEqual(calls[0], *message.ToolCall) {
+					return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+				}
+			}
+			toolCalls = calls
+			state = awaitModelUsage
 		case core.EvRunUsage:
 			var usage core.RunUsageData
-			if json.Unmarshal(event.Data, &usage) != nil || stepStartSeq < 0 || len(usage.InvocationID) <= len("summary:") || !strings.HasPrefix(usage.InvocationID, "summary:") {
+			if json.Unmarshal(event.Data, &usage) != nil {
 				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 			}
+			if state == awaitAssistant && strings.HasPrefix(usage.InvocationID, "summary:") {
+				continue
+			}
+			if state != awaitModelUsage || usage.InvocationID != fmt.Sprintf("model:%d", stepStartSeq) {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			state = awaitToolOrStepEnd
 		case core.EvContextSummary:
-			if stepStartSeq < 0 {
+			if state != awaitAssistant {
 				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 			}
+		case core.EvToolCall:
+			var call core.ToolCallData
+			if state != awaitToolOrStepEnd || toolCallIndex >= len(toolCalls) || json.Unmarshal(event.Data, &call) != nil || call.CallID != toolCalls[toolCallIndex].ID || call.Name != toolCalls[toolCallIndex].Name || !reflect.DeepEqual(call.Args, toolCalls[toolCallIndex].Args) {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			pendingToolCallID = call.CallID
+			state = awaitToolResult
+		case core.EvToolResult:
+			var result core.ToolResultData
+			if (state != awaitToolResult && state != awaitApprovalResult) || json.Unmarshal(event.Data, &result) != nil || result.CallID != pendingToolCallID {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			if state == awaitApprovalResult {
+				state = awaitApprovalResolution
+				continue
+			}
+			toolCallIndex++
+			pendingToolCallID = ""
+			state = awaitToolOrStepEnd
+		case core.EvStepEnd:
+			var data core.StepData
+			if state != awaitToolOrStepEnd || toolCallIndex != len(toolCalls) || json.Unmarshal(event.Data, &data) != nil || data.Index != stepIndex {
+				return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
+			}
+			stepStartSeq, stepIndex = -1, -1
+			nextStepIndex++
+			state = awaitStepStart
+		default:
+			return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 		}
 	}
-	if runStartSeq < 0 || stepStartSeq < 0 || stepIndex != input.Request.Step || start.Composition == nil || start.ProfileSnapshotID == "" || start.CapabilitySnapshotID == "" || start.CompositionRevision == "" || start.Composition.Profile.ID != start.ProfileSnapshotID || start.Composition.Profile.ProfileID != session.ProfileID() || !start.Composition.Profile.Scope.Equal(session.Scope()) || input.Request.Provider != start.Composition.ResolvedProvider || input.Request.Model != start.Composition.Model.Model {
-		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
-	}
-	compositionRevision, err := core.CompositionRevision(start.Composition)
-	if err != nil || compositionRevision != start.CompositionRevision {
-		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
-	}
-	assignmentRevision, err := core.CompositionMetadataRevision(start.Composition.Metadata)
-	if err != nil || assignmentRevision != start.AssignmentRevision {
+	if runStartSeq < 0 || stepStartSeq < 0 || state != awaitAssistant || modelChunked || stepIndex != input.Request.Step || !composition.matchesSession(session) || input.Request.Provider != composition.composition.Model.Provider || input.Request.Model != composition.composition.Model.Model {
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
 	requestJSON, err := json.Marshal(input.Request)
@@ -232,7 +333,7 @@ func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWrite
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
 	requestSum := sha256.Sum256(requestJSON)
-	compositionSHA256, err := canonicalSHA256(start.Composition)
+	compositionSHA256, err := canonicalSHA256(composition.composition)
 	if err != nil {
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
@@ -240,7 +341,7 @@ func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWrite
 		BootstrapRevision, ProfileSnapshotID, CapabilitySnapshotID, CompositionRevision, AssignmentRevision string
 		Model                                                                                               core.ModelSelection
 		ResolvedProvider, ModelRevision                                                                     string
-	}{input.BootstrapRevision, start.ProfileSnapshotID, start.CapabilitySnapshotID, compositionRevision, assignmentRevision, start.Composition.Model, start.Composition.ResolvedProvider, start.Composition.ModelRevision})
+	}{input.BootstrapRevision, composition.profileSnapshotID, composition.capabilitySnapshotID, composition.compositionRevision, composition.assignmentRevision, composition.composition.Model, composition.composition.ResolvedProvider, composition.composition.ModelRevision})
 	if err != nil {
 		return nativeQueuedModelInvocation{}, completedToolResultProofInvalid()
 	}
@@ -248,9 +349,81 @@ func deriveNativeQueuedModelInvocation(session *core.Session, fence SessionWrite
 	return nativeQueuedModelInvocation{input: input, invocationID: fmt.Sprintf("model:%d", stepStartSeq), stepStartSeq: stepStartSeq,
 		sessionVersionAtAdmission: expectedVersion, requestJSON: string(requestJSON), requestSHA256: hex.EncodeToString(requestSum[:]),
 		queueGeneration: fence.QueueGeneration, leaseHolderSHA256: hex.EncodeToString(leaseHash[:]), runStartSeq: runStartSeq,
-		profileSnapshotID: start.ProfileSnapshotID, capabilitySnapshotID: start.CapabilitySnapshotID, compositionRevision: compositionRevision,
-		assignmentRevision: assignmentRevision, compositionSHA256: compositionSHA256, modelContractSHA256: modelContractSHA256,
+		profileSnapshotID: composition.profileSnapshotID, capabilitySnapshotID: composition.capabilitySnapshotID, compositionRevision: composition.compositionRevision,
+		assignmentRevision: composition.assignmentRevision, compositionSHA256: compositionSHA256, modelContractSHA256: modelContractSHA256,
 	}, nil
+}
+
+func nativeQueuedModelPrincipalEqual(left, right core.Principal) bool {
+	encodedLeft, err := json.Marshal(left)
+	if err != nil {
+		return false
+	}
+	encodedRight, err := json.Marshal(right)
+	return err == nil && bytes.Equal(encodedLeft, encodedRight)
+}
+
+type nativeQueuedModelCompositionEvidence struct {
+	profileSnapshotID, capabilitySnapshotID, compositionRevision, assignmentRevision string
+	composition                                                                      *core.RunCompositionData
+}
+
+type nativeQueuedModelApproval struct {
+	approvalID string
+	call       core.ToolCall
+}
+
+func nativeQueuedModelCompositionEvidenceFromEvent(event core.SessionEvent) (nativeQueuedModelCompositionEvidence, error) {
+	var profileSnapshotID, capabilitySnapshotID, compositionRevision, assignmentRevision string
+	var composition *core.RunCompositionData
+	switch event.Type {
+	case core.EvRunStart:
+		var data core.RunStartData
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			return nativeQueuedModelCompositionEvidence{}, err
+		}
+		profileSnapshotID, capabilitySnapshotID, compositionRevision, assignmentRevision, composition = data.ProfileSnapshotID, data.CapabilitySnapshotID, data.CompositionRevision, data.AssignmentRevision, data.Composition
+	case core.EvRunResume:
+		var data core.RunResumeData
+		if err := json.Unmarshal(event.Data, &data); err != nil {
+			return nativeQueuedModelCompositionEvidence{}, err
+		}
+		profileSnapshotID, capabilitySnapshotID, compositionRevision, assignmentRevision, composition = data.ProfileSnapshotID, data.CapabilitySnapshotID, data.CompositionRevision, data.AssignmentRevision, data.Composition
+	default:
+		return nativeQueuedModelCompositionEvidence{}, completedToolResultProofInvalid()
+	}
+	if composition == nil || profileSnapshotID == "" || capabilitySnapshotID == "" || compositionRevision == "" || composition.Profile.ID != profileSnapshotID {
+		return nativeQueuedModelCompositionEvidence{}, completedToolResultProofInvalid()
+	}
+	calculatedComposition, err := core.CompositionRevision(composition)
+	if err != nil || calculatedComposition != compositionRevision {
+		return nativeQueuedModelCompositionEvidence{}, completedToolResultProofInvalid()
+	}
+	calculatedAssignment, err := core.CompositionMetadataRevision(composition.Metadata)
+	if err != nil || calculatedAssignment != assignmentRevision {
+		return nativeQueuedModelCompositionEvidence{}, completedToolResultProofInvalid()
+	}
+	return nativeQueuedModelCompositionEvidence{profileSnapshotID: profileSnapshotID, capabilitySnapshotID: capabilitySnapshotID, compositionRevision: compositionRevision, assignmentRevision: assignmentRevision, composition: composition}, nil
+}
+
+func (e nativeQueuedModelCompositionEvidence) matchesSession(session *core.Session) bool {
+	return session != nil && e.composition != nil && e.profileSnapshotID != "" && e.capabilitySnapshotID != "" && e.compositionRevision != "" && e.composition.Profile.ID == e.profileSnapshotID && e.composition.Profile.ProfileID == session.ProfileID() && e.composition.Profile.Scope.Equal(session.Scope())
+}
+
+func nativeQueuedModelToolCallEqual(left, right core.ToolCall) bool {
+	return left.ID == right.ID && left.Name == right.Name && reflect.DeepEqual(left.Args, right.Args)
+}
+
+func nativeQueuedModelToolCallSliceEqual(left, right []core.ToolCall) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !nativeQueuedModelToolCallEqual(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func loadNativeQueuedModelInvocation(ctx context.Context, tx *sql.Tx, dialect SQLDialect, sessionID, runID, invocationID string, lock bool) (nativeQueuedModelInvocation, bool, error) {

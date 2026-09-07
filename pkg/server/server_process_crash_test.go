@@ -257,8 +257,8 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 	if effectsBefore != 1 || effectsAfter != 1 || before.ModelCalls != 1 || after.ModelCalls != 0 || journalAfter.Rows != 1 {
 		t.Fatalf("crash replay duplicated work: effects=%d->%d calls=%d+%d journal_rows=%d", effectsBefore, effectsAfter, before.ModelCalls, after.ModelCalls, journalAfter.Rows)
 	}
-	if effectVersionBefore != 5 || effectVersionAfter != effectVersionBefore {
-		t.Fatalf("business effect did not observe the durable tool-call prefix first: durable_version=%d->%d", effectVersionBefore, effectVersionAfter)
+	if effectVersionBefore != versionBefore || effectVersionAfter != effectVersionBefore {
+		t.Fatalf("business effect did not observe the complete durable tool-call prefix first: effect_version=%d->%d session_version=%d", effectVersionBefore, effectVersionAfter, versionBefore)
 	}
 	if state.Status != string(core.RunFailed) || state.ErrorCode != core.CodeRunInterrupted || versionBefore == 0 {
 		t.Fatalf("interrupted run lost durable identity: status=%s code=%s version=%d", state.Status, state.ErrorCode, versionBefore)
@@ -427,7 +427,10 @@ func assertProcessCrashQueue(t *testing.T, before, after processCrashQueueEviden
 
 func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64, before, after []core.SessionEvent) string {
 	t.Helper()
-	wantPrefix := []core.SessionEventType{core.EvRunStart, core.EvUserMessage, core.EvStepStart, core.EvAssistantMessage, core.EvToolCall}
+	wantPrefix := []core.SessionEventType{
+		core.EvRunStart, core.EvUserMessage, core.EvStepStart,
+		core.EvAssistantMessage, core.EvRunUsage, core.EvToolCall,
+	}
 	if version != int64(len(wantPrefix)) || len(before) != len(wantPrefix) {
 		t.Fatalf("pre-effect durable prefix version=%d events=%d, want %d", version, len(before), len(wantPrefix))
 	}
@@ -443,8 +446,15 @@ func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64,
 	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Name != "crash.effect" {
 		t.Fatalf("durable assistant call differs from fixture: %+v", assistant.ToolCalls)
 	}
+	var usage core.RunUsageData
+	if err := json.Unmarshal(before[4].Data, &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.InvocationID != fmt.Sprintf("model:%d", before[2].Seq) {
+		t.Fatalf("durable model usage does not bind the active step: usage=%+v step_seq=%d", usage, before[2].Seq)
+	}
 	var call core.ToolCallData
-	if err := json.Unmarshal(before[4].Data, &call); err != nil {
+	if err := json.Unmarshal(before[5].Data, &call); err != nil {
 		t.Fatal(err)
 	}
 	if call.CallID == "" || call.CallID != assistant.ToolCalls[0].ID || call.Name != "crash.effect" || fmt.Sprint(call.Args["n"]) != "7" {
