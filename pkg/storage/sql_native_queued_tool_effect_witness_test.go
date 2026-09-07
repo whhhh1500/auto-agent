@@ -4,11 +4,52 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
+
+func TestNormalizeNativeQueuedWitnessCapability(t *testing.T) {
+	base := core.SnapshotCapability{Manifest: core.CapabilityManifest{ID: "normalize.tool", Version: "v1", Name: "Normalize", Kind: core.KindTool, Tool: &core.ToolExposure{}}, Source: core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})}
+	empty := base
+	empty.Manifest.RequiredPermissions = []core.Permission{}
+	empty.Manifest.RequiredCredentials = []core.CredentialRef{}
+	empty.Manifest.InputSchema = map[string]any{}
+	empty.Manifest.OutputSchema = map[string]any{}
+	empty.Manifest.Metadata = map[string]string{}
+	empty.Manifest.Tool = &core.ToolExposure{Parameters: map[string]any{}}
+	if !reflect.DeepEqual(normalizeNativeQueuedWitnessCapability(base), normalizeNativeQueuedWitnessCapability(empty)) {
+		t.Fatal("nil and empty capability collections did not normalize equally")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*core.SnapshotCapability)
+	}{
+		{"permission", func(c *core.SnapshotCapability) { c.Manifest.RequiredPermissions = []core.Permission{core.PermWrite} }},
+		{"credential", func(c *core.SnapshotCapability) {
+			c.Manifest.RequiredCredentials = []core.CredentialRef{"secret"}
+		}},
+		{"schema", func(c *core.SnapshotCapability) { c.Manifest.InputSchema = map[string]any{"type": "object"} }},
+		{"metadata", func(c *core.SnapshotCapability) { c.Manifest.Metadata = map[string]string{"mode": "strict"} }},
+		{"tool", func(c *core.SnapshotCapability) {
+			c.Manifest.Tool = &core.ToolExposure{Parameters: map[string]any{"type": "object"}}
+		}},
+		{"source", func(c *core.SnapshotCapability) {
+			c.Source = core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "other"})
+		}},
+		{"provider", func(c *core.SnapshotCapability) { c.ProviderRevision = "v2" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			test.mutate(&changed)
+			if reflect.DeepEqual(normalizeNativeQueuedWitnessCapability(base), normalizeNativeQueuedWitnessCapability(changed)) {
+				t.Fatal("non-empty contract drift was normalized away")
+			}
+		})
+	}
+}
 
 type nativeQueuedToolEffectFixture struct {
 	*fencedSQLFixture

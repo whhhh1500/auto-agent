@@ -271,9 +271,15 @@ func deriveNativeQueuedToolEffectWitness(session *core.Session, fence SessionWri
 			durableCapability = candidate
 		}
 	}
-	if durableCapability == nil || !reflect.DeepEqual(*durableCapability, input.ExpectedCapability) || durableCapability.Manifest.RequiresApproval || !start.Composition.EffectivePermissions.Allows(durableCapability.Manifest.RequiredPermissions) || !containsString(start.Composition.Profile.Capabilities, input.Invocation.CapabilityID) {
+	if durableCapability == nil {
 		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
 	}
+	durable := normalizeNativeQueuedWitnessCapability(*durableCapability)
+	expected := normalizeNativeQueuedWitnessCapability(input.ExpectedCapability)
+	if !reflect.DeepEqual(durable, expected) || durable.Manifest.RequiresApproval || !start.Composition.EffectivePermissions.Allows(durable.Manifest.RequiredPermissions) || !containsString(start.Composition.Profile.Capabilities, input.Invocation.CapabilityID) {
+		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
+	}
+	input.ExpectedCapability = expected
 	compositionRevision, err := core.CompositionRevision(start.Composition)
 	if err != nil || compositionRevision != start.CompositionRevision {
 		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
@@ -286,14 +292,14 @@ func deriveNativeQueuedToolEffectWitness(session *core.Session, fence SessionWri
 	if err != nil {
 		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
 	}
-	manifestHash, err := canonicalSHA256(durableCapability.Manifest)
+	manifestHash, err := canonicalSHA256(durable.Manifest)
 	if err != nil {
 		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
 	}
 	contractHash, err := canonicalSHA256(struct {
 		BootstrapRevision, ProfileSnapshotID, CapabilitySnapshotID, CompositionRevision, AssignmentRevision string
 		Capability                                                                                          core.SnapshotCapability
-	}{input.BootstrapRevision, start.ProfileSnapshotID, start.CapabilitySnapshotID, compositionRevision, assignmentRevision, *durableCapability})
+	}{input.BootstrapRevision, start.ProfileSnapshotID, start.CapabilitySnapshotID, compositionRevision, assignmentRevision, durable})
 	if err != nil {
 		return nativeQueuedToolEffectWitness{}, completedToolResultProofInvalid()
 	}
@@ -305,6 +311,37 @@ func deriveNativeQueuedToolEffectWitness(session *core.Session, fence SessionWri
 		compositionRevision: compositionRevision, assignmentRevision: assignmentRevision, compositionSHA256: compositionHash,
 		capabilityManifestSHA256: manifestHash, capabilityContractSHA256: contractHash, createdAt: time.Now().UTC(),
 	}, nil
+}
+
+func normalizeNativeQueuedWitnessCapability(capability core.SnapshotCapability) core.SnapshotCapability {
+	manifest := capability.Manifest
+	if len(manifest.RequiredPermissions) == 0 {
+		manifest.RequiredPermissions = nil
+	}
+	if len(manifest.RequiredCredentials) == 0 {
+		manifest.RequiredCredentials = nil
+	}
+	if len(manifest.InputSchema) == 0 {
+		manifest.InputSchema = nil
+	}
+	if len(manifest.OutputSchema) == 0 {
+		manifest.OutputSchema = nil
+	}
+	if len(manifest.Metadata) == 0 {
+		manifest.Metadata = nil
+	}
+	if manifest.Tool != nil && len(manifest.Tool.Parameters) == 0 {
+		tool := *manifest.Tool
+		tool.Parameters = nil
+		manifest.Tool = &tool
+	}
+	if manifest.Execution != nil && len(manifest.Execution.Headers) == 0 {
+		execution := *manifest.Execution
+		execution.Headers = nil
+		manifest.Execution = &execution
+	}
+	capability.Manifest = manifest
+	return capability
 }
 
 func beginNativeQueuedToolInvocation(ctx context.Context, tx *sql.Tx, dialect SQLDialect, invocation core.ToolInvocation) (bool, core.ToolInvocationRecord, error) {
