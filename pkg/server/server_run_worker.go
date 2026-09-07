@@ -406,17 +406,35 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	if claim.reason.Load() == claimStopLost {
 		return errRunClaimLost
 	}
-	session, _, err = storage.RepairInterruptedSessionFenced(runCtx, s.sessions, fence, session)
-	if err != nil {
+	recoveredContinuation := false
+	if recovered, applied, recoveryErr := s.recoverNativeQueuedCompletedToolResult(runCtx, session, principal, fence, projectionLease); recoveryErr != nil {
 		claim.stop()
-		if claim.reason.Load() == claimStopLost || errors.Is(err, storage.ErrSessionWriteFenceLost) {
-			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+		if claim.reason.Load() == claimStopLost || errors.Is(recoveryErr, storage.ErrSessionWriteFenceLost) {
+			return s.stopQueuedFencedWriter(cancelRun, claim, nil, recoveryErr)
 		}
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_repair_failed", err, false)
+		return s.settleNativeQueuedCompletedToolRecoveryFailure(
+			workerCtx, cancelRun, claim, task, workerID, session, fence, recoveryErr,
+			"native_completed_tool_recovery_failed", nativeQueuedCompletedToolRecoveryPermanent(recoveryErr),
+		)
+	} else if applied {
+		session = recovered
+		recoveredContinuation = true
+	} else {
+		session, _, err = storage.RepairInterruptedSessionFenced(runCtx, s.sessions, fence, session)
+		if err != nil {
+			claim.stop()
+			if claim.reason.Load() == claimStopLost || errors.Is(err, storage.ErrSessionWriteFenceLost) {
+				return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
+			}
+			return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "session_repair_failed", err, false)
+		}
 	}
 	if existingStatus, exists := session.RunStatus(task.RunID); exists {
 		if existingStatus == core.RunWaitingApproval {
 			resume = true
+		} else if recoveredContinuation && existingStatus == "" {
+			// The sealed A/B recovery path has restored a canonical tool/result
+			// into this still-open run. ContinueTurn owns its next step.
 		} else {
 			claim.stop()
 			if claim.reason.Load() == claimStopLost {
@@ -478,7 +496,7 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	if canary != nil && canary.Candidate && s.logger != nil {
 		s.logger.InfoContext(runCtx, "canary selected", slog.String("canary", canary.ID), slog.String("profile", canary.ProfileID), slog.String("run", task.RunID), slog.String("worker", workerID))
 	}
-	runRuntime, checkpointFailure, err := s.runtimeWithQueuedToolCheckpoint(runRuntime, writer, cancelRun, fence, session, principal)
+	runRuntime, checkpointFailure, err := s.runtimeWithQueuedToolCheckpoint(runRuntime, writer, cancelRun, fence, session, principal, recoveredContinuation)
 	if err != nil {
 		claim.stop()
 		if claim.reason.Load() == claimStopLost {
@@ -488,13 +506,29 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	}
 	var runExecutor runexecutor.RunExecutor
 	var compositionMetadata map[string]string
-	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume)
+	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume || recoveredContinuation)
 	if err != nil {
 		claim.stop()
 		if claim.reason.Load() == claimStopLost {
 			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
 		}
+		if recoveredContinuation {
+			return s.settleNativeQueuedCompletedToolRecoveryFailure(
+				workerCtx, cancelRun, claim, task, workerID, session, fence, err,
+				"native_completed_tool_recovery_unsupported", true,
+			)
+		}
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "executor_selection_failed", err, true)
+	}
+	if recoveredContinuation {
+		if _, ok := runExecutor.(*runexecutor.Sequential); !ok {
+			claim.stop()
+			return s.settleNativeQueuedCompletedToolRecoveryFailure(
+				workerCtx, cancelRun, claim, task, workerID, session, fence,
+				fmt.Errorf("native queued completed-tool recovery requires the built-in sequential executor"),
+				"native_completed_tool_recovery_unsupported", true,
+			)
+		}
 	}
 	if err := requireProjectionAwareExecutor(projectionLease, runExecutor); err != nil {
 		claim.stop()
@@ -512,7 +546,12 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	started := time.Now()
 	var result core.TurnResult
 	var runErr error
-	if resume {
+	if recoveredContinuation {
+		sequential := runExecutor.(*runexecutor.Sequential)
+		result, runErr = sequential.ContinueTurn(runCtx, principal, session, core.ResumeInput{
+			RunID: task.RunID, CompositionMetadata: compositionMetadata,
+		}, emit)
+	} else if resume {
 		result, runErr = runExecutor.ResumeTurn(runCtx, principal, session, core.ResumeInput{
 			RunID: task.RunID, CompositionMetadata: compositionMetadata,
 		}, emit)

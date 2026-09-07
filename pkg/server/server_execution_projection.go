@@ -460,12 +460,6 @@ func (s *Server) reconcileNativeStrictExecutionProjectionLockedWithPreflight(ctx
 	return last
 }
 
-// nativeStrictRecoveryEligible remains false until native ownership is paired
-// with a detached control projection, V2 re-entry, and a model journal.
-func (s *Server) nativeStrictRecoveryEligible() bool {
-	return false
-}
-
 func (s *Server) markExecutionProjectionEpochStale() {
 	s.executionProjectionCoordinator().markEpochStale()
 }

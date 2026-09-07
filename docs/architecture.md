@@ -136,7 +136,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
 | Optional tool disclosure | Restores up to 8 recent tool schemas from projected history and the current authorized snapshot; host-owned library dispatch is preserved | [4/24-tool real conversation comparison](performance/2026-09-06-tool-disclosure.md); extra discovery calls can increase total tokens and latency; `toollib.SetSearcher` does not replace the core searcher |
 | Queued worker process-crash recovery | Before a journaled tool begins, the server durably checkpoints the assistant/tool-call prefix; an unknown non-idempotent outcome is repaired as `run_interrupted` without provider replay | [Hard-kill PostgreSQL acceptance](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery); recovery is fail-closed, including a journal row already marked completed |
-| Native-static queued model worker (v45/v46) | Implemented and accepted for queued main-model admission and atomic model-outcome plus same-Run suffix persistence; completed-tool-result recovery and automatic continuation remain disabled | [First-batch native worker acceptance](verification/2026-09-07-native-model-worker.md#first-batch-acceptance-recorded-2026-09-08) |
+| Native-static queued recovery (v43/v44/v45/v46) | Implemented and accepted for the sealed single-tail A/B coordinator: atomically deliver a completed journal result, or read back its exact sidecar-bound result, then continue only with the built-in sequential executor and current admissions | [Native worker verification](verification/2026-09-07-native-model-worker.md#second-batch-verification-accepted-2026-09-08) |
 
 An E2B adapter must map remote lifetime, command execution, artifacts and cleanup
 to the existing sandbox contract and report actual assurance. Host networking
@@ -211,13 +211,16 @@ to the adapter configuration, outside the core contract.
   Composition/Assignment lookups across ordinary Runs and Backtests. The
   projection is rebuilt from canonical Session chunks during migration and is
   written atomically with new event chunks.
-- Schema v43 also has an immutable SQL-local completed-tool-result sidecar.
-  A native SQL writer can atomically bind it to one canonical `tool/result`
-  under the authorization epoch, queued-run fence, session lease, Session
-  version, and exact completed journal proof. It does not write `run/resume`,
-  alter `run_evidence`, consume the sidecar, authorize continuation, or invoke
-  Core. The historical journal proof is retained fail-safe while the first
-  slice has no terminal/superseded-sidecar garbage collector.
+- Schema v43 also has an immutable SQL-local V3 completed-tool-result sidecar.
+  The sealed native-static coordinator may atomically bind it to one canonical
+  `tool/result` under the current authorization epoch, queued-run fence,
+  session lease, Session version, exact completed journal proof, and matching
+  v44 admission lineage. It may then read back that exact result before a
+  sequential continuation. V3 is generic historical delivery evidence and
+  cannot establish Native lineage alone; this does not write `run/resume`,
+  alter `run_evidence`, or create a generic recovery path. The historical
+  journal proof is retained fail-safe while this release has no
+  terminal/superseded-sidecar garbage collector.
 - Schema v44 adds generation-scoped native queued tool-effect admission
   witnesses. One SQL transaction binds the authorization epoch, live queue
   generation and session lease, durable run composition and tool/call tail,
@@ -324,14 +327,19 @@ to the adapter configuration, outside the core contract.
   win v45 admission before the provider runs; its canonical assistant/message
   plus model-usage prefix and any already-batched same-Run suffix commit in
   one v46-fenced transaction.
-  Generic servers, synchronous runs, summary calls, and FastRouter do not enter
-  this path. V43 sidecars, v44 effect-admission witnesses, v45 model attempts,
-  and v46 outcomes only provide storage evidence; completed-result recovery and
-  automatic continuation remain disabled. The accepted first batch covers
-  main-model admission and atomic outcome persistence, not a recovery
-  coordinator. Detached control projection, current execution admission, and a
-  model-invocation journal are still required before any strict recovery
-  coordinator can exist.
+   Generic servers, synchronous runs, summary calls, and FastRouter do not enter
+   this path. A native-static worker may recover only one open, sequential tail:
+   window A has its canonical `tool/call` plus completed journal result but no
+   Session result; window B has the exact V3 `tool/result` delivery. Both
+   windows require current epoch/queue/lease/CAS fencing, v44 lineage, exact
+   journal proof, and valid same-Run v45/v46 history. The coordinator returns
+   no result for all other tails and rejects contradictions or unknown v45
+   attempts without provider replay. `ContinueTurn` re-enters current policy,
+   and every later tool or model effect wins its own current admission. A
+   cancellation-lost fence or unresolved current principal stops without a
+   recovery suffix; control and open-Session terminal reconciliation remains a
+   separate concern. Native-static retention wiring is deferred; the existing
+   storage pruner remains limited to safe v45/v46 pairs.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or

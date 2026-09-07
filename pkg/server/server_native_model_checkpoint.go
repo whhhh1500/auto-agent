@@ -73,14 +73,15 @@ func nativeQueuedModelOutcomeEnd(events []core.SessionEvent) (int, error) {
 }
 
 type nativeQueuedModelCallGate struct {
-	server    *Server
-	store     *storage.SQLSessionStore
-	writer    *storage.WriteBehind
-	cancel    context.CancelFunc
-	failure   *toolCheckpointFailure
-	fence     storage.SessionWriteFence
-	session   *core.Session
-	principal core.Principal
+	server                *Server
+	store                 *storage.SQLSessionStore
+	writer                *storage.WriteBehind
+	cancel                context.CancelFunc
+	failure               *toolCheckpointFailure
+	fence                 storage.SessionWriteFence
+	session               *core.Session
+	principal             core.Principal
+	recoveredContinuation bool
 }
 
 func (g *nativeQueuedModelCallGate) AuthorizeModelCall(ctx context.Context, request core.ModelCallRequest) error {
@@ -125,6 +126,9 @@ func (g *nativeQueuedModelCallGate) AuthorizeModelCall(ctx context.Context, requ
 	}
 	if !admitted {
 		return g.fail(fmt.Errorf("native queued model attempt already exists; provider replay is forbidden"))
+	}
+	if g.recoveredContinuation && g.server.nativeQueuedRecoveryTestHooks != nil && g.server.nativeQueuedRecoveryTestHooks.afterRecoveredModelAttempt != nil {
+		g.server.nativeQueuedRecoveryTestHooks.afterRecoveredModelAttempt()
 	}
 	return nil
 }

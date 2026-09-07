@@ -56,6 +56,13 @@ var (
 		composition_sha256, bootstrap_revision, capability_manifest_sha256, provider_revision,
 		capability_contract_sha256, created_at FROM native_queued_tool_effect_witnesses
 		WHERE session_id = ? AND run_id = ? AND call_id = ? ORDER BY queue_generation DESC LIMIT 1`}
+	sqlSelectAnyNativeQueuedToolEffectWitnessForUpdate = sqlQuery{`SELECT protocol, tenant_id, subject_id, session_id,
+		run_id, call_id, capability_id, args_digest, idempotent, authorization_epoch, queue_generation,
+		lease_holder_sha256, run_start_seq, origin_step_seq, tool_call_seq, session_version_after_call,
+		profile_snapshot_id, capability_snapshot_id, composition_revision, assignment_revision,
+		composition_sha256, bootstrap_revision, capability_manifest_sha256, provider_revision,
+		capability_contract_sha256, created_at FROM native_queued_tool_effect_witnesses
+		WHERE session_id = ? AND run_id = ? AND call_id = ? ORDER BY queue_generation DESC LIMIT 1 FOR UPDATE`}
 )
 
 type nativeQueuedToolEffectWitness struct {
@@ -431,11 +438,26 @@ func loadNativeQueuedToolEffectWitness(ctx context.Context, tx *sql.Tx, dialect 
 }
 
 func loadAnyNativeQueuedToolEffectWitness(ctx context.Context, tx *sql.Tx, dialect SQLDialect, invocation core.ToolInvocation) (nativeQueuedToolEffectWitness, bool, error) {
+	witness, found, err := loadNativeQueuedToolEffectWitnessByCall(ctx, tx, dialect, invocation.SessionID, invocation.RunID, invocation.CallID, false)
+	if err != nil || !found {
+		return witness, found, err
+	}
+	if !sameToolInvocation(witness.input.Invocation, invocation) {
+		return nativeQueuedToolEffectWitness{}, false, completedToolResultProofInvalid()
+	}
+	return witness, true, nil
+}
+
+func loadNativeQueuedToolEffectWitnessByCall(ctx context.Context, tx *sql.Tx, dialect SQLDialect, sessionID, runID, callID string, lock bool) (nativeQueuedToolEffectWitness, bool, error) {
+	query := sqlSelectAnyNativeQueuedToolEffectWitness
+	if lock && dialect == SQLDialectPostgres {
+		query = sqlSelectAnyNativeQueuedToolEffectWitnessForUpdate
+	}
 	var witness nativeQueuedToolEffectWitness
 	var protocol string
 	var idempotent int
 	var createdAt int64
-	err := tx.QueryRowContext(ctx, sqlSelectAnyNativeQueuedToolEffectWitness.bind(dialect), invocation.SessionID, invocation.RunID, invocation.CallID).Scan(&protocol,
+	err := tx.QueryRowContext(ctx, query.bind(dialect), sessionID, runID, callID).Scan(&protocol,
 		&witness.input.Invocation.TenantID, &witness.input.Invocation.SubjectID, &witness.input.Invocation.SessionID, &witness.input.Invocation.RunID,
 		&witness.input.Invocation.CallID, &witness.input.Invocation.CapabilityID, &witness.input.Invocation.ArgsDigest, &idempotent,
 		&witness.input.AuthorizationEpoch, &witness.queueGeneration, &witness.leaseHolderSHA256, &witness.runStartSeq, &witness.originStepSeq,
@@ -450,7 +472,7 @@ func loadAnyNativeQueuedToolEffectWitness(ctx context.Context, tx *sql.Tx, diale
 	}
 	witness.input.Invocation.Idempotent = idempotent == 1
 	witness.createdAt = time.UnixMilli(createdAt).UTC()
-	if protocol != nativeQueuedToolEffectWitnessProtocol || idempotent < 0 || idempotent > 1 || !sameToolInvocation(witness.input.Invocation, invocation) || createdAt <= 0 {
+	if protocol != nativeQueuedToolEffectWitnessProtocol || idempotent < 0 || idempotent > 1 || witness.input.Invocation.SessionID != sessionID || witness.input.Invocation.RunID != runID || witness.input.Invocation.CallID != callID || createdAt <= 0 {
 		return nativeQueuedToolEffectWitness{}, false, completedToolResultProofInvalid()
 	}
 	return witness, true, nil

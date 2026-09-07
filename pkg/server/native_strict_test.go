@@ -89,8 +89,12 @@ func TestNewNativeStrictServerOwnsSQLRuntimeAndInitializesEpoch(t *testing.T) {
 	if api.nativeStrict == nil || api.nativeStrict.phase != nativeStrictPhaseStaticBootstrap {
 		t.Fatalf("native strict ownership=%#v", api.nativeStrict)
 	}
-	if api.nativeStrictRecoveryEligible() {
-		t.Fatal("Phase 1 native strict must not enable completed-result recovery")
+	store, enabled, err := api.nativeQueuedCompletedToolRecoveryStore()
+	if err != nil || !enabled || store == nil {
+		t.Fatalf("native static recovery authority: store=%T enabled=%t err=%v", store, enabled, err)
+	}
+	if _, enabled, err := (&Server{}).nativeQueuedCompletedToolRecoveryStore(); err != nil || enabled {
+		t.Fatalf("generic server recovery authority: enabled=%t err=%v", enabled, err)
 	}
 	if _, ok := api.sessions.(*storage.SQLSessionStore); !ok {
 		t.Fatalf("sessions=%T, want SQL session store", api.sessions)

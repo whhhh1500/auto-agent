@@ -85,7 +85,7 @@ serialized behind one database connection and throughput will be limited.
 
 `server.NewNativeStrictServer` is a library construction mode, not the default
 `cmd/server` startup path. It is a server-owned static-bootstrap and SQL-
-authority foundation, not completed-result or strict recovery. A native-static
+authority foundation with a narrow completed-tool-result coordinator. A native-static
 deployment may provide only static profiles, policies, capabilities, and one
 fixed model adapter; dynamic bindings, Release/Canary, factories, plugins,
 credential and model-settings control, and resource reconfiguration are out of
@@ -115,11 +115,22 @@ Generic servers, summary calls, and FastRouter do not use this native model
 path. The first-batch v45/v46 storage and worker tests passed their SQLite,
 PostgreSQL, and race gates; separate generic queued-worker hard-kill gates also
 passed, as recorded in the [native worker verification](verification/2026-09-07-native-model-worker.md).
-The hard-kill checks do not exercise Native completed-result delivery or
-automatic continuation. None of these gates proves current account state or
-enables completed-result continuation: this deployment still has no consume/ack
-state or recovery coordinator. Detached control projection, native retention wiring, and current
-continuation admission are still required. See the
+The first-batch generic hard-kill checks do not exercise Native continuation.
+The second-batch Native gates verify only a current native-static queue claim
+and one canonical sequential tail: window A atomically delivers a completed
+journal result to the Session, while window B exactly reads back prior V3
+delivery. Each window rechecks current SQL epoch, queue generation, Session
+lease/CAS, v44 native admission lineage, completed journal result, and same-Run
+v45/v46 history before the built-in sequential executor may continue.
+Historical V3/v44 rows never authorize recovery; every later tool/model effect
+repeats current admission. Generic/dynamic servers, multiple or ambiguous
+pending calls, partial model streaming, unknown v45 attempts, and non-sequential
+executors remain ineligible and fail closed. Cancellation fencing and principal
+preflight may terminalize run control without a matching open-Session suffix;
+that reconciliation is not supplied here. Native retention wiring is deferred
+to a later slice, although the storage pruner retains unknown v45 attempts
+permanently. Detached control projection and current continuation admission
+remain required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
 

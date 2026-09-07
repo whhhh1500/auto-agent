@@ -100,13 +100,11 @@ func (s *Server) rejectNativeStrictDynamicControl(operation string) error {
 
 // NewNativeStrictServer creates a server that exclusively owns its Runtime,
 // Core registries, native SQL execution stores, and execution projection.
-// Phase 1 is static-only: it deliberately does not enable completed-result
-// recovery or dynamic binding/release/canary projection. Its authorization
-// epoch gate is a fail-closed lag detector, not a transaction-level grant
-// spanning SQL observation through run/start. Deployments requiring that
-// guarantee must leave completed-result recovery disabled and use a later
-// strict execution coordinator. The configured SQL authority must not be
-// shared with generic servers or dynamic-control writers.
+// Phase 1 is static-only: it rejects dynamic binding, release, and canary
+// projection. Queued completed-tool recovery is limited to this constructor's
+// sealed SQL authority and never enables recovery for generic or dynamic
+// servers. The configured SQL authority must not be shared with generic
+// servers or dynamic-control writers.
 func NewNativeStrictServer(ctx context.Context, cfg NativeStrictServerConfig) (*Server, error) {
 	return newNativeStrictServer(ctx, cfg, nil)
 }

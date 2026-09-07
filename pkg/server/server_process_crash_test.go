@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,189 @@ import (
 func TestRunWorkerProcessCrashRecovery(t *testing.T) {
 	for _, point := range []string{"effect_committed", "journal_completed"} {
 		t.Run(point, func(t *testing.T) { runProcessCrashRecovery(t, point, false) })
+	}
+}
+
+// This uses a real Native Strict worker in a separate OS process. The child is
+// killed after the SQL tool journal commits but before Core can append the
+// tool/result; the replacement must use the sealed recovery path, not replay
+// the non-idempotent tool.
+func TestNativeQueuedCompletedToolJournalProcessCrashRecovery(t *testing.T) {
+	runNativeQueuedCompletedToolProcessCrashRecovery(t, false)
+}
+
+func TestNativeQueuedCompletedToolPostProviderProcessCrashRecovery(t *testing.T) {
+	runNativeQueuedCompletedToolProcessCrashRecovery(t, true)
+}
+
+func runNativeQueuedCompletedToolProcessCrashRecovery(t *testing.T, postProviderCrash bool) {
+	// Keep the child-only bootstrap honest before spending a PostgreSQL process
+	// and an OS kill on it. This reuses the established Native Strict fixture
+	// manifest rather than maintaining a second hand-written capability schema.
+	bootstrap, _ := newNativeRecoveryCrashServer(t, openNativeStrictTestDB(t), storage.SQLDialectSQLite, &nativeRecoveryCrashModel{})
+	defer bootstrap.Shutdown(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	open := testdb.Postgres(t)
+	db := open()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE native_recovery_crash_effects (call_id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE native_recovery_crash_model_calls (stage TEXT PRIMARY KEY, calls BIGINT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	var schema string
+	if err := db.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	start := func(phase string) (*exec.Cmd, <-chan error) {
+		t.Helper()
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNativeQueuedCompletedToolCrashHelper$", "-test.timeout=100s")
+		hideCrashHelperWindow(cmd)
+		cmd.Env = append(os.Environ(), "HARNESS_NATIVE_COMPLETED_TOOL_CRASH_HELPER=1", "HARNESS_CRASH_SCHEMA="+schema, "HARNESS_NATIVE_RECOVERY_PHASE="+phase)
+		var output bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &output, &output
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			err := cmd.Wait()
+			if err != nil {
+				done <- fmt.Errorf("%w: %s", err, output.String())
+				return
+			}
+			done <- nil
+		}()
+		t.Cleanup(func() { _ = cmd.Process.Kill() })
+		return cmd, done
+	}
+	first, firstDone := start("crash")
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		var state string
+		err := db.QueryRowContext(ctx, `SELECT state FROM tool_invocations WHERE session_id=$1 AND run_id=$2 AND call_id=$3`, nativeRecoveryCrashSessionID, nativeRecoveryCrashRunID, nativeRecoveryCrashCallID).Scan(&state)
+		if err == nil && state == string(core.ToolInvocationCompleted) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for completed native tool journal: %v", err)
+		}
+		select {
+		case err := <-firstDone:
+			t.Fatalf("crash child exited before completed journal: %v", err)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if err := first.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-firstDone; err == nil || first.ProcessState.Success() {
+		t.Fatalf("native crash child did not exit abnormally: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE run_queue SET lease_expires_at=1 WHERE run_id=$1`, nativeRecoveryCrashRunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE session_leases SET expires_at=1 WHERE session_id=$1`, nativeRecoveryCrashSessionID); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requeued, failed, err := queue.RecoverExpiredRunClaims(ctx, time.Now().UTC()); err != nil || requeued != 1 || failed != 0 {
+		t.Fatalf("requeue=%d failed=%d err=%v", requeued, failed, err)
+	}
+	if postProviderCrash {
+		middle, middleDone := start("postprovider_crash")
+		deadline = time.Now().Add(20 * time.Second)
+		for {
+			var calls int64
+			err := db.QueryRowContext(ctx, "SELECT COALESCE(SUM(calls), 0) FROM native_recovery_crash_model_calls").Scan(&calls)
+			if err == nil && calls == 2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for post-provider model receipt: calls=%d err=%v", calls, err)
+			}
+			select {
+			case err := <-middleDone:
+				t.Fatalf("post-provider child exited before adapter receipt: %v", err)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		if err := middle.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-middleDone; err == nil || middle.ProcessState.Success() {
+			t.Fatalf("post-provider child did not exit abnormally: %v", err)
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE run_queue SET lease_expires_at=1 WHERE run_id=$1", nativeRecoveryCrashRunID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE session_leases SET expires_at=1 WHERE session_id=$1", nativeRecoveryCrashSessionID); err != nil {
+			t.Fatal(err)
+		}
+		if requeued, failed, err := queue.RecoverExpiredRunClaims(ctx, time.Now().UTC()); err != nil || requeued != 1 || failed != 0 {
+			t.Fatalf("post-provider requeue=%d failed=%d err=%v", requeued, failed, err)
+		}
+	}
+	finalPhase := "recover"
+	if postProviderCrash {
+		finalPhase = "recover_unknown"
+	}
+	second, secondDone := start(finalPhase)
+	if err := <-secondDone; err != nil {
+		t.Fatalf("replacement child failed: %v", err)
+	}
+	if second.ProcessState == nil || !second.ProcessState.Success() {
+		t.Fatalf("replacement child did not exit successfully: %#v", second.ProcessState)
+	}
+	var effects, models, sidecars, attempts, outcomes int64
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM native_recovery_crash_effects`).Scan(&effects); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(calls), 0) FROM native_recovery_crash_model_calls`).Scan(&models); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM completed_tool_result_recovery_sidecars WHERE session_id=$1 AND run_id=$2`, nativeRecoveryCrashSessionID, nativeRecoveryCrashRunID).Scan(&sidecars); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM native_queued_model_invocations WHERE session_id=$1 AND run_id=$2`, nativeRecoveryCrashSessionID, nativeRecoveryCrashRunID).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM native_queued_model_invocation_outcomes WHERE session_id=$1 AND run_id=$2`, nativeRecoveryCrashSessionID, nativeRecoveryCrashRunID).Scan(&outcomes); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.OpenSQLSessionStore(ctx, db, storage.SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := store.Load(ctx, nativeRecoveryCrashSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := 0
+	for _, event := range session.Events() {
+		if event.RunID == nativeRecoveryCrashRunID && event.Type == core.EvToolResult {
+			results++
+		}
+	}
+	run, err := queue.GetRun(ctx, nativeRecoveryCrashRunID)
+	wantStatus := string(core.RunCompleted)
+	if postProviderCrash {
+		wantStatus = string(core.RunFailed)
+	}
+	wantOutcomes := int64(2)
+	if postProviderCrash {
+		wantOutcomes = 1
+	}
+	if err != nil || run.Status != wantStatus || effects != 1 || models != 2 || sidecars != 1 || results != 1 || attempts != 2 || outcomes != wantOutcomes {
+		t.Fatalf("run=%+v effects=%d models=%d sidecars=%d results=%d attempts=%d outcomes=%d err=%v", run, effects, models, sidecars, results, attempts, outcomes, err)
 	}
 }
 
@@ -581,6 +765,10 @@ func assertProcessCrashQueueClaimSpan(t *testing.T, spans []serialSpanEvidence, 
 
 // This is a real OS process entry point, never a normal in-process test fixture.
 func TestRunWorkerCrashHelper(t *testing.T) {
+	if os.Getenv("HARNESS_NATIVE_COMPLETED_TOOL_CRASH_HELPER") == "1" {
+		runNativeQueuedCompletedToolCrashHelper(t)
+		return
+	}
 	if os.Getenv("HARNESS_CRASH_HELPER") != "1" {
 		t.Skip("owned process helper only")
 	}
@@ -645,6 +833,172 @@ func TestRunWorkerCrashHelper(t *testing.T) {
 		t.Fatalf("helper worker claimed=%t error=%v", claimed, err)
 	}
 	report(ctx, false, "")
+}
+
+const (
+	nativeRecoveryCrashSessionID = "session-native-recovery-crash"
+	nativeRecoveryCrashRunID     = "run-native-recovery-crash"
+	nativeRecoveryCrashCallID    = "call-native-recovery-crash"
+)
+
+func TestNativeQueuedCompletedToolCrashHelper(t *testing.T) {
+	if os.Getenv("HARNESS_NATIVE_COMPLETED_TOOL_CRASH_HELPER") != "1" {
+		t.Skip("owned native recovery process helper only")
+	}
+	runNativeQueuedCompletedToolCrashHelper(t)
+}
+
+func runNativeQueuedCompletedToolCrashHelper(t *testing.T) {
+	t.Helper()
+	config, err := pgx.ParseConfig(os.Getenv("HARNESS_TEST_PG_DSN"))
+	if err != nil {
+		t.Fatal("invalid native recovery PostgreSQL configuration")
+	}
+	schema := os.Getenv("HARNESS_CRASH_SCHEMA")
+	if !strings.HasPrefix(schema, "harness_acceptance_") || strings.ContainsAny(schema, " \";'\\") {
+		t.Fatal("invalid owned schema")
+	}
+	config.RuntimeParams["search_path"] = schema
+	db := stdlib.OpenDB(*config)
+	defer db.Close()
+	phase := os.Getenv("HARNESS_NATIVE_RECOVERY_PHASE")
+	if phase != "crash" && phase != "recover" && phase != "recover_unknown" && phase != "delivery_crash" && phase != "postprovider_crash" {
+		t.Fatalf("invalid native recovery phase %q", phase)
+	}
+	model := &nativeRecoveryCrashModel{db: db, blockAfterProvider: phase == "postprovider_crash"}
+	api, accounts := newNativeRecoveryCrashServer(t, db, storage.SQLDialectPostgres, model)
+	defer api.Shutdown(context.Background())
+	if phase == "crash" {
+		if err := accounts.CreateTenant(context.Background(), "acme", "Acme"); err != nil {
+			t.Fatal(err)
+		}
+		if err := accounts.CreateAccount(context.Background(), storage.Account{AccountID: "alice", Email: "alice@example.test", Role: storage.RoleAccountUser, TenantID: "acme", Status: storage.AccountActive}, "native-password"); err != nil {
+			t.Fatal(err)
+		}
+		account, err := accounts.GetAccount(context.Background(), "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		principal, err := storage.PrincipalForAccount(account, nativeStrictTestRoot().Segments())
+		if err != nil {
+			t.Fatal(err)
+		}
+		scope, err := principal.Scope.Child(core.ScopeRef{Kind: core.ScopeSession, ID: nativeRecoveryCrashSessionID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		session, err := core.NewSession(core.SessionOptions{ID: nativeRecoveryCrashSessionID, ProfileID: "native.recovery.crash", Principal: principal, Scope: scope})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := api.sessions.Create(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		if err := api.runQueue.EnqueueRun(context.Background(), storage.QueuedRun{RunRecord: storage.RunRecord{RunID: nativeRecoveryCrashRunID, SessionID: session.ID(), TenantID: principal.TenantID, SubjectID: principal.SubjectID}, Message: "run recovery crash fixture", MaxAttempts: 3}); err != nil {
+			t.Fatal(err)
+		}
+		api.nativeQueuedRecoveryTestHooks = &nativeQueuedRecoveryTestHooks{
+			afterToolJournalComplete: func() { select {} },
+		}
+	} else {
+		loaded, err := api.sessions.Load(context.Background(), nativeRecoveryCrashSessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		principal, err := api.resolveQueuedPrincipal(context.Background(), storage.QueuedRun{RunRecord: storage.RunRecord{TenantID: loaded.Principal().TenantID, SubjectID: loaded.Principal().SubjectID}})
+		if err != nil || !reflect.DeepEqual(loaded.Principal(), principal) {
+			t.Fatalf("loaded/current native principal equal=%t err=%v loaded=%#v current=%#v", reflect.DeepEqual(loaded.Principal(), principal), err, loaded.Principal(), principal)
+		}
+		if phase == "delivery_crash" || os.Getenv("HARNESS_NATIVE_RECOVERY_HARDKILL_AFTER_DELIVERY") == "1" {
+			api.nativeQueuedRecoveryTestHooks = &nativeQueuedRecoveryTestHooks{
+				afterCompletedToolRecovery: func() { select {} },
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	claimed, runErr := api.RunWorkerOnce(ctx, "native-recovery-"+phase)
+	if phase == "recover_unknown" && claimed && errors.Is(runErr, storage.ErrCompletedToolResultProofInvalid) {
+		return
+	}
+	if runErr != nil || !claimed {
+		t.Fatalf("native recovery helper claimed=%t error=%v", claimed, runErr)
+	}
+}
+
+func newNativeRecoveryCrashServer(t *testing.T, db *sql.DB, dialect storage.SQLDialect, model core.LlmAdapter) (*Server, *storage.SQLAccountStore) {
+	t.Helper()
+	accounts, err := storage.NewSQLAccountStore(db, dialect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := nativeStrictTestRoot()
+	selection := core.ModelSelection{Provider: "native-recovery-crash", Model: "fixture"}
+	name := "Native recovery crash"
+	server, err := NewNativeStrictServer(context.Background(), NativeStrictServerConfig{DB: db, Dialect: dialect, Bootstrap: NativeStrictBootstrap{
+		Revision: "native-recovery-crash-v1", Root: root.Segments(), DefaultProfileID: "native.recovery.crash",
+		Profiles:     []core.AgentProfileLayer{{Scope: root, ProfileID: "native.recovery.crash", Name: &name, Model: &selection, AddCapabilities: []string{"native.recovery.effect"}}},
+		Capabilities: []NativeStrictCapability{{Scope: root, Capability: nativeRecoveryCrashTool{db: db}}},
+		Model:        NativeStrictModel{Selection: selection, Adapter: model},
+	}, MaxWriteDelay: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return server, accounts
+}
+
+type nativeRecoveryCrashTool struct{ db *sql.DB }
+
+func (nativeRecoveryCrashTool) Manifest() core.CapabilityManifest {
+	manifest := (checkpointTestTool{}).Manifest()
+	manifest.ID, manifest.Name = "native.recovery.effect", "Native recovery effect"
+	return manifest
+}
+
+func (tool nativeRecoveryCrashTool) Execute(ctx context.Context, request core.CapabilityRequest) (core.CapabilityResult, error) {
+	if err := core.RequireAcceptedInvocation(request); err != nil {
+		return core.CapabilityResult{}, err
+	}
+	if _, err := tool.db.ExecContext(ctx, `INSERT INTO native_recovery_crash_effects (call_id) VALUES ($1)`, request.CallID); err != nil {
+		return core.CapabilityResult{}, err
+	}
+	return core.CapabilityResult{OK: true, Content: `{"effect":"committed"}`}, nil
+}
+
+type nativeRecoveryCrashModel struct {
+	db                 *sql.DB
+	blockAfterProvider bool
+}
+
+func (*nativeRecoveryCrashModel) Provider() string { return "native-recovery-crash" }
+
+func (model *nativeRecoveryCrashModel) Stream(ctx context.Context, options core.GenerateOptions, emit func(core.StreamChunk)) error {
+	continuation := false
+	for _, message := range options.Messages {
+		if message.Role == core.RoleTool {
+			continuation = true
+			break
+		}
+	}
+	stage := "initial"
+	if continuation {
+		stage = "continuation"
+	}
+	if _, err := model.db.ExecContext(ctx, `INSERT INTO native_recovery_crash_model_calls (stage, calls) VALUES ($1, 1) ON CONFLICT (stage) DO UPDATE SET calls=native_recovery_crash_model_calls.calls+1`, stage); err != nil {
+		return err
+	}
+	if continuation && model.blockAfterProvider {
+		select {}
+	}
+	if continuation {
+		emit(core.StreamChunk{Kind: core.StreamKindAssistant, Text: "recovered"})
+		emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishStop})
+		return nil
+	}
+	call := core.ToolCall{ID: nativeRecoveryCrashCallID, Name: "native.recovery.effect", Args: map[string]any{"value": "7"}}
+	emit(core.StreamChunk{Kind: core.StreamKindAssistant, ToolCall: &call, ToolCalls: []core.ToolCall{call}})
+	emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishToolCalls})
+	return nil
 }
 
 func configureProcessCrash(t *testing.T, api *serialAuditedAPI, checkpoint func(context.Context, string)) {

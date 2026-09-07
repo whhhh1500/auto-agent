@@ -26,7 +26,7 @@ func runtimeWithToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehin
 	return &copyOf, failure
 }
 
-func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehind, cancel context.CancelFunc, fence storage.SessionWriteFence, session *core.Session, principal core.Principal) (*core.Runtime, *toolCheckpointFailure, error) {
+func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehind, cancel context.CancelFunc, fence storage.SessionWriteFence, session *core.Session, principal core.Principal, recoveredContinuation bool) (*core.Runtime, *toolCheckpointFailure, error) {
 	if s.nativeStrict == nil {
 		copyOf, failure := runtimeWithToolCheckpoint(runtime, writer, cancel)
 		return copyOf, failure, nil
@@ -43,7 +43,7 @@ func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *
 	}
 	copyOf.ModelCallGate = &nativeQueuedModelCallGate{
 		server: s, store: store, writer: writer, cancel: cancel, failure: failure,
-		fence: fence, session: session, principal: principal,
+		fence: fence, session: session, principal: principal, recoveredContinuation: recoveredContinuation,
 	}
 	return &copyOf, failure, nil
 }
@@ -90,6 +90,17 @@ type nativeQueuedToolInvocationJournal struct {
 	session   *core.Session
 	principal core.Principal
 	runtime   *core.Runtime
+}
+
+func (j *nativeQueuedToolInvocationJournal) CompleteToolInvocation(ctx context.Context, invocation core.ToolInvocation, result core.CapabilityResult) (core.ToolInvocationRecord, error) {
+	record, err := j.ToolInvocationJournal.CompleteToolInvocation(ctx, invocation, result)
+	if err != nil {
+		return record, err
+	}
+	if j.server != nil && j.server.nativeQueuedRecoveryTestHooks != nil && j.server.nativeQueuedRecoveryTestHooks.afterToolJournalComplete != nil {
+		j.server.nativeQueuedRecoveryTestHooks.afterToolJournalComplete()
+	}
+	return record, nil
 }
 
 func (j *checkpointToolInvocationJournal) BeginToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
