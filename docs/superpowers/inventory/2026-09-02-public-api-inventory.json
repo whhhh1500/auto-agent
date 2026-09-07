@@ -27,6 +27,7 @@
         "FencedCompletedToolResultAppender",
         "FencedCompletedToolResultRecoveryAppender",
         "FencedSessionAppender",
+        "SQLQueuedPrincipalResolver",
         "SessionWriteFence"
       ],
       "functions": [
@@ -38,22 +39,30 @@
         "SQLSessionStore.AppendCompletedToolResultRecoveryPrefixFenced",
         "SQLSessionStore.AppendEventsFenced",
         "SQLSessionStore.AuthorizationEpoch",
+        "SQLQueuedPrincipalResolver.AuthorizationEpoch",
+        "SQLQueuedPrincipalResolver.ResolveRunPrincipal",
         "SQLToolInvocationJournal.GetToolInvocation",
         "ValidateAuthorizationEpochSQLAuthority",
+        "ValidateAuthorizationEpochSQLPrincipalAuthority",
         "ValidateQueuedSessionFenceDomain",
         "WriteBehind.Checkpoint",
         "WriteBehind.SetErrorObserver"
       ],
       "constructors": [
-        "NewFencedWriteBehind"
+        "NewFencedWriteBehind",
+        "NewSQLQueuedPrincipalResolver"
       ],
       "variables": [
         "ErrAuthorizationEpochChanged",
         "ErrCompletedToolResultProofInvalid",
+        "ErrQueuedPrincipalIdentityMismatch",
+        "ErrQueuedPrincipalInactive",
+        "ErrQueuedPrincipalInvalid",
+        "ErrQueuedPrincipalNotFound",
         "ErrSessionWriteFenceLost"
       ],
       "constants": null,
-      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery and recovery prefixes, plus an authorization epoch read/fence. They are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
+      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery and recovery prefixes, plus an authorization epoch read/fence. SQLQueuedPrincipalResolver is a native, same-authority queued-owner resolver; its stable non-disclosure errors let a server distinguish permanent account identity/state failures from retryable storage failures. These are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
     },
     {
       "package": "pkg/runtime",
@@ -3890,6 +3899,7 @@
         "SQLRunStatsStore",
         "SQLRunnerStore",
         "SQLSessionStore",
+        "SQLQueuedPrincipalResolver",
         "SQLToolInvocationJournal",
         "SessionFilter",
         "SessionLeaser",
@@ -4103,11 +4113,14 @@
         "SQLSessionStore.RenewSessionLease",
         "SQLSessionStore.RunEvidenceStats",
         "SQLSessionStore.Save",
+        "SQLQueuedPrincipalResolver.AuthorizationEpoch",
+        "SQLQueuedPrincipalResolver.ResolveRunPrincipal",
         "SQLToolInvocationJournal.BeginToolInvocation",
         "SQLToolInvocationJournal.CompleteToolInvocation",
         "SQLToolInvocationJournal.GetToolInvocation",
         "SQLToolInvocationJournal.MarkToolInvocationUncertain",
         "ValidateAuthorizationEpochSQLAuthority",
+        "ValidateAuthorizationEpochSQLPrincipalAuthority",
         "ValidateObjectKey",
         "ValidateQueuedSessionFenceDomain",
         "ValidateSessionIDForFile",
@@ -4145,6 +4158,7 @@
         "NewSQLRunControlStore",
         "NewSQLRunStatsStore",
         "NewSQLRunnerStore",
+        "NewSQLQueuedPrincipalResolver",
         "NewSQLToolInvocationJournal",
         "NewWriteBehind"
       ],
@@ -4159,6 +4173,10 @@
         "ErrObjectNotFound",
         "ErrObjectTooLarge",
         "ErrPreconditionFailed",
+        "ErrQueuedPrincipalIdentityMismatch",
+        "ErrQueuedPrincipalInactive",
+        "ErrQueuedPrincipalInvalid",
+        "ErrQueuedPrincipalNotFound",
         "ErrRunNotFound",
         "ErrRunSubmissionConflict",
         "ErrS3ResponseTooLarge",

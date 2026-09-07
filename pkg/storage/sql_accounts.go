@@ -21,9 +21,18 @@ import (
 )
 
 var (
-	dummyPasswordOnce sync.Once
-	dummyPasswordHash []byte
+	dummyPasswordOnce  sync.Once
+	dummyPasswordHash  []byte
+	errAccountNotFound = errors.New("account not found")
 )
+
+// accountNotFoundError keeps the public GetAccount diagnostic stable while
+// allowing native storage callers to classify the absence without parsing text.
+type accountNotFoundError struct{ accountID string }
+
+func (e accountNotFoundError) Error() string { return fmt.Sprintf("account %q not found", e.accountID) }
+
+func (e accountNotFoundError) Is(target error) bool { return target == errAccountNotFound }
 
 // Account roles, from highest authority down.
 const (
@@ -186,7 +195,7 @@ func (s *SQLAccountStore) CreateAccount(ctx context.Context, account Account, pa
 		if getErr == nil {
 			return fmt.Errorf("%w: %s", core.ErrSessionConflict, account.AccountID)
 		}
-		if !strings.Contains(getErr.Error(), "not found") {
+		if !errors.Is(getErr, errAccountNotFound) {
 			return getErr
 		}
 		return fmt.Errorf("accounts exceed maximum of %d", s.accountCap())
@@ -232,7 +241,7 @@ func (s *SQLAccountStore) GetAccount(ctx context.Context, accountID string) (Acc
 	if err := row.Scan(&account.AccountID, &email, &account.PasswordHash, &account.Role, &account.TenantID,
 		&account.Status, &account.MustChangePassword, &createdMillis); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return Account{}, fmt.Errorf("account %q not found", accountID)
+			return Account{}, accountNotFoundError{accountID: accountID}
 		}
 		return Account{}, err
 	}

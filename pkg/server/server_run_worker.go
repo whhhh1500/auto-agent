@@ -50,6 +50,13 @@ func (e PermanentRunError) Unwrap() error { return e.Err }
 // the queued request must fail instead of being retried.
 func PermanentRunFailure(err error) error { return PermanentRunError{Err: err} }
 
+func permanentQueuedPrincipalError(err error) bool {
+	return errors.Is(err, storage.ErrQueuedPrincipalNotFound) ||
+		errors.Is(err, storage.ErrQueuedPrincipalIdentityMismatch) ||
+		errors.Is(err, storage.ErrQueuedPrincipalInactive) ||
+		errors.Is(err, storage.ErrQueuedPrincipalInvalid)
+}
+
 // StartRunWorkers starts the configured number of local durable queue
 // consumers. It is idempotent while workers are already running.
 func (s *Server) StartRunWorkers(ctx context.Context) error {
@@ -386,7 +393,7 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 			return s.stopQueuedFencedWriter(cancelRun, claim, nil, err)
 		}
 		var permanent PermanentRunError
-		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "principal_resolution_failed", err, errors.As(err, &permanent))
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, nil, resume, "principal_resolution_failed", err, errors.As(err, &permanent) || permanentQueuedPrincipalError(err))
 	}
 	if owner.SubjectID != task.SubjectID || owner.TenantID != task.TenantID || !owner.Scope.Equal(principal.Scope) {
 		claim.stop()

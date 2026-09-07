@@ -116,6 +116,35 @@ func ValidateAuthorizationEpochSQLAuthority(sessions core.SessionStore, queue Ru
 	return nil
 }
 
+// ValidateAuthorizationEpochSQLPrincipalAuthority verifies that a native SQL
+// queued-principal resolver shares the sealed Session, queue, lease, journal,
+// and authorization-epoch data authority. It cannot bless custom or remote
+// resolvers: transparent wrappers may retain native capability by embedding,
+// while independently implemented adapters fail closed.
+func ValidateAuthorizationEpochSQLPrincipalAuthority(resolver any, sessions core.SessionStore, queue RunQueueStore, leaser SessionLeaser, journal core.ToolInvocationJournal) error {
+	if err := ValidateAuthorizationEpochSQLAuthority(sessions, queue, leaser, journal); err != nil {
+		return err
+	}
+	native, ok := resolver.(sqlQueuedPrincipalResolverProvider)
+	if !ok || native.sqlQueuedPrincipalResolver() == nil {
+		return fmt.Errorf("authorization epoch principal authority requires a native SQL queued principal resolver")
+	}
+	if _, ok := resolver.(AuthorizationEpochReader); !ok {
+		return fmt.Errorf("authorization epoch principal authority requires the resolver to implement %T", (*AuthorizationEpochReader)(nil))
+	}
+	resolverProvider, ok := resolver.(atomicSessionFenceDomainProvider)
+	if !ok {
+		return fmt.Errorf("authorization epoch principal authority requires a resolver backed by the storage SQL fence domain")
+	}
+	sessionProvider := sessions.(atomicSessionFenceDomainProvider)
+	resolverDomain := resolverProvider.atomicSessionFenceDomain()
+	sessionDomain := sessionProvider.atomicSessionFenceDomain()
+	if !resolverDomain.valid() || !resolverDomain.equal(sessionDomain) {
+		return fmt.Errorf("authorization epoch principal authority requires resolver, sessions, run queue, session leaser, and tool journal to share one SQL database handle and dialect")
+	}
+	return nil
+}
+
 // ValidateAuthorizationEpochBindingJournalAuthority verifies that an optional
 // durable BindingJournal and an AuthorizationEpochReader belong to the same
 // sealed SQL authority as Sessions. It is intentionally a data-plane check

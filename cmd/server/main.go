@@ -140,6 +140,8 @@ func main() {
 	must(err)
 	accounts, err := storage.NewSQLAccountStore(db, dialect)
 	must(err)
+	queuedPrincipal, err := storage.NewSQLQueuedPrincipalResolver(accounts, product.Segments())
+	must(err)
 	// Complete the pre-migration bootstrap decision before any unrelated
 	// runtime/configuration restore can fail. Otherwise a failed first start
 	// would leave an empty accounts table that suppresses this one-time path on
@@ -401,30 +403,17 @@ func main() {
 		DelegationLinkCatalog:   delegationLinks,
 		Evaluations:             evaluationStore,
 		Evidence:                sqlStore,
-		RunPrincipalResolver: server.RunPrincipalResolverFunc(func(ctx context.Context, tenantID, subjectID string) (core.Principal, error) {
-			account, err := accounts.GetAccount(ctx, subjectID)
-			if err != nil {
-				return core.Principal{}, err
-			}
-			if account.TenantID != tenantID || account.Status != storage.AccountActive {
-				return core.Principal{}, server.PermanentRunFailure(fmt.Errorf("queued run account is disabled or belongs to another tenant"))
-			}
-			principal, err := storage.PrincipalForAccount(account, product.Segments())
-			if err != nil {
-				return core.Principal{}, server.PermanentRunFailure(err)
-			}
-			return principal, nil
-		}),
-		RunCancelPollInterval: runCancelPoll,
-		RunStaleAfter:         runStaleAfter,
-		RunWorkerPollInterval: runWorkerPoll,
-		RunWorkerClaimTTL:     runWorkerClaimTTL,
-		RunWorkerConcurrency:  runWorkerConcurrency,
-		RunWorkerMaxAttempts:  runWorkerMaxAttempts,
-		Leaser:                sqlStore,
-		Retention:             sqlStore,
-		Logger:                serverLogger,
-		Telemetry:             telemetryRecorder,
+		RunPrincipalResolver:    queuedPrincipal,
+		RunCancelPollInterval:   runCancelPoll,
+		RunStaleAfter:           runStaleAfter,
+		RunWorkerPollInterval:   runWorkerPoll,
+		RunWorkerClaimTTL:       runWorkerClaimTTL,
+		RunWorkerConcurrency:    runWorkerConcurrency,
+		RunWorkerMaxAttempts:    runWorkerMaxAttempts,
+		Leaser:                  sqlStore,
+		Retention:               sqlStore,
+		Logger:                  serverLogger,
+		Telemetry:               telemetryRecorder,
 	}
 	must(configureProjectionMaintainers(&serverConfig, ragIndex, memoryStore))
 	api, err := server.New(serverConfig)

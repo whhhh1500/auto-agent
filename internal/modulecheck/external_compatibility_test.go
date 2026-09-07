@@ -57,6 +57,7 @@ func TestExternalCompatibilityFixture(t *testing.T) {
 		_ sqlkit.Dialect                               = storage.SQLDialectPostgres
 		_ func(string, sqlkit.Dialect) (string, error) = sqlkit.Bind
 		_ storage.AccountStore                         = (*storage.SQLAccountStore)(nil)
+		_ server.RunPrincipalResolver                  = (*storage.SQLQueuedPrincipalResolver)(nil)
 		_ storage.ObjectStore                          = storage.NewMemoryObjectStore()
 		_ server.Authenticator                         = server.AuthenticatorFunc(fixtureAuthenticate)
 		_ control.CanaryStore                          = fixtureCanaries{}
@@ -107,6 +108,7 @@ func TestExternalCompatibilityFixture(t *testing.T) {
 	_ = jsonbody.DecodeOptional
 	_ = sqlkit.Bind
 	_ = storage.NewSQLAccountStore
+	_ = storage.NewSQLQueuedPrincipalResolver
 	_ = storage.OpenSQLSessionStore
 	_ = storage.NewMemoryObjectStore
 	_ = server.New
