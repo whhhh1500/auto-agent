@@ -93,8 +93,10 @@ scope. Give it a dedicated control database/SQL authority that is never shared
 with a generic `server.New` instance or any dynamic-control writer. Its
 authorization-epoch check detects projection lag and fails closed; it is not a
 transaction-level grant held to `run/start` or queue claim. Schema v43
-sidecars provide only fenced SQL historical-delivery evidence; they do not
-enable completed-result continuation, consume/ack state, or a recovery
+sidecars provide fenced historical-delivery evidence, and schema v44 witnesses
+record generation-scoped queued effect admission before provider execution.
+Neither proves current account state or enables completed-result continuation; they do not
+provide consume/ack state or a recovery
 coordinator. Detached control projection, current execution admission, and a
 model-invocation journal are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition

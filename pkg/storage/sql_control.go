@@ -241,8 +241,9 @@ var (
 	sqlPruneAudit  = sqlQuery{"DELETE FROM audit_events WHERE time < ?"}
 	sqlPruneHits   = sqlQuery{"DELETE FROM obs_hits WHERE time < ?"}
 	sqlPruneLeases = sqlQuery{"DELETE FROM session_leases WHERE expires_at < ?"}
-	// Sidecars currently have no GC path. Retain every completed journal proof
-	// they reference rather than risk deleting an eligible historical result.
+	// Sidecars and native queued effect witnesses currently have no GC path.
+	// Retain every completed journal proof they reference rather than risk
+	// deleting historical delivery or pre-effect admission evidence.
 	// A future retention transaction may collect only terminal or superseded
 	// sidecars and their journal rows together.
 	sqlListPrunableToolInvocations = sqlQuery{`SELECT tenant_id, subject_id, session_id, run_id,
@@ -259,9 +260,13 @@ var (
 	sqlDeleteToolInvocation = sqlQuery{`DELETE FROM tool_invocations
 		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
 		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
-	sqlSidecarExistsForToolInvocation = sqlQuery{`SELECT 1 FROM completed_tool_result_recovery_sidecars
+	sqlRecoveryProofExistsForToolInvocation = sqlQuery{`SELECT 1 WHERE EXISTS (
+		SELECT 1 FROM completed_tool_result_recovery_sidecars
 		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
-		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
+		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?)
+		OR EXISTS (SELECT 1 FROM native_queued_tool_effect_witnesses
+		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
+		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?)`}
 	sqlPruneApprovals = sqlQuery{`DELETE FROM approval_requests
 		WHERE status <> 'pending' AND decided_at > 0 AND decided_at < ?`}
 	sqlPruneRunSubmissions = sqlQuery{`DELETE FROM run_submissions
@@ -298,7 +303,7 @@ func (s *SQLSessionStore) PruneExpiredLeases(ctx context.Context) (int64, error)
 }
 
 // PruneToolInvocations deletes only old completed outcomes not referenced by
-// a V3 recovery sidecar. Started and uncertain rows are retained because
+// a V3 recovery sidecar or native queued effect witness. Started and uncertain rows are retained because
 // deleting them could permit a duplicate non-idempotent side effect. Sidecar
 // rows are intentionally not collected in this first storage-only slice.
 func (s *SQLSessionStore) PruneToolInvocations(ctx context.Context, olderThan time.Time) (int64, error) {
@@ -348,7 +353,9 @@ func (s *SQLSessionStore) PruneToolInvocations(ctx context.Context, olderThan ti
 	var deleted int64
 	for _, candidate := range candidates {
 		var present int
-		err := tx.QueryRowContext(ctx, sqlSidecarExistsForToolInvocation.bind(s.dialect), candidate.tenantID, candidate.subjectID, candidate.sessionID, candidate.runID, candidate.callID, candidate.capabilityID, candidate.argsDigest, candidate.idempotent).Scan(&present)
+		err := tx.QueryRowContext(ctx, sqlRecoveryProofExistsForToolInvocation.bind(s.dialect),
+			candidate.tenantID, candidate.subjectID, candidate.sessionID, candidate.runID, candidate.callID, candidate.capabilityID, candidate.argsDigest, candidate.idempotent,
+			candidate.tenantID, candidate.subjectID, candidate.sessionID, candidate.runID, candidate.callID, candidate.capabilityID, candidate.argsDigest, candidate.idempotent).Scan(&present)
 		if err == nil {
 			continue
 		}

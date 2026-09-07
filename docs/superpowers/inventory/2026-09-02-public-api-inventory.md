@@ -228,8 +228,8 @@ replay. A disconnected client replays durable events through
 
 ## SQL schema and migration chain
 
-The durable schema is currently version **43**, exposed as
-`storage.SQLSchemaVersion`. The complete v1-v43 history and tables introduced
+The durable schema is currently version **44**, exposed as
+`storage.SQLSchemaVersion`. The complete v1-v44 history and tables introduced
 or projected at each step are recorded in the JSON inventory. The current
 canonical table set is:
 
@@ -245,7 +245,8 @@ delegation_links, runtime_effect_sequences, runtime_effects,
 runtime_host_state, runtime_host_ownership, runtime_fence_journal,
 artifact_migrations, artifact_migration_mutations, graph_checkpoints,
 graph_checkpoint_versions, graph_transitions, notification_targets,
-graph_segment_leases, completed_tool_result_recovery_sidecars
+graph_segment_leases, completed_tool_result_recovery_sidecars,
+native_queued_tool_effect_witnesses
 ```
 
 Versions 26-30 include projection/index and retryable migration steps even
@@ -262,14 +263,16 @@ notification-target metadata; version 39 adds generation-fenced Graph segment
 leases; version 40 adds `approval_requests_run_status` and `run_control_stale`
 indexes; version 41 adds `graph_checkpoint_versions`; version 42 adds the
 `store_meta.authorization_epoch` row; and version 43 adds immutable SQL-local
-`completed_tool_result_recovery_sidecars`. The V43 sidecar is historical
+`completed_tool_result_recovery_sidecars`; version 44 adds generation-scoped
+`native_queued_tool_effect_witnesses`. The V43 sidecar is historical
 delivery evidence only: it does not grant continuation or make automatic
-recovery available. The v41 model is one
+recovery available. A v44 witness records epoch-fenced queued effect admission
+and journal Begin, not provider completion, current account state, or recovery eligibility. The v41 model is one
 mutable CAS-protected `graph_checkpoints` head plus append-only versions and
 transitions. A v40 upgrade backfills only its current head as a
 `migration_floor`; it never manufactures older history. Existing schema names,
 columns, and historical migration order are compatibility constraints.
-SQLite v41-to-v43 epoch/sidecar migration plus v41 fresh/upgrade/backfill evidence is covered by the storage suite.
+SQLite v41-to-v44 epoch/sidecar/witness migration plus v41 fresh/upgrade/backfill evidence is covered by the storage suite.
 PostgreSQL v35-v41 evidence passed on 2026-09-04 against isolated disposable
 schemas using an administrator-capable `HARNESS_TEST_PG_DSN`; the v41 pass
 explicitly covered history upgrade, atomic rollback, replay, and competing

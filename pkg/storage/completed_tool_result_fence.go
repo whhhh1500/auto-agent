@@ -77,6 +77,20 @@ type CompletedToolResultRecoverySidecar struct {
 	CreatedAt         time.Time
 }
 
+// NativeQueuedToolEffectWitnessInput identifies the SQL-fenced admission
+// expected immediately before one native queued provider effect. The witness
+// proves neither provider execution nor current account authority, recovery,
+// or continuation eligibility. ExpectedCapability is compared with the
+// durable run composition rather than trusted as a caller-supplied digest.
+// BootstrapRevision is a deployment label supplied by the future native
+// wrapper and checked for exact convergence; storage does not prove its source.
+type NativeQueuedToolEffectWitnessInput struct {
+	Invocation         core.ToolInvocation
+	AuthorizationEpoch int64
+	BootstrapRevision  string
+	ExpectedCapability core.SnapshotCapability
+}
+
 // FencedCompletedToolResultRecoveryAppender is the optional V2 companion to
 // FencedCompletedToolResultAppender. Native SQL implementations atomically
 // lock the expected authorization epoch, fenced ownership, and exact completed

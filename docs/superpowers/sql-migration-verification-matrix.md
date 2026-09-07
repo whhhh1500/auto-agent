@@ -1,8 +1,8 @@
 # SQL migration verification matrix
 
 This matrix is the Phase 0 evidence map for the durable SQL schema. The
-current schema is `storage.SQLSchemaVersion == 43`. A migration is forward
-only: an opener rejects a stored version newer than 43 before it executes
+current schema is `storage.SQLSchemaVersion == 44`. A migration is forward
+only: an opener rejects a stored version newer than 44 before it executes
 current DDL.
 
 The schema source is cumulative Go DDL plus version-gated transformations,
@@ -13,7 +13,7 @@ independent database dump for every integer version.
 | Historical range or boundary | SQLite fixture and assertion | PostgreSQL fixture and assertion |
 | --- | --- | --- |
 | fresh (no `store_meta`) | `TestSQLMemoryRAGSchemaV26Fresh`, `TestSQLMemorySearchProjectionSchemaV28SQLite` open fresh stores and repeat open where applicable | PG equivalents use `newPostgresTestDB`; execution requires `HARNESS_TEST_PG_DSN` |
-| v1 (covers the v2-v8 cumulative-table path) | `TestSchemaV1DatabaseUpgradesInPlace`; `TestSchemaV1DatabasePreservesSessionRowsAcrossRepeatOpen` starts with genuine v1 DDL, retains a session/event chunk, opens twice, and checks the current v43 marker | No immutable v1 PG fixture; `TestPostgresSchemaMigrationAndFutureRefusal/v9_to_current` is the oldest PG DDL fixture |
+| v1 (covers the v2-v8 cumulative-table path) | `TestSchemaV1DatabaseUpgradesInPlace`; `TestSchemaV1DatabasePreservesSessionRowsAcrossRepeatOpen` starts with genuine v1 DDL, retains a session/event chunk, opens twice, and checks the current v44 marker | No immutable v1 PG fixture; `TestPostgresSchemaMigrationAndFutureRefusal/v9_to_current` is the oldest PG DDL fixture |
 | v9 (covers v10-v18 structural additions) | `TestSQLSchemaV9UpgradesQueueGenerationAndApprovals` checks generation, trace, approval, submission, evaluation, release, and control-revision artifacts | `TestPostgresSchemaMigrationAndFutureRefusal/v9_to_current` checks the corresponding columns, tables, index, and revision row |
 | v19 -> v20 | `TestSQLSchemaV19BackfillsEvaluationRevisionProjections` retains real evaluation rows and checks queryable revision projections | The v9 PG fixture checks the resulting columns; no PG v19 row-backfill fixture yet |
 | v22 -> v23 | `TestSQLSchemaV22UpgradesRunEvidenceAssignmentVariant` keeps run-evidence rows and verifies the backfilled variant/index | `TestPostgresSchemaMigrationAndFutureRefusal/v22_to_v23_run_evidence_variant_backfill` provides the equivalent PG row check |
@@ -33,14 +33,14 @@ independent database dump for every integer version.
 | v38 -> v39 | `graph_segment_leases` is created by the cumulative opener; adapter tests cover acquire conflict, expiry takeover, generation fencing, stale lease rejection, release idempotency, and context cancellation | `TestPostgresGraphSegmentSemantic` passed on PostgreSQL 17.6 on 2026-09-06; fresh-schema adapter evidence, not an isolated historical v38 row fixture |
 | v39 -> v40 | `TestSQLiteSchemaV39ToV40IndexesAndReopen` verifies both current indexes after historical upgrade and repeat open | `TestPostgresSchemaV40Indexes` passed on PostgreSQL 17.6 on 2026-09-06 |
 | v40 -> v41 | `TestSQLiteGraphCheckpointHistorySchemaV41FreshAndV40Upgrade` verifies fresh `graph_checkpoint_versions`, strict v40 current-head backfill as one `migration_floor`, no fabricated earlier revision, corrupt-document rollback, and marker stability | `TestPostgresGraphCheckpointHistorySchemaV41FreshAndV40Upgrade` passed against a live local PostgreSQL 17 instance; the same final pass also covered PostgreSQL atomic rollback, replay, and competing CAS |
-| v41 -> v42 -> v43 | `TestSQLSchemaV41MigratesAuthorizationEpoch` verifies a pre-v42 marker gains the additive `store_meta.authorization_epoch=0` row and advances to v43; `TestSQLSessionStoreCompletedToolResultRecoverySidecarMigrationAndPrune` verifies the direct v42 -> v43 empty-sidecar upgrade | `TestPostgresSchemaV41MigratesAuthorizationEpoch` exercises the epoch path and `TestPostgresSQLSessionStoreCompletedToolResultRecoverySidecarFenced` verifies direct v42 -> v43 without backfill against a disposable schema |
+| v41 -> v42 -> v43 -> v44 | `TestSQLSchemaV41MigratesAuthorizationEpoch` verifies a pre-v42 marker gains the additive `store_meta.authorization_epoch=0` row and advances to v44; `TestSQLSessionStoreCompletedToolResultRecoverySidecarMigrationAndPrune` verifies the v42 sidecar path, and `TestSQLSchemaV43MigratesNativeQueuedToolEffectWitnesses` verifies the direct v43 -> v44 empty-witness upgrade | `TestPostgresSchemaV41MigratesAuthorizationEpoch` exercises the epoch path and `TestPostgresSQLSessionStoreCompletedToolResultRecoverySidecarFenced` verifies the sidecar path and `TestPostgresSchemaV43MigratesNativeQueuedToolEffectWitnesses` verifies v43 -> v44 without witness backfill against a disposable schema |
 | v35 historical repeat open | The v35 historical fixture repeats open and verifies the schema marker and ownership/Fence tables remain stable after cumulative opening | PG v35 repeat-open evidence passed with an isolated disposable schema and administrator-capable `HARNESS_TEST_PG_DSN`; this does not establish v36/v37 interoperability |
 | future version | `TestSQLFutureSchemaIsRefusedBeforeCurrentDDL` and feature-specific refusal tests | `TestPostgresSchemaMigrationAndFutureRefusal/future_version_no_ddl` and feature-specific refusal tests |
 
 ## Interpretation and remaining gaps
 
 - The SQLite suite gives concrete historical row-preservation evidence for v1,
-  v19, v22, v25, v26, v27, v31, v33, v34, v35, v36, v37, v40, v41, v42, and v43. It exercises cumulative transition paths
+  v19, v22, v25, v26, v27, v31, v33, v34, v35, v36, v37, v40, v41, v42, v43, and v44. It exercises cumulative transition paths
   from v1 and v9, but does **not** claim one immutable fixture per every
   integer v2 through v30.
 - PostgreSQL uses one disposable schema per test through
@@ -52,7 +52,7 @@ independent database dump for every integer version.
   Fence-specific verification is covered by the disposable-schema tests above;
   PostgreSQL v36/v37 now have isolated-cluster evidence recorded below. PostgreSQL
   v38-v41 DSN-specific tests passed in the 2026-09-06 all-package gate below;
-  the v42/v43 PostgreSQL migration tests remain opt-in until a new DSN-backed run is recorded.
+  the v42-v44 PostgreSQL migration tests remain opt-in until a new DSN-backed run is recorded.
   The v38/v39 adapter checks do not add isolated historical row-migration
   fixtures beyond the specific boundaries listed in the table.
   These are deliberately listed as gaps instead of being represented by a

@@ -217,6 +217,11 @@ to the adapter configuration, outside the core contract.
   alter `run_evidence`, consume the sidecar, authorize continuation, or invoke
   Core. The historical journal proof is retained fail-safe while the first
   slice has no terminal/superseded-sidecar garbage collector.
+- Schema v44 adds generation-scoped native queued tool-effect admission
+  witnesses. One SQL transaction binds the authorization epoch, live queue
+  generation and session lease, durable run composition and tool/call tail,
+  journal Begin, and immutable witness before a provider may run. This is not
+  proof that the provider ran, an active-account read, or a recovery grant.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -291,8 +296,8 @@ to the adapter configuration, outside the core contract.
   authority must be dedicated to native-static instances, never shared with a
   generic server or dynamic-control writer. The authorization-epoch gate is a
   fail-closed lag detector, not a transaction-level authorization grant held
-  through `run/start` or a queued claim. V43 sidecars only provide storage
-  evidence; completed-result recovery remains disabled. Detached control
+  through `run/start` or a queued claim. V43 sidecars and v44 effect-admission
+  witnesses only provide storage evidence; completed-result recovery remains disabled. Detached control
   projection, current execution admission, and a model-invocation journal are
   still required before any strict recovery coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and

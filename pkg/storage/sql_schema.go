@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place: the schema DDL only adds objects, so
 // opening a v1 database creates the missing tables and advances the
 // recorded version.
-const SQLSchemaVersion = 43
+const SQLSchemaVersion = 44
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -838,4 +838,42 @@ CREATE TABLE IF NOT EXISTS completed_tool_result_recovery_sidecars (
 );
 CREATE INDEX IF NOT EXISTS completed_tool_result_recovery_sidecars_run_created
 	ON completed_tool_result_recovery_sidecars (run_id, created_at);
+`
+
+// sqlSchemaV44NativeQueuedToolEffectWitnesses stores immutable evidence that
+// one queued tool effect reached its SQL admission boundary. It is not proof
+// that the provider ran, a continuation grant, or current account authority.
+const sqlSchemaV44NativeQueuedToolEffectWitnesses = `
+CREATE TABLE IF NOT EXISTS native_queued_tool_effect_witnesses (
+	protocol                    TEXT NOT NULL CHECK (protocol = 'native_queued_tool_effect/v1'),
+	tenant_id                   TEXT NOT NULL CHECK (length(tenant_id) BETWEEN 1 AND 256),
+	subject_id                  TEXT NOT NULL CHECK (length(subject_id) BETWEEN 1 AND 256),
+	session_id                  TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id                      TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	call_id                     TEXT NOT NULL CHECK (length(call_id) BETWEEN 1 AND 128),
+	capability_id               TEXT NOT NULL CHECK (length(capability_id) BETWEEN 1 AND 256),
+	args_digest                 TEXT NOT NULL CHECK (length(args_digest) = 64),
+	idempotent                  INTEGER NOT NULL CHECK (idempotent IN (0, 1)),
+	authorization_epoch         BIGINT NOT NULL CHECK (authorization_epoch >= 0),
+	queue_generation            BIGINT NOT NULL CHECK (queue_generation > 0),
+	lease_holder_sha256         TEXT NOT NULL CHECK (length(lease_holder_sha256) = 64),
+	run_start_seq               BIGINT NOT NULL CHECK (run_start_seq >= 0),
+	origin_step_seq             BIGINT NOT NULL CHECK (origin_step_seq > run_start_seq),
+	tool_call_seq               BIGINT NOT NULL CHECK (tool_call_seq > origin_step_seq),
+	session_version_after_call  BIGINT NOT NULL CHECK (session_version_after_call = tool_call_seq + 1),
+	profile_snapshot_id         TEXT NOT NULL CHECK (length(profile_snapshot_id) BETWEEN 1 AND 512),
+	capability_snapshot_id      TEXT NOT NULL CHECK (length(capability_snapshot_id) BETWEEN 1 AND 512),
+	composition_revision        TEXT NOT NULL CHECK (length(composition_revision) = 64),
+	assignment_revision         TEXT NOT NULL CHECK (length(assignment_revision) IN (0, 64)),
+	composition_sha256          TEXT NOT NULL CHECK (length(composition_sha256) = 64),
+	bootstrap_revision          TEXT NOT NULL CHECK (length(bootstrap_revision) BETWEEN 1 AND 512),
+	capability_manifest_sha256  TEXT NOT NULL CHECK (length(capability_manifest_sha256) = 64),
+	provider_revision           TEXT NOT NULL CHECK (length(provider_revision) <= 512),
+	capability_contract_sha256  TEXT NOT NULL CHECK (length(capability_contract_sha256) = 64),
+	created_at                  BIGINT NOT NULL CHECK (created_at > 0),
+	PRIMARY KEY (session_id, run_id, call_id, queue_generation),
+	UNIQUE (session_id, tool_call_seq, queue_generation)
+);
+CREATE INDEX IF NOT EXISTS native_queued_tool_effect_witnesses_run_created
+	ON native_queued_tool_effect_witnesses (run_id, created_at);
 `

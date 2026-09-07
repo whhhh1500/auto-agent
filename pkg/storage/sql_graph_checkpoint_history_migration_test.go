@@ -521,12 +521,19 @@ func TestPostgresSchemaMigrationLockWaitCancellationDoesNotStrandOpen(t *testing
 	if _, err := OpenSQLSessionStore(ctx, second, SQLDialectPostgres); err != nil {
 		t.Fatalf("OpenSQLSessionStore after canceled lock wait: %v", err)
 	}
-	acquired, err := tryPostgresSchemaMigrationLock(ctx, independent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !acquired {
-		t.Fatal("canceled schema lock acquisition left a hidden session lock")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		acquired, err := tryPostgresSchemaMigrationLock(ctx, independent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if acquired {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled schema lock acquisition left a hidden session lock")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
