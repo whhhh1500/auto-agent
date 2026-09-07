@@ -1,0 +1,136 @@
+{
+  "documents": [
+    {
+      "scope": [{"kind":"global","id":"global"}],
+      "id": "global-retention",
+      "source": "global/retention.md",
+      "content": "retention protocol applies to every account",
+      "tags": ["policy"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"}],
+      "id": "product-retention",
+      "source": "platform/retention.md",
+      "content": "retention protocol requires audit proofs",
+      "tags": ["policy"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"}],
+      "id": "finance-retention",
+      "source": "platform/finance.md",
+      "content": "invoice retention schedule evidence",
+      "tags": ["finance"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"}],
+      "id": "ops-retention",
+      "source": "platform/ops.md",
+      "content": "invoice retention schedule evidence",
+      "tags": ["ops"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"}],
+      "id": "long-delta-distractor",
+      "source": "platform/noise.md",
+      "content": "delta amber basalt cedar drift ember flint granite harbor ivory juniper kelp linen moss nickel ochre pine quartz river slate timber umber violet willow xenon yarrow zinc",
+      "tags": ["noise"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "id": "alice-retention",
+      "source": "alice/retention.md",
+      "content": "retention protocol contains alice workspace evidence",
+      "tags": ["policy"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "id": "short-delta-target",
+      "source": "alice/delta.md",
+      "content": "delta deployment token exact",
+      "tags": ["release"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "id": "semantic-billing-date",
+      "source": "alice/billing.md",
+      "content": "billing due date needs review",
+      "tags": ["finance"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "id": "cjk-receipt",
+      "source": "alice/receipt.md",
+      "content": "用户，保留凭证",
+      "tags": ["finance"]
+    },
+    {
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"bob"}],
+      "id": "bob-private-retention",
+      "source": "bob/private.md",
+      "content": "retention protocol bob private secret",
+      "tags": ["policy"]
+    }
+  ],
+  "queries": [
+    {
+      "name": "scope_inheritance_excludes_sibling",
+      "information_need": "Find the retention protocol applicable to Alice, including global and product policy, without exposing Bob's sibling-private record.",
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "query": "retention protocol",
+      "top_k": 5,
+      "qrels": ["global-retention","product-retention","alice-retention"],
+      "allowed_scopes": ["global:global","global:global/product:platform","global:global/product:platform/tenant:acme/user:alice"],
+      "forbidden_ids": ["bob-private-retention"],
+      "expected_ids": ["global-retention","product-retention","alice-retention","finance-retention","ops-retention"]
+    },
+    {
+      "name": "tag_any_match_excludes_other_tag",
+      "information_need": "Find the finance-tagged invoice retention schedule; a request with finance plus an absent tag must retain the contract's any-tag behavior and exclude the ops-only record.",
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "query": "invoice retention",
+      "tags": ["finance", "absent"],
+      "top_k": 5,
+      "qrels": ["finance-retention"],
+      "allowed_scopes": ["global:global/product:platform"],
+      "forbidden_ids": ["ops-retention"],
+      "expected_ids": ["finance-retention"]
+    },
+    {
+      "name": "short_query_with_long_distractor",
+      "information_need": "Locate Alice's delta deployment token. The product-level document only mentions the short token amid unrelated mineral-like noise and is not relevant to this need.",
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "query": "delta",
+      "top_k": 5,
+      "qrels": ["short-delta-target"],
+      "allowed_scopes": ["global:global/product:platform","global:global/product:platform/tenant:acme/user:alice"],
+      "expected_ids": ["long-delta-distractor","short-delta-target"]
+    },
+    {
+      "name": "semantic_qrel_without_lexical_overlap",
+      "information_need": "Find Alice's record describing when an invoice is due. The billing due-date record is relevant even though it shares no exact keyword with the query.",
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "query": "invoice deadline",
+      "top_k": 5,
+      "qrels": ["semantic-billing-date"],
+      "allowed_scopes": ["global:global","global:global/product:platform","global:global/product:platform/tenant:acme/user:alice"],
+      "expected_ids": ["finance-retention","ops-retention"]
+    },
+    {
+      "name": "cjk_fullwidth_punctuation_without_lexical_overlap",
+      "information_need": "Find Alice's receipt-retention evidence. The Chinese fullwidth punctuation record is relevant even when current whitespace keyword tokenization cannot match it.",
+      "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
+      "query": "保留凭证",
+      "top_k": 5,
+      "qrels": ["cjk-receipt"],
+      "allowed_scopes": ["global:global/product:platform/tenant:acme/user:alice"],
+      "expected_ids": []
+    }
+  ],
+  "expected_baseline": {
+    "relevant_retrieved_at_5": 5,
+    "relevant_total": 7,
+    "retrieved_total_at_5": 10,
+    "mrr_at_5": 0.5,
+    "diagnostic_missed_qrels": ["semantic-billing-date","cjk-receipt"]
+  }
+}
