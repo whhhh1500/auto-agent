@@ -28,9 +28,19 @@ type summary struct {
 	Packages        map[string]bool
 }
 
+type testKey struct {
+	packageName string
+	testName    string
+}
+
+type testLifecycle struct {
+	started  bool
+	terminal bool
+}
+
 func verifyEvents(reader io.Reader, log io.Writer, secret string) (summary, error) {
 	result := summary{Packages: make(map[string]bool)}
-	pending := make(map[string]bool)
+	lifecycles := make(map[testKey]testLifecycle)
 	decoder := json.NewDecoder(reader)
 	encoder := json.NewEncoder(log)
 	var failures []error
@@ -54,14 +64,29 @@ func verifyEvents(reader io.Reader, log io.Writer, secret string) (summary, erro
 		if event.Test == "" {
 			continue
 		}
-		key := event.Package + "/" + event.Test
+		key := testKey{packageName: event.Package, testName: event.Test}
+		lifecycle := lifecycles[key]
 		switch event.Action {
 		case "run":
-			pending[key] = true
+			if lifecycle.started {
+				failures = append(failures, fmt.Errorf("selected test ran more than once: %s %s", event.Package, event.Test))
+				continue
+			}
+			lifecycle.started = true
+			lifecycles[key] = lifecycle
 		case "pass", "skip", "fail":
-			delete(pending, key)
+			if !lifecycle.started {
+				failures = append(failures, fmt.Errorf("selected test ended without running: %s %s", event.Package, event.Test))
+				continue
+			}
+			if lifecycle.terminal {
+				failures = append(failures, fmt.Errorf("selected test ended more than once: %s %s", event.Package, event.Test))
+				continue
+			}
+			lifecycle.terminal = true
+			lifecycles[key] = lifecycle
 			if event.Action == "skip" {
-				failures = append(failures, fmt.Errorf("selected test skipped: %s", key))
+				failures = append(failures, fmt.Errorf("selected test skipped: %s %s", event.Package, event.Test))
 			}
 			if event.Action == "pass" {
 				if strings.Contains(event.Test, "/") {
@@ -76,20 +101,23 @@ func verifyEvents(reader io.Reader, log io.Writer, secret string) (summary, erro
 	if result.Tests == 0 {
 		failures = append(failures, errors.New("no PostgreSQL tests executed"))
 	}
-	if len(pending) != 0 {
-		failures = append(failures, errors.New("selected tests did not finish"))
+	for _, lifecycle := range lifecycles {
+		if lifecycle.started && !lifecycle.terminal {
+			failures = append(failures, errors.New("selected tests did not finish"))
+			break
+		}
 	}
 	return result, errors.Join(failures...)
 }
 
 func run() error {
-	logPath := flag.String("log", "postgres-test.jsonl", "JSON test evidence path")
+	logPath := flag.String("log", "postgres-test.jsonl", "new JSON test evidence path (must not exist)")
 	flag.Parse()
 	dsn := os.Getenv("HARNESS_TEST_PG_DSN")
 	if strings.TrimSpace(dsn) == "" {
 		return errors.New("HARNESS_TEST_PG_DSN is required; skipped database tests cannot pass this gate")
 	}
-	file, err := os.Create(*logPath)
+	file, err := openEvidenceLog(*logPath)
 	if err != nil {
 		return err
 	}
@@ -116,6 +144,12 @@ func run() error {
 	}
 	fmt.Printf("PostgreSQL gate passed: %d tests, %d subtests, %d packages; zero skips\n", result.Tests, result.Subtests, len(result.Packages))
 	return nil
+}
+
+// openEvidenceLog keeps evidence-file creation in one place so the command
+// and its tests apply the same writer ownership rule.
+func openEvidenceLog(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 }
 
 func main() {

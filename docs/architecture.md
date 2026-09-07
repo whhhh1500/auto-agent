@@ -125,7 +125,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | Surface | Current boundary | Verification entry |
 | --- | --- | --- |
 | Core sequential runtime, HTTP/JSON and SSE | Implemented; runtime contracts remain provider-neutral | `go test ./pkg/core ./pkg/server ./pkg/integration` and OpenAPI gate |
-| SQLite and PostgreSQL stores/adapters | Implemented; PostgreSQL requires an explicit test database | `go run ./scripts/test-postgres` selects every `TestPostgres` test and rejects skips |
+| SQLite and PostgreSQL stores/adapters | Implemented; PostgreSQL requires an explicit test database | `go run ./scripts/test-postgres -log <new-evidence-path>` selects every `TestPostgres` test, rejects named skips, and refuses an existing evidence path so one run cannot truncate or interleave another run's proof |
 | Default server Graph executor | Experimental; one registered `core-turn` node | `pkg/adapter/runexecutor/graph` tests |
 | Multi-node Graph engine | Experimental trusted Go assembly; SQL example with injected reviews | `go test ./examples/graph-review` |
 | Windows local sandbox | Current-user Basic only; Medium source, restricted child, Job cleanup, one active session per process, Host networking | [Native Basic acceptance](verification/2026-09-06-windows-basic-acceptance.md) |

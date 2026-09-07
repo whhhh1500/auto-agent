@@ -71,13 +71,16 @@ do not record that DSN in source control or logs:
 
 ```powershell
 $env:HARNESS_TEST_PG_DSN = '<provided-out-of-band>'
-go run ./scripts/test-postgres -log postgres-test.jsonl
+$pgEvidencePath = Join-Path (Get-Location) ('postgres-test-' + [guid]::NewGuid().ToString('N') + '.jsonl')
+go run ./scripts/test-postgres -log $pgEvidencePath
 Remove-Item Env:HARNESS_TEST_PG_DSN
 ```
 
 The runner selects all `TestPostgres` tests in `./...`, including SQL adapters,
-examples and service integration. It fails on a missing DSN, any selected skip,
-zero executed tests, invalid output or test failure. CI uses the same runner.
+examples and service integration. Choose a new, unused evidence path for every
+run: the runner refuses an existing file so one run cannot truncate or interleave
+another run's proof. It fails on a missing DSN, any selected skip, zero executed
+tests, invalid output or test failure. CI uses the same runner.
 
 ## All-package PostgreSQL execution record (2026-09-06)
 

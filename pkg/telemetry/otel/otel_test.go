@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 
@@ -19,6 +21,14 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 )
+
+type namedTelemetryError string
+
+func (e namedTelemetryError) Error() string { return string(e) }
+
+type pointerTelemetryError struct{ message string }
+
+func (e *pointerTelemetryError) Error() string { return e.message }
 
 func TestRecorderExportsFixedSpansAndMetrics(t *testing.T) {
 	traceExporter := tracetest.NewInMemoryExporter()
@@ -73,6 +83,147 @@ func TestRecorderExportsFixedSpansAndMetrics(t *testing.T) {
 			t.Fatalf("metric %s missing from %#v", name, names)
 		}
 	}
+}
+
+func TestRecorderBoundsRecordedExceptionMessage(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{name: "1023 bytes", message: strings.Repeat("x", 1023), want: strings.Repeat("x", 1023)},
+		{name: "1024 bytes", message: strings.Repeat("x", 1024), want: strings.Repeat("x", 1024)},
+		{name: "1025 bytes", message: strings.Repeat("x", 1025), want: strings.Repeat("x", 1024)},
+		{name: "does not split UTF-8", message: strings.Repeat("x", 1023) + "é", want: strings.Repeat("x", 1023)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			traceExporter := tracetest.NewInMemoryExporter()
+			tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(traceExporter))
+			defer tracerProvider.Shutdown(context.Background())
+			reader := sdkmetric.NewManualReader()
+			meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			defer meterProvider.Shutdown(context.Background())
+			recorder, err := New(tracerProvider, meterProvider)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, span := recorder.Start(context.Background(), core.SpanRunSegment, nil)
+			span.End(errors.New(test.message), nil)
+
+			spans := traceExporter.GetSpans()
+			if len(spans) != 1 {
+				t.Fatalf("spans=%d, want 1", len(spans))
+			}
+			if got := spans[0].Status.Description; got != test.want {
+				t.Fatalf("status message length=%d, want %d", len(got), len(test.want))
+			}
+			for _, event := range spans[0].Events {
+				if event.Name != "exception" {
+					continue
+				}
+				for _, attribute := range event.Attributes {
+					if string(attribute.Key) != "exception.message" {
+						continue
+					}
+					got := attribute.Value.AsString()
+					if got != test.want {
+						t.Fatalf("exception message length=%d, want %d", len(got), len(test.want))
+					}
+					if !utf8.ValidString(got) {
+						t.Fatal("exception message is not valid UTF-8")
+					}
+					return
+				}
+			}
+			t.Fatal("exception event message not recorded")
+		})
+	}
+}
+
+func TestRecorderPreservesSDKExceptionType(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "named value", err: namedTelemetryError("value error")},
+		{name: "pointer", err: &pointerTelemetryError{message: "pointer error"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sdkExporter := tracetest.NewInMemoryExporter()
+			sdkProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(sdkExporter))
+			defer sdkProvider.Shutdown(context.Background())
+			_, sdkSpan := sdkProvider.Tracer(t.Name()).Start(context.Background(), "sdk-record-error")
+			sdkSpan.RecordError(test.err)
+			sdkSpan.End()
+			sdkSpans := sdkExporter.GetSpans()
+			if len(sdkSpans) != 1 {
+				t.Fatalf("SDK spans=%d, want 1", len(sdkSpans))
+			}
+			want := exceptionEventAttribute(t, sdkSpans[0], "exception.type")
+
+			recorderExporter := tracetest.NewInMemoryExporter()
+			recorderProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(recorderExporter))
+			defer recorderProvider.Shutdown(context.Background())
+			meterProvider := sdkmetric.NewMeterProvider()
+			defer meterProvider.Shutdown(context.Background())
+			recorder, err := New(recorderProvider, meterProvider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, span := recorder.Start(context.Background(), core.SpanRunSegment, nil)
+			span.End(test.err, nil)
+			recorderSpans := recorderExporter.GetSpans()
+			if len(recorderSpans) != 1 {
+				t.Fatalf("recorder spans=%d, want 1", len(recorderSpans))
+			}
+			if got := exceptionEventAttribute(t, recorderSpans[0], "exception.type"); got != want {
+				t.Fatalf("exception.type=%q, SDK RecordError=%q", got, want)
+			}
+		})
+	}
+}
+
+func TestRecorderNilErrorDoesNotRecordException(t *testing.T) {
+	traceExporter := tracetest.NewInMemoryExporter()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(traceExporter))
+	defer tracerProvider.Shutdown(context.Background())
+	meterProvider := sdkmetric.NewMeterProvider()
+	defer meterProvider.Shutdown(context.Background())
+	recorder, err := New(tracerProvider, meterProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, span := recorder.Start(context.Background(), core.SpanRunSegment, nil)
+	span.End(nil, nil)
+
+	spans := traceExporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("spans=%d, want 1", len(spans))
+	}
+	for _, event := range spans[0].Events {
+		if event.Name == "exception" {
+			t.Fatal("nil error recorded an exception event")
+		}
+	}
+}
+
+func exceptionEventAttribute(t *testing.T, span tracetest.SpanStub, key string) string {
+	t.Helper()
+	for _, event := range span.Events {
+		if event.Name != "exception" {
+			continue
+		}
+		for _, attribute := range event.Attributes {
+			if string(attribute.Key) == key {
+				return attribute.Value.AsString()
+			}
+		}
+	}
+	t.Fatalf("exception event attribute %q not recorded", key)
+	return ""
 }
 
 func TestCoreSpanContextAttributesReachOTelChildSpans(t *testing.T) {

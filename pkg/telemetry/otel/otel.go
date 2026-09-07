@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 
@@ -28,6 +30,8 @@ import (
 )
 
 const instrumentationName = "harness-core"
+
+const maxTelemetryErrorBytes = 1024
 
 type Recorder struct {
 	tracer     trace.Tracer
@@ -125,8 +129,14 @@ func (s spanEnder) End(err error, attributes core.TelemetryAttributes) {
 	}
 	s.span.SetAttributes(otelAttributes(attributes)...)
 	if err != nil {
-		s.span.RecordError(err)
-		s.span.SetStatus(codes.Error, boundedError(err))
+		message := boundedError(err)
+		// Preserve the standard RecordError exception event semantics while
+		// bounding its message before the SDK records it.
+		s.span.AddEvent("exception", trace.WithAttributes(
+			attribute.String("exception.type", telemetryErrorType(err)),
+			attribute.String("exception.message", message),
+		))
+		s.span.SetStatus(codes.Error, message)
 	}
 	s.span.End()
 }
@@ -136,10 +146,24 @@ func boundedError(err error) string {
 		return ""
 	}
 	message := err.Error()
-	if len(message) > 1024 {
-		return message[:1024]
+	if len(message) <= maxTelemetryErrorBytes {
+		return message
 	}
-	return message
+	limit := maxTelemetryErrorBytes
+	for limit > 0 && !utf8.RuneStart(message[limit]) {
+		limit--
+	}
+	return message[:limit]
+}
+
+// telemetryErrorType matches the standard OTel RecordError exception.type
+// formatting so existing error-type aggregation remains stable.
+func telemetryErrorType(err error) string {
+	typeOf := reflect.TypeOf(err)
+	if typeOf.PkgPath() == "" && typeOf.Name() == "" {
+		return typeOf.String()
+	}
+	return fmt.Sprintf("%s.%s", typeOf.PkgPath(), typeOf.Name())
 }
 
 func otelAttributes(values core.TelemetryAttributes) []attribute.KeyValue {
