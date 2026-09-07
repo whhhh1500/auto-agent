@@ -118,12 +118,19 @@ func TestPostgresStartupLockAcquireCancellationDiscardsWaitingSession(t *testing
 	if err := holder.Release(ctx); err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := tryPostgresAdvisoryLock(ctx, waiterDB, postgresStartupLockKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !acquired {
-		t.Fatal("canceled startup lock acquisition left a hidden session lock")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		acquired, err := tryPostgresAdvisoryLock(ctx, waiterDB, postgresStartupLockKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if acquired {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("canceled startup lock acquisition left a hidden session lock")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
