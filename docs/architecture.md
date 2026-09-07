@@ -193,6 +193,13 @@ to the adapter configuration, outside the core contract.
   an approval resume records a new `run/resume` Composition. Segment metadata
   is bounded and adapter-defined, allowing rollout assignment evidence without
   coupling the kernel to a specific control plane.
+- `AgentProfileRegistry.ReplaceExact` is a narrow single-layer publication
+  primitive: after normal layer validation, it requires exactly one canonical
+  old-layer match at the same profile and scope, validates the detached final
+  projection, and swaps the layer under one registry write lock without
+  changing its mount order. Existing `Mount` unmount closures therefore remove
+  the replacement slot. It is not an atomic multi-layer Release/Canary
+  projection swap, control-plane transaction, or authorization fence.
 - Evaluation Case Artifacts and Backtest responses use the same stable
   Composition/Assignment revisions, so replay, regression evidence, and
   rollout audit can be correlated without copying arbitrary provider state.
@@ -226,6 +233,19 @@ to the adapter configuration, outside the core contract.
   write-behind persistence commits only the new event suffix.
 - Scope mutations are downward-only: a principal may mutate its own ownership
   scope or descendants, never inherited ancestors or sibling scopes.
+- Durable profile replacement has two ordered atomicity boundaries. SQL
+  `BindingJournalReplacer.Replace` replaces the old binding and advances the
+  authorization epoch in one transaction; after that commit,
+  `AgentProfileRegistry.ReplaceExact` replaces the uniquely matching in-memory
+  layer at its existing mount order under one registry write lock. `Resolve`
+  consequently observes a complete old or new projection, while the original
+  unmount handle remains valid for the replacement. A post-commit projection
+  failure is binding-specific readiness state: new synchronous Runs and queue
+  claims are rejected until a matching profile PUT reconciles that binding, but
+  control/admin recovery routes stay available. `RestoreBindings` is a startup
+  projection path, not an in-process replacement reconciler. This closes
+  profile-layer publication; Release/Canary managers still have their separate
+  live-publication boundary.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or

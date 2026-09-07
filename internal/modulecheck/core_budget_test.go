@@ -24,20 +24,27 @@ import (
 const (
 	coreBudgetBaselineDate = "2026-09-04"
 
-	// Baseline measured from pkg/core production files on 2026-09-04. Lines
-	// means non-blank physical source lines; comments and generated files are
+	// Historical baseline measured from pkg/core production files on 2026-09-04.
+	// Lines mean non-blank physical source lines; comments and generated files are
 	// still counted/excluded respectively, while blank formatting is not.
 	coreProductionLineBaseline = 8615
 	coreProductionFileBaseline = 34
 	// The HEAD public surface had consumed all three compatibility slots above
 	// the 902 baseline. This reviewed optional reader adds one interface and one
-	// method, the usage ledger adds one durable identity field, and the reviewed
-	// post-result continuation adds one Runtime method. The accepted surface is
-	// 909 with no unused public API slot.
-	corePublicAPIBaseline = 909
-	corePublicAPILimit    = 909
-	// 128 lines is the maximum total headroom above this accepted baseline.
-	coreProductionLineHardLimit = 8743
+	// method, the usage ledger adds one durable identity field, the reviewed
+	// post-result continuation adds one Runtime method, and the reviewed
+	// ReplaceExact exception adds one registry method. The accepted surface is
+	// 910 with no unused public API slot.
+	corePublicAPIBaseline = 910
+	corePublicAPILimit    = 910
+	// The historical hard limit was 8743. The 2026-09-07 ReplaceExact
+	// architecture exception requires a core-owned same-pointer publication
+	// primitive: one lock preserves layer order and old unmount closures while a
+	// detached candidate validates the final projection. It cannot live in
+	// control or server. Its accepted implementation measures 8817 lines; 8821
+	// retains four fixed lines only. This preserves the 8615 historical baseline
+	// and is not a rolling "current baseline + 128" budget.
+	coreProductionLineHardLimit = 8821
 	coreProductionFileHardLimit = 36
 	// A focused split is required before one core source file reaches this size.
 	coreProductionSingleFileLineHardLimit = 1500

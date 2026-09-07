@@ -19,6 +19,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.ensureRunProjection(w) {
+		return
+	}
 	unlock := s.sessionLock(r.PathValue("id"))
 	defer unlock()
 

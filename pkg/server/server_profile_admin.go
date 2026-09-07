@@ -154,79 +154,149 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 	defer s.profileMu.Unlock()
 	existing, found, err := s.profileLayerRecord(r.Context(), profileID, request.Scope)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeProfileJournalError(w, r.Context(), "list", profileBindingID(profileID, request.Scope), err)
 		return
 	}
-	if found && profilePayloadEqual(existing.Payload, payload) {
-		s.writeAdminProfileResponse(w, principal, profileID, request.Scope, request.Layer)
-		return
-	}
+	id := profileBindingID(profileID, request.Scope)
+	record := storage.BindingRecord{ID: id, Kind: profileBindingKind, Payload: encoded}
 
-	unmountNew, err := s.runtime.Profiles.Mount(request.Layer)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	// Reserve the local admin-state slot across the durable commit and live
+	// publication. This serializes only admin bookkeeping; it does not claim to
+	// make concurrent profile Resolve calls atomic.
+	state := s.adminStateFor()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.maxBindings <= 0 {
+		state.maxBindings = storage.MaxAdminBindings
 	}
 	var oldBinding *adminBinding
 	var oldLayer core.AgentProfileLayer
 	if found {
-		var oldPayload profileBindingPayload
-		if err := json.Unmarshal(existing.Payload, &oldPayload); err != nil {
-			unmountNew()
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "stored profile layer is invalid"})
+		var exists bool
+		oldBinding, exists = state.handles[existing.ID]
+		if !exists {
+			err := fmt.Errorf("profile projection is missing durable binding %q", existing.ID)
+			s.setProfileProjectionError(existing.ID, err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
 			return
 		}
-		oldLayer = oldPayload.Layer
+		if existing.ID != id {
+			if _, exists := state.handles[id]; exists {
+				err := fmt.Errorf("profile projection has conflicting binding %q", id)
+				s.setProfileProjectionError(id, err)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
+				return
+			}
+		}
+		oldPayload, ok := oldBinding.Summary.(profileBindingPayload)
+		if !ok {
+			err := fmt.Errorf("profile projection binding %q has invalid local payload", existing.ID)
+			s.setProfileProjectionError(existing.ID, err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
+			return
+		}
+		oldLayer = core.CloneAgentProfileLayer(oldPayload.Layer)
 		oldLayer.Scope = request.Scope
-		if binding, exists := s.adminStateFor().remove(existing.ID); exists {
-			oldBinding = binding
-			if binding.unmount != nil {
-				binding.unmount()
-			}
+		candidate := s.runtime.Profiles.Clone()
+		if err := candidate.ReplaceExact(oldLayer, oldLayer); err != nil {
+			s.handleProfileProjectionFailure(w, r.Context(), id, err)
+			return
 		}
-		if err := s.journal.Delete(r.Context(), existing.ID); err != nil {
-			unmountNew()
-			if oldBinding != nil {
-				if restoredUnmount, restoreErr := s.runtime.Profiles.Mount(oldLayer); restoreErr == nil {
-					oldBinding.unmount = restoredUnmount
-					_, _ = s.adminStateFor().add(oldBinding.Kind, existing.ID, oldBinding.Summary, request.Scope, restoredUnmount)
-				}
-			}
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		if err := candidate.ReplaceExact(oldLayer, request.Layer); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if _, err := candidate.Resolve(principal, request.Scope, profileID); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	} else {
+		candidate := s.runtime.Profiles.Clone()
+		candidateUnmount, err := candidate.Mount(request.Layer)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		_, candidateErr := candidate.Resolve(principal, request.Scope, profileID)
+		candidateUnmount()
+		if candidateErr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": candidateErr.Error()})
 			return
 		}
 	}
-	id := profileBindingID(profileID, request.Scope)
-	if err := s.journal.Record(r.Context(), storage.BindingRecord{ID: id, Kind: profileBindingKind, Payload: encoded}); err != nil {
-		unmountNew()
-		s.restoreProfileBinding(r.Context(), existing, found, oldLayer, oldBinding)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	if !found {
+		if _, exists := state.handles[id]; exists {
+			err := fmt.Errorf("profile projection has binding %q without a durable record", id)
+			s.setProfileProjectionError(id, err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
+			return
+		}
+		if len(state.handles) >= state.maxBindings {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf("admin bindings exceed maximum of %d", state.maxBindings)})
+			return
+		}
+	}
+	durableMatches := found && existing.ID == id && profilePayloadEqual(existing.Payload, payload)
+	if !durableMatches {
+		if found {
+			replacer, ok := s.journal.(storage.BindingJournalReplacer)
+			if !ok {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "durable profile replacement requires an atomic binding journal"})
+				return
+			}
+			if err := replacer.Replace(r.Context(), existing.ID, record); err != nil {
+				s.writeProfileJournalError(w, r.Context(), "replace", id, err)
+				return
+			}
+		} else if err := s.journal.Record(r.Context(), record); err != nil {
+			s.writeProfileJournalError(w, r.Context(), "record", id, err)
+			return
+		}
+	}
+
+	if found {
+		if err := s.runtime.Profiles.ReplaceExact(oldLayer, request.Layer); err != nil {
+			s.handleProfileProjectionFailure(w, r.Context(), id, err)
+			return
+		}
+		if existing.ID != id {
+			delete(state.handles, existing.ID)
+			state.handles[id] = oldBinding
+		}
+		oldBinding.Kind = profileBindingKind
+		oldBinding.Summary = payload
+		oldBinding.Scope = request.Scope
+	} else {
+		unmount, err := s.runtime.Profiles.Mount(request.Layer)
+		if err != nil {
+			s.handleProfileProjectionFailure(w, r.Context(), id, err)
+			return
+		}
+		state.handles[id] = &adminBinding{Kind: profileBindingKind, Summary: payload, Scope: request.Scope, unmount: unmount}
+	}
+	if _, err := s.runtime.Profiles.Resolve(principal, request.Scope, profileID); err != nil {
+		s.handleProfileProjectionFailure(w, r.Context(), id, err)
 		return
 	}
-	if _, err := s.adminStateFor().add(profileBindingKind, id, payload, request.Scope, unmountNew); err != nil {
-		_ = s.journal.Delete(r.Context(), id)
-		unmountNew()
-		s.restoreProfileBinding(r.Context(), existing, found, oldLayer, oldBinding)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
+	s.clearProfileProjectionError(id)
 	s.recordAudit(r, principal, "profile.put", profileID, map[string]any{"scope": request.Scope.String(), "binding_id": id})
 	s.writeAdminProfileResponse(w, principal, profileID, request.Scope, request.Layer)
 }
 
-func (s *Server) restoreProfileBinding(ctx context.Context, existing storage.BindingRecord, found bool, oldLayer core.AgentProfileLayer, oldBinding *adminBinding) {
-	if !found {
-		return
+func (s *Server) writeProfileJournalError(w http.ResponseWriter, ctx context.Context, operation, id string, err error) {
+	if s.logger != nil {
+		s.logger.ErrorContext(ctx, "durable profile update failed", slogString("operation", operation), slogString("binding", id), slogString("error", err.Error()))
 	}
-	unmount, err := s.runtime.Profiles.Mount(oldLayer)
-	if err != nil {
-		return
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "durable profile update failed"})
+}
+
+func (s *Server) handleProfileProjectionFailure(w http.ResponseWriter, ctx context.Context, id string, cause error) {
+	err := fmt.Errorf("durable profile binding %q could not publish its live projection: %w", id, cause)
+	s.setProfileProjectionError(id, err)
+	if s.logger != nil {
+		s.logger.ErrorContext(ctx, "profile projection is unavailable", slogString("binding", id), slogString("error", cause.Error()))
 	}
-	_ = s.journal.Record(ctx, existing)
-	if oldBinding != nil {
-		oldBinding.unmount = unmount
-		_, _ = s.adminStateFor().add(oldBinding.Kind, existing.ID, oldBinding.Summary, oldBinding.Scope, unmount)
-	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
 }
 
 func profilePayloadEqual(raw json.RawMessage, want profileBindingPayload) bool {
@@ -262,6 +332,7 @@ func (s *Server) profileLayerRecord(ctx context.Context, profileID string, scope
 	if err != nil {
 		return storage.BindingRecord{}, false, err
 	}
+	var match storage.BindingRecord
 	for _, record := range records {
 		if record.Kind != profileBindingKind {
 			continue
@@ -271,10 +342,13 @@ func (s *Server) profileLayerRecord(ctx context.Context, profileID string, scope
 			return storage.BindingRecord{}, false, fmt.Errorf("decode profile binding %s: %w", record.ID, err)
 		}
 		if payload.Layer.ProfileID == profileID && payload.Scope == scope.String() {
-			return record, true, nil
+			if match.ID != "" {
+				return storage.BindingRecord{}, false, fmt.Errorf("multiple durable profile bindings match profile %q at scope %q", profileID, scope.String())
+			}
+			match = record
 		}
 	}
-	return storage.BindingRecord{}, false, nil
+	return match, match.ID != "", nil
 }
 
 func (s *Server) writeAdminProfileResponse(w http.ResponseWriter, principal core.Principal, profileID string, scope core.ScopePath, layer core.AgentProfileLayer) {

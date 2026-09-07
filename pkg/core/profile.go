@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -100,6 +102,10 @@ func (r *AgentProfileRegistry) Clone() *AgentProfileRegistry {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.cloneLocked()
+}
+
+func (r *AgentProfileRegistry) cloneLocked() *AgentProfileRegistry {
 	out := &AgentProfileRegistry{layers: map[string][]storedProfileLayer{}, next: r.next, maxBindings: r.maxBindings}
 	for key, layers := range r.layers {
 		copies := make([]storedProfileLayer, len(layers))
@@ -120,11 +126,7 @@ func ProfileLayerRevision(layer AgentProfileLayer) (string, error) {
 	if layer.Scope.Depth() == 0 {
 		return "", fmt.Errorf("profile layer revision requires a scope")
 	}
-	copyOf := cloneProfileLayer(layer)
-	encoded, err := json.Marshal(struct {
-		Scope ScopePath         `json:"scope"`
-		Layer AgentProfileLayer `json:"layer"`
-	}{Scope: copyOf.Scope, Layer: copyOf})
+	encoded, err := canonicalProfileLayer(layer)
 	if err != nil {
 		return "", fmt.Errorf("encode profile layer revision: %w", err)
 	}
@@ -145,44 +147,8 @@ func (r *AgentProfileRegistry) Bind(layer AgentProfileLayer) error {
 
 // Mount records one profile layer and returns an idempotent unmount function.
 func (r *AgentProfileRegistry) Mount(layer AgentProfileLayer) (func(), error) {
-	if layer.Scope.Depth() == 0 {
-		return nil, fmt.Errorf("agent profile %q has an empty scope", layer.ProfileID)
-	}
-	if err := ValidateProfileID(layer.ProfileID); err != nil {
+	if err := validateProfileLayer(layer); err != nil {
 		return nil, err
-	}
-	if layer.Extends == layer.ProfileID {
-		return nil, fmt.Errorf("agent profile %q cannot extend itself", layer.ProfileID)
-	}
-	if len(layer.AddCapabilities)+len(layer.RemoveCapabilities) > MaxProfileCapabilities {
-		return nil, fmt.Errorf("agent profile %q layer exceeds %d capability changes", layer.ProfileID, MaxProfileCapabilities)
-	}
-	if len(layer.PutFragments)+len(layer.RemoveFragments) > MaxProfileFragments {
-		return nil, fmt.Errorf("agent profile %q layer exceeds %d fragment changes", layer.ProfileID, MaxProfileFragments)
-	}
-	if len(layer.Metadata) > MaxProfileMetadataItems {
-		return nil, fmt.Errorf("agent profile %q layer exceeds %d metadata items", layer.ProfileID, MaxProfileMetadataItems)
-	}
-	for _, id := range append(append([]string(nil), layer.AddCapabilities...), layer.RemoveCapabilities...) {
-		if err := validateCapabilityID(id); err != nil {
-			return nil, fmt.Errorf("agent profile %q: %w", layer.ProfileID, err)
-		}
-	}
-	for _, fragment := range layer.PutFragments {
-		if fragment.ID == "" || len(fragment.ID) > 128 || containsControl(fragment.ID) || strings.TrimSpace(fragment.Content) == "" {
-			return nil, fmt.Errorf("agent profile %q has an invalid prompt fragment", layer.ProfileID)
-		}
-		if len(fragment.Content) > MaxPromptFragmentBytes {
-			return nil, fmt.Errorf("agent profile %q fragment %q exceeds %d bytes", layer.ProfileID, fragment.ID, MaxPromptFragmentBytes)
-		}
-		if _, ok := promptSectionOrder[fragment.Section]; !ok {
-			return nil, fmt.Errorf("agent profile %q fragment %q has unknown section %q", layer.ProfileID, fragment.ID, fragment.Section)
-		}
-	}
-	for key, value := range layer.Metadata {
-		if key == "" || len(key) > 128 || containsControl(key) || len(value) > MaxPromptFragmentBytes || containsControl(value) {
-			return nil, fmt.Errorf("agent profile %q has invalid metadata", layer.ProfileID)
-		}
 	}
 
 	r.mu.Lock()
@@ -216,6 +182,125 @@ func (r *AgentProfileRegistry) Mount(layer AgentProfileLayer) (func(), error) {
 			}
 		})
 	}, nil
+}
+
+// ReplaceExact atomically swaps one uniquely matching mounted layer in place. The
+// replacement keeps its mount order, so concurrent Resolve calls see either
+// the complete old projection or the complete new projection. Existing
+// unmount closures remain valid and remove the replacement at that order.
+func (r *AgentProfileRegistry) ReplaceExact(oldLayer, nextLayer AgentProfileLayer) error {
+	if err := validateProfileLayer(oldLayer); err != nil {
+		return fmt.Errorf("replace old profile layer: %w", err)
+	}
+	if err := validateProfileLayer(nextLayer); err != nil {
+		return fmt.Errorf("replace new profile layer: %w", err)
+	}
+	if oldLayer.ProfileID != nextLayer.ProfileID || !oldLayer.Scope.Equal(nextLayer.Scope) {
+		return fmt.Errorf("profile replacement requires the same profile id and scope")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := profileLayerKey(oldLayer.Scope, oldLayer.ProfileID)
+	match := -1
+	for index, stored := range r.layers[key] {
+		if profileLayerEqual(stored.AgentProfileLayer, oldLayer) {
+			if match >= 0 {
+				return fmt.Errorf("profile replacement has multiple matching layers")
+			}
+			match = index
+		}
+	}
+	if match < 0 {
+		return fmt.Errorf("profile replacement layer was not found")
+	}
+	order := r.layers[key][match].order
+	flatMatch := -1
+	for index, stored := range r.flat {
+		if stored.order == order {
+			if flatMatch >= 0 || !profileLayerEqual(stored.AgentProfileLayer, oldLayer) {
+				return fmt.Errorf("profile registry projection is inconsistent")
+			}
+			flatMatch = index
+		}
+	}
+	if flatMatch < 0 {
+		return fmt.Errorf("profile registry projection is inconsistent")
+	}
+
+	candidate := r.cloneLocked()
+	candidateStored := storedProfileLayer{AgentProfileLayer: cloneProfileLayer(nextLayer), order: order}
+	candidate.layers[key][match] = candidateStored
+	candidate.flat[flatMatch] = candidateStored
+	if _, err := candidate.Resolve(Principal{Scope: nextLayer.Scope}, nextLayer.Scope, nextLayer.ProfileID); err != nil {
+		return fmt.Errorf("replace profile layer: %w", err)
+	}
+	r.layers[key][match] = storedProfileLayer{AgentProfileLayer: cloneProfileLayer(nextLayer), order: order}
+	r.flat[flatMatch] = storedProfileLayer{AgentProfileLayer: cloneProfileLayer(nextLayer), order: order}
+	return nil
+}
+
+// profileLayerEqual compares the typed layer contract. Empty and nil
+// collections are equivalent because they produce the same profile projection.
+func profileLayerEqual(left, right AgentProfileLayer) bool {
+	return left.Scope.Equal(right.Scope) && left.ProfileID == right.ProfileID && left.Extends == right.Extends &&
+		profileOptionalEqual(left.Name, right.Name) && profileOptionalEqual(left.Description, right.Description) && profileOptionalEqual(left.Model, right.Model) && profileOptionalEqual(left.MaxSteps, right.MaxSteps) && profileOptionalEqual(left.MaxToolCalls, right.MaxToolCalls) &&
+		slices.Equal(left.AddCapabilities, right.AddCapabilities) && slices.Equal(left.RemoveCapabilities, right.RemoveCapabilities) && slices.Equal(left.PutFragments, right.PutFragments) &&
+		slices.Equal(left.RemoveFragments, right.RemoveFragments) && maps.Equal(left.Metadata, right.Metadata)
+}
+
+func profileOptionalEqual[T comparable](left, right *T) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
+}
+
+func canonicalProfileLayer(layer AgentProfileLayer) ([]byte, error) {
+	copyOf := cloneProfileLayer(layer)
+	return json.Marshal(struct {
+		Scope ScopePath         `json:"scope"`
+		Layer AgentProfileLayer `json:"layer"`
+	}{Scope: copyOf.Scope, Layer: copyOf})
+}
+
+func validateProfileLayer(layer AgentProfileLayer) error {
+	if layer.Scope.Depth() == 0 {
+		return fmt.Errorf("agent profile %q has an empty scope", layer.ProfileID)
+	}
+	if err := ValidateProfileID(layer.ProfileID); err != nil {
+		return err
+	}
+	if layer.Extends == layer.ProfileID {
+		return fmt.Errorf("agent profile %q cannot extend itself", layer.ProfileID)
+	}
+	if len(layer.AddCapabilities)+len(layer.RemoveCapabilities) > MaxProfileCapabilities {
+		return fmt.Errorf("agent profile %q layer exceeds %d capability changes", layer.ProfileID, MaxProfileCapabilities)
+	}
+	if len(layer.PutFragments)+len(layer.RemoveFragments) > MaxProfileFragments {
+		return fmt.Errorf("agent profile %q layer exceeds %d fragment changes", layer.ProfileID, MaxProfileFragments)
+	}
+	if len(layer.Metadata) > MaxProfileMetadataItems {
+		return fmt.Errorf("agent profile %q layer exceeds %d metadata items", layer.ProfileID, MaxProfileMetadataItems)
+	}
+	for _, id := range append(append([]string(nil), layer.AddCapabilities...), layer.RemoveCapabilities...) {
+		if err := validateCapabilityID(id); err != nil {
+			return fmt.Errorf("agent profile %q: %w", layer.ProfileID, err)
+		}
+	}
+	for _, fragment := range layer.PutFragments {
+		if fragment.ID == "" || len(fragment.ID) > 128 || containsControl(fragment.ID) || strings.TrimSpace(fragment.Content) == "" {
+			return fmt.Errorf("agent profile %q has an invalid prompt fragment", layer.ProfileID)
+		}
+		if len(fragment.Content) > MaxPromptFragmentBytes {
+			return fmt.Errorf("agent profile %q fragment %q exceeds %d bytes", layer.ProfileID, fragment.ID, MaxPromptFragmentBytes)
+		}
+		if _, ok := promptSectionOrder[fragment.Section]; !ok {
+			return fmt.Errorf("agent profile %q fragment %q has unknown section %q", layer.ProfileID, fragment.ID, fragment.Section)
+		}
+	}
+	for key, value := range layer.Metadata {
+		if key == "" || len(key) > 128 || containsControl(key) || len(value) > MaxPromptFragmentBytes || containsControl(value) {
+			return fmt.Errorf("agent profile %q has invalid metadata", layer.ProfileID)
+		}
+	}
+	return nil
 }
 
 type profileState struct {

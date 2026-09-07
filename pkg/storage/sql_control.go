@@ -28,6 +28,14 @@ type BindingJournal interface {
 	List(ctx context.Context) ([]BindingRecord, error)
 }
 
+// BindingJournalReplacer is an optional atomic replacement capability for a
+// durable binding. Callers that need replacement must not emulate it with a
+// Delete followed by Record, because that exposes an absent durable binding
+// and advances the authorization epoch twice.
+type BindingJournalReplacer interface {
+	Replace(ctx context.Context, oldID string, record BindingRecord) error
+}
+
 const (
 	MaxAdminBindings       = 256
 	MaxBindingPayloadBytes = 256 << 10
@@ -36,7 +44,9 @@ const (
 var (
 	sqlInsertBinding = sqlQuery{"INSERT INTO admin_bindings (id, kind, summary, payload, created_at) VALUES (?, ?, ?, ?, ?)"}
 	sqlDeleteBinding = sqlQuery{"DELETE FROM admin_bindings WHERE id = ?"}
-	sqlListBindings  = sqlQuery{"SELECT id, kind, summary, payload FROM admin_bindings ORDER BY created_at"}
+	sqlUpdateBinding = sqlQuery{"UPDATE admin_bindings SET kind = ?, summary = ?, payload = ? WHERE id = ?"}
+	sqlBindingExists = sqlQuery{"SELECT 1 FROM admin_bindings WHERE id = ?"}
+	sqlListBindings  = sqlQuery{"SELECT id, kind, summary, payload FROM admin_bindings ORDER BY created_at, id"}
 	sqlCountBindings = sqlQuery{"SELECT COUNT(*) FROM admin_bindings"}
 )
 
@@ -46,6 +56,8 @@ type SQLBindingJournal struct {
 	dialect     SQLDialect
 	maxBindings int
 }
+
+var _ BindingJournalReplacer = (*SQLBindingJournal)(nil)
 
 func NewSQLBindingJournal(db *sql.DB, dialect SQLDialect) (*SQLBindingJournal, error) {
 	if db == nil {
@@ -65,28 +77,9 @@ func (s *SQLBindingJournal) bindingCap() int {
 }
 
 func (s *SQLBindingJournal) Record(ctx context.Context, record BindingRecord) error {
-	if err := validateSQLTextFilter("binding id", record.ID); err != nil {
-		return err
-	}
-	if record.ID == "" {
-		return fmt.Errorf("binding id is empty")
-	}
-	if err := validateSQLTextFilter("binding kind", record.Kind); err != nil {
-		return err
-	}
-	if record.Kind == "" {
-		return fmt.Errorf("binding kind is empty")
-	}
-	summary, err := json.Marshal(record.Summary)
+	summary, payload, err := validateBindingRecord(record)
 	if err != nil {
-		return fmt.Errorf("encode binding summary: %w", err)
-	}
-	payload, err := json.Marshal(record.Payload)
-	if err != nil {
-		return fmt.Errorf("encode binding payload: %w", err)
-	}
-	if len(summary)+len(payload) > MaxBindingPayloadBytes {
-		return fmt.Errorf("binding payload exceeds %d bytes", MaxBindingPayloadBytes)
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -101,7 +94,7 @@ func (s *SQLBindingJournal) Record(ctx context.Context, record BindingRecord) er
 		return fmt.Errorf("admin bindings exceed maximum of %d", s.bindingCap())
 	}
 	_, err = tx.ExecContext(ctx, sqlInsertBinding.bind(s.dialect),
-		record.ID, record.Kind, string(summary), string(payload), time.Now().UTC().UnixMilli(),
+		record.ID, record.Kind, summary, payload, time.Now().UTC().UnixMilli(),
 	)
 	if err != nil {
 		return duplicateAsConflict(record.ID, err)
@@ -110,6 +103,92 @@ func (s *SQLBindingJournal) Record(ctx context.Context, record BindingRecord) er
 		return err
 	}
 	return tx.Commit()
+}
+
+// Replace atomically replaces oldID with record and advances the authorization
+// epoch exactly once. A same-ID replacement preserves created_at and therefore
+// List ordering; a different-ID replacement has no transient missing row.
+func (s *SQLBindingJournal) Replace(ctx context.Context, oldID string, record BindingRecord) error {
+	if err := validateBindingID(oldID); err != nil {
+		return err
+	}
+	summary, payload, err := validateBindingRecord(record)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var exists int
+	if err := tx.QueryRowContext(ctx, sqlBindingExists.bind(s.dialect), oldID).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("binding %s not found", oldID)
+		}
+		return err
+	}
+	if oldID == record.ID {
+		result, err := tx.ExecContext(ctx, sqlUpdateBinding.bind(s.dialect), record.Kind, summary, payload, oldID)
+		if err != nil {
+			return err
+		}
+		if err := requireAffected(result, "binding "+oldID+" not found"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, sqlInsertBinding.bind(s.dialect), record.ID, record.Kind, summary, payload, time.Now().UTC().UnixMilli()); err != nil {
+			return duplicateAsConflict(record.ID, err)
+		}
+		result, err := tx.ExecContext(ctx, sqlDeleteBinding.bind(s.dialect), oldID)
+		if err != nil {
+			return err
+		}
+		if err := requireAffected(result, "binding "+oldID+" not found"); err != nil {
+			return err
+		}
+	}
+	if err := bumpAuthorizationEpoch(ctx, tx, s.dialect); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func validateBindingID(id string) error {
+	if err := validateSQLTextFilter("binding id", id); err != nil {
+		return err
+	}
+	if id == "" {
+		return fmt.Errorf("binding id is empty")
+	}
+	return nil
+}
+
+func validateBindingRecord(record BindingRecord) (summary, payload string, _ error) {
+	if err := validateSQLTextFilter("binding id", record.ID); err != nil {
+		return "", "", err
+	}
+	if record.ID == "" {
+		return "", "", fmt.Errorf("binding id is empty")
+	}
+	if err := validateSQLTextFilter("binding kind", record.Kind); err != nil {
+		return "", "", err
+	}
+	if record.Kind == "" {
+		return "", "", fmt.Errorf("binding kind is empty")
+	}
+	summaryJSON, err := json.Marshal(record.Summary)
+	if err != nil {
+		return "", "", fmt.Errorf("encode binding summary: %w", err)
+	}
+	payloadJSON, err := json.Marshal(record.Payload)
+	if err != nil {
+		return "", "", fmt.Errorf("encode binding payload: %w", err)
+	}
+	if len(summaryJSON)+len(payloadJSON) > MaxBindingPayloadBytes {
+		return "", "", fmt.Errorf("binding payload exceeds %d bytes", MaxBindingPayloadBytes)
+	}
+	return string(summaryJSON), string(payloadJSON), nil
 }
 
 func (s *SQLBindingJournal) Delete(ctx context.Context, id string) error {

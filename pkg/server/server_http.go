@@ -78,9 +78,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
-	s.readyMu.RLock()
-	err := s.readyErr
-	s.readyMu.RUnlock()
+	err := s.readinessError()
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready", "error": err.Error()})
 		return
@@ -92,6 +90,51 @@ func (s *Server) setReadyError(err error) {
 	s.readyMu.Lock()
 	s.readyErr = err
 	s.readyMu.Unlock()
+}
+
+func (s *Server) setProfileProjectionError(bindingID string, err error) {
+	s.readyMu.Lock()
+	if s.profileProjections == nil {
+		s.profileProjections = map[string]error{}
+	}
+	s.profileProjections[bindingID] = err
+	s.readyMu.Unlock()
+}
+
+func (s *Server) clearProfileProjectionError(bindingID string) {
+	s.readyMu.Lock()
+	delete(s.profileProjections, bindingID)
+	s.readyMu.Unlock()
+}
+
+func (s *Server) readinessError() error {
+	s.readyMu.RLock()
+	defer s.readyMu.RUnlock()
+	if s.readyErr != nil {
+		return s.readyErr
+	}
+	return firstProfileProjectionError(s.profileProjections)
+}
+
+func (s *Server) profileProjectionError() error {
+	s.readyMu.RLock()
+	defer s.readyMu.RUnlock()
+	return firstProfileProjectionError(s.profileProjections)
+}
+
+func firstProfileProjectionError(failures map[string]error) error {
+	for _, err := range failures {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) ensureRunProjection(w http.ResponseWriter) bool {
+	if s.profileProjectionError() == nil {
+		return true
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
+	return false
 }
 
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (core.Principal, bool) {

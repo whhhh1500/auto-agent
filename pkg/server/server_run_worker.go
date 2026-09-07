@@ -16,7 +16,10 @@ import (
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 )
 
-var errRunClaimLost = errors.New("run claim ownership lost")
+var (
+	errRunClaimLost                 = errors.New("run claim ownership lost")
+	errProfileProjectionUnavailable = errors.New("profile projection is unavailable")
+)
 
 const (
 	claimStopNone int32 = iota
@@ -278,6 +281,9 @@ func (s *Server) RunWorkerOnce(ctx context.Context, workerID string) (bool, erro
 }
 
 func (s *Server) runWorkerOnce(claimCtx, activeCtx context.Context, workerID string) (bool, error) {
+	if err := s.profileProjectionError(); err != nil {
+		return false, fmt.Errorf("%w: %v", errProfileProjectionUnavailable, err)
+	}
 	if s.runQueue == nil {
 		return false, fmt.Errorf("run queue is not configured")
 	}

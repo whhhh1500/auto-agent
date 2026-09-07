@@ -316,8 +316,9 @@ type Server struct {
 	runs          map[string]*activeRun
 	maxActiveRuns int
 
-	readyMu  sync.RWMutex
-	readyErr error
+	readyMu            sync.RWMutex
+	readyErr           error
+	profileProjections map[string]error
 
 	workersMu           sync.Mutex
 	workersRunning      bool

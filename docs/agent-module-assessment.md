@@ -167,13 +167,13 @@ flowchart TD
 
 ### M04 — Agent Profile 与 Prompt 分层
 
-**实现 / 状态：** [profile.go](../pkg/core/profile.go)、[general_profile.go](../cmd/server/general_profile.go)组合 Agent 提示、模型选择、能力和预算。默认安装厂商中立的 `general`，模型连接仍需配置。每次运行固定 Profile 快照，审批恢复重新解析的组合会记录为新的 resume 证据。
+**实现 / 状态：** [profile.go](../pkg/core/profile.go)、[general_profile.go](../cmd/server/general_profile.go)组合 Agent 提示、模型选择、能力和预算。默认安装厂商中立的 `general`，模型连接仍需配置。每次运行固定 Profile 快照，审批恢复重新解析的组合会记录为新的 resume 证据。动态 Profile 的 durable replace 先在 SQL journal 中原子替换并推进 authorization epoch，再以 `AgentProfileRegistry.ReplaceExact` 在同一 registry 指针上保留 mount order 地原位发布；并发 Resolve 只会看到完整旧或新投影，旧 unmount handle 仍移除替换层。commit 后投影不能发布时，server 对该 binding 进入可恢复的 projection-not-ready 状态，阻断新 Run/queue claim 但保留管理与恢复入口。
 
 **扩展：** E0：使用已有管理接口配置 `AgentProfileLayer` 与分区 `PromptFragment`；E1：在插件或应用中生成、注册产品 Profile。业务角色和工作流应在 adapters / examples 定义，避免硬编码进内核。不能假设暂停数天后仍无条件沿用已撤销的权限。
 
 **性能：** 大 Prompt、工具 Schema 和历史会扩大请求体及模型 token 成本；Profile 解析未专项测量。模型选择热路径可参考 M08，但不包含提示构建。
 
-**对比 / 取舍：** CrewAI 的 role/goal/backstory 与 OpenAI instructions 对角色表达更直接，本项目的层级覆盖与版本证据更适合受治理的多租户配置。提示表达能力本身不能代表任务质量高低。[C2](agent-framework-comparison.md#c2)、[C5](agent-framework-comparison.md#c5)
+**对比 / 取舍：** CrewAI 的 role/goal/backstory 与 OpenAI instructions 对角色表达更直接，本项目的层级覆盖与版本证据更适合受治理的多租户配置。2026-09-07 的架构审查接受一个小的 Core public method：它修复了 durable profile replace 改写 later-layer precedence、以及 mount-new/unmount-old 期间可见混合投影的正确性问题。历史 Core baseline 仍为 8,615 行；此例外把 hard limit 从 8,743 精确调到 8,821，以容纳 8,817 行的清晰实现并只保留四行固定保护，不是滚动地重新赠送 128 行。公共 API 计数精确为 910 且没有额外 slot。提示表达能力本身不能代表任务质量高低。[C2](agent-framework-comparison.md#c2)、[C5](agent-framework-comparison.md#c5)
 
 <a id="m05"></a>
 

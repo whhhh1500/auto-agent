@@ -1,5 +1,5 @@
 {
-  "inventory_date": "2026-09-06",
+  "inventory_date": "2026-09-07",
   "module": "github.com/cc-auto-agent/harness-core",
   "status": "current-observed-snapshot",
   "public_api_additions": [
@@ -549,6 +549,17 @@
       "variables": null,
       "constants": null,
       "note": "Single profile-ID validator shared by profile registry, session creation, and profile-admin transport. It accepts the built-in bare general ID as well as safe namespaced IDs; it does not relax scope or ownership checks."
+    },
+    {
+      "package": "pkg/core",
+      "types": null,
+      "functions": [
+        "AgentProfileRegistry.ReplaceExact"
+      ],
+      "constructors": null,
+      "variables": null,
+      "constants": null,
+      "note": "Reviewed 2026-09-07 architecture exception: one exact mounted-layer replacement preserves the slot order and existing unmount closure under the registry lock. It is not a multi-layer Release/Canary projection swap or an authorization fence."
     }
   ],
   "accepted_evidence": [
@@ -2309,6 +2320,7 @@
         "AgentProfileRegistry.Clone",
         "AgentProfileRegistry.ListProfiles",
         "AgentProfileRegistry.Mount",
+        "AgentProfileRegistry.ReplaceExact",
         "AgentProfileRegistry.Resolve",
         "AgentProfileSnapshot.FilterCapabilities",
         "AgentProfileSnapshot.SystemPrompt",
@@ -4726,12 +4738,12 @@
     "baseline_date": "2026-09-04",
     "production_go_file_hard_limit": 36,
     "production_go_files": 34,
-    "production_nonblank_physical_line_hard_limit": 8743,
-    "production_nonblank_physical_lines": 8615,
+    "production_nonblank_physical_line_hard_limit": 8821,
+    "production_nonblank_physical_lines": 8817,
     "production_single_file_nonblank_physical_line_hard_limit": 1500,
-    "public_api_ast_count": 902,
-    "public_api_ast_limit": 905,
-    "public_api_ast_rule": "go/ast counts exported top-level names, exported methods on exported receiver types, named exported struct fields on exported types, and named exported interface methods; embedded unnamed members are excluded; *_test.go and generated files are excluded. The accepted 2026-09-04 Graph/context/composition/schema/performance refactor baseline is 902 items; the 905 ceiling leaves three compatibility-fix slots, and new domain API must live outside pkg/core. A separate 1,500 non-blank physical-line ceiling prevents concentration in a single core file."
+    "public_api_ast_count": 910,
+    "public_api_ast_limit": 910,
+    "public_api_ast_rule": "go/ast counts exported top-level names, exported methods on exported receiver types, named exported struct fields on exported types, and named exported interface methods; embedded unnamed members are excluded; *_test.go and generated files are excluded. The historical 2026-09-04 production-line baseline remains 8,615. On 2026-09-07, the reviewed AgentProfileRegistry.ReplaceExact architecture exception raised the exact API ceiling from 909 to 910 and the line ceiling from 8,743 to 8,821 for an 8,817-line implementation; it leaves no API slot and only four fixed line slots. This is not a rolling rebaseline. A separate 1,500 non-blank physical-line ceiling prevents concentration in a single core file."
   },
   "compatibility_scope": {
     "legacy_import_paths_preserved": [

@@ -1,6 +1,6 @@
 # Public API and Compatibility Inventory
 
-Snapshot date: 2026-09-06  
+Snapshot date: 2026-09-07  
 Status: current observed surface; this is an inventory, not a target-package
 claim.
 
@@ -97,7 +97,7 @@ JSON file; representative constructors and extension seams are:
 
 | Package | Representative public contracts | Constructors/factories |
 | --- | --- | --- |
-| `pkg/core` | `Agent`, `Session`, `SessionStore`, `CapabilityRegistry`, `LlmAdapter`, `ToolRuntime`, `Plugin`, `Permission`, `SessionEvent` | `NewAgent`, `NewSession`, `RestoreSession`, `NewCapabilityRegistry`, `NewAgentProfileRegistry`, `NewCredentialRegistry`, `NewPolicyRegistry` |
+| `pkg/core` | `Agent`, `Session`, `SessionStore`, `CapabilityRegistry`, `AgentProfileRegistry.ReplaceExact`, `LlmAdapter`, `ToolRuntime`, `Plugin`, `Permission`, `SessionEvent` | `NewAgent`, `NewSession`, `RestoreSession`, `NewCapabilityRegistry`, `NewAgentProfileRegistry`, `NewCredentialRegistry`, `NewPolicyRegistry` |
 | `pkg/storage` | `AccountStore`, `ObjectStore`, optional streaming and SQL recovery seams (`AuthorizationEpochReader`, `FencedSessionAppender`, completed-result appenders), `SQLSessionStore`, `RunQueueStore`, `ApprovalStore`, `EvidenceStore`, `SQLDialect` (source-compatible alias; `SQLDialectSQLite`/`SQLDialectPostgres`) | `OpenSQLSessionStore`, `NewSQLAccountStore`, `NewMemoryObjectStore`, `NewFileObjectStore`, `NewS3ObjectStore`, `NewSQLRunControlStore`, `NewFencedWriteBehind` |
 | `pkg/server` | `Config`, `Server`, `Authenticator`, `PrincipalMapper`, `RunPrincipalResolver` | `New` |
 | `pkg/control` | `ReleaseManager`, `CanaryManager`, `ReleaseJournal`, `CanaryStore` | `NewReleaseManager`, `NewCanaryManager` |
@@ -152,17 +152,25 @@ JSON file; representative constructors and extension seams are:
 
 ## `pkg/core` foundation budget
 
-The accepted 2026-09-04 baseline is 34 Go files and 8,615 non-blank physical
-source lines. Hard ceilings are 36 files and 8,743 lines: exactly 128 lines of
-total headroom. The gate also rejects any individual non-test, non-generated
-core file above 1,500 non-blank physical lines. Tests and generated Go files
-are excluded; comments are counted and blank formatting lines are not.
+The historical 2026-09-04 baseline is 34 Go files and 8,615 non-blank physical
+source lines. The reviewed 2026-09-07 exception accepts
+`AgentProfileRegistry.ReplaceExact`, a core-owned,
+single-layer publication primitive that preserves a mounted layer's order and
+unmount closure while validating the detached final projection under one
+registry lock; it cannot be implemented correctly in control or server alone.
+The implementation measures 8,817 lines; its hard ceiling is 8,821, leaving
+four fixed lines. This is not a rolling “current baseline + 128” rebaseline.
+The file ceiling remains 36 and the gate rejects any individual non-test,
+non-generated core file above 1,500 non-blank physical lines. Tests and
+generated Go files are excluded; comments are counted and blank formatting
+lines are not.
 
-The same gate measures 902 public API items with `go/ast`: 367 exported
-top-level names, 111 exported methods on exported receiver types, 377 named
-exported struct fields on exported types, and 47 named exported interface
-methods. The hard limit is 905 items, leaving three compatibility-fix slots.
-Embedded unnamed members are excluded by design so the rule is deterministic.
+The same gate measures 910 public API items with `go/ast`: 369 exported
+top-level names, 113 exported methods on exported receiver types, 380 named
+exported struct fields on exported types, and 48 named exported interface
+methods. The hard limit is 910, leaving no API slot. The final item is
+`AgentProfileRegistry.ReplaceExact`. Embedded unnamed members are excluded by
+design so the rule remains deterministic.
 
 This is an architecture-growth guard, not an automatic compatibility proof.
 The accepted Graph, context, composition, schema, and performance refactors
