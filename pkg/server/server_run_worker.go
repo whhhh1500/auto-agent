@@ -470,7 +470,14 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	if canary != nil && canary.Candidate && s.logger != nil {
 		s.logger.InfoContext(runCtx, "canary selected", slog.String("canary", canary.ID), slog.String("profile", canary.ProfileID), slog.String("run", task.RunID), slog.String("worker", workerID))
 	}
-	runRuntime, checkpointFailure := runtimeWithToolCheckpoint(runRuntime, writer, cancelRun)
+	runRuntime, checkpointFailure, err := s.runtimeWithQueuedToolCheckpoint(runRuntime, writer, cancelRun, fence, session, principal)
+	if err != nil {
+		claim.stop()
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
+		}
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "tool_checkpoint_init_failed", err, false)
+	}
 	var runExecutor runexecutor.RunExecutor
 	var compositionMetadata map[string]string
 	runExecutor, compositionMetadata, err = s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, task.RunID, resume)

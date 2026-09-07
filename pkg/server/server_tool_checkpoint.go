@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"sync"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
@@ -22,6 +24,24 @@ func runtimeWithToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehin
 		}
 	}
 	return &copyOf, failure
+}
+
+func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehind, cancel context.CancelFunc, fence storage.SessionWriteFence, session *core.Session, principal core.Principal) (*core.Runtime, *toolCheckpointFailure, error) {
+	if s.nativeStrict == nil {
+		copyOf, failure := runtimeWithToolCheckpoint(runtime, writer, cancel)
+		return copyOf, failure, nil
+	}
+	store, ok := s.sessions.(*storage.SQLSessionStore)
+	if !ok || runtime == nil || runtime.ToolJournal == nil {
+		return nil, nil, fmt.Errorf("native queued tool admission requires the native SQL runtime")
+	}
+	copyOf := *runtime
+	failure := &toolCheckpointFailure{}
+	copyOf.ToolJournal = &nativeQueuedToolInvocationJournal{
+		ToolInvocationJournal: runtime.ToolJournal, server: s, store: store, writer: writer,
+		cancel: cancel, failure: failure, fence: fence, session: session, principal: principal, runtime: runtime,
+	}
+	return &copyOf, failure, nil
 }
 
 type toolCheckpointFailure struct {
@@ -55,6 +75,19 @@ type checkpointToolInvocationJournal struct {
 	failure    *toolCheckpointFailure
 }
 
+type nativeQueuedToolInvocationJournal struct {
+	core.ToolInvocationJournal
+	server    *Server
+	store     *storage.SQLSessionStore
+	writer    *storage.WriteBehind
+	cancel    context.CancelFunc
+	failure   *toolCheckpointFailure
+	fence     storage.SessionWriteFence
+	session   *core.Session
+	principal core.Principal
+	runtime   *core.Runtime
+}
+
 func (j *checkpointToolInvocationJournal) BeginToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
 	if err := j.checkpoint(ctx); err != nil {
 		if j.failure != nil {
@@ -64,4 +97,69 @@ func (j *checkpointToolInvocationJournal) BeginToolInvocation(ctx context.Contex
 		return core.ToolInvocationRecord{}, "", err
 	}
 	return j.ToolInvocationJournal.BeginToolInvocation(ctx, invocation)
+}
+
+func (j *nativeQueuedToolInvocationJournal) BeginToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
+	if err := j.writer.Checkpoint(ctx); err != nil {
+		return j.fail(err)
+	}
+	version := j.writer.SavedVersion()
+	if j.session == nil || version != j.session.Version() {
+		return j.fail(fmt.Errorf("native queued tool checkpoint is not the complete session prefix"))
+	}
+	lease, err := j.server.acquireExecutionProjection(ctx)
+	if err != nil {
+		return j.fail(err)
+	}
+	defer lease.Release()
+	epoch, err := lease.appliedEpoch()
+	if err != nil {
+		return j.fail(err)
+	}
+	resolver, ok := j.server.runPrincipal.(*storage.SQLQueuedPrincipalResolver)
+	if !ok {
+		return j.fail(fmt.Errorf("native queued tool admission requires the native SQL principal resolver"))
+	}
+	currentPrincipal, err := resolver.ResolveRunPrincipal(ctx, invocation.TenantID, invocation.SubjectID)
+	if err != nil {
+		return j.fail(err)
+	}
+	if !reflect.DeepEqual(currentPrincipal, j.principal) {
+		return j.fail(fmt.Errorf("native queued principal changed before tool admission"))
+	}
+	snapshot, err := (core.CapabilityResolver{Registry: j.runtime.Capabilities}).Resolve(j.principal, j.session.Scope())
+	if err != nil {
+		return j.fail(err)
+	}
+	var expected *core.SnapshotCapability
+	for _, capability := range snapshot.Capabilities() {
+		if capability.Manifest.ID == invocation.CapabilityID {
+			copyOf := capability
+			expected = &copyOf
+			break
+		}
+	}
+	if expected == nil {
+		return j.fail(fmt.Errorf("native queued capability %q is unavailable", invocation.CapabilityID))
+	}
+	if expected.Manifest.RequiresApproval {
+		return j.ToolInvocationJournal.BeginToolInvocation(ctx, invocation)
+	}
+	record, decision, err := j.store.BeginNativeQueuedToolEffectFenced(ctx, j.fence, version, storage.NativeQueuedToolEffectWitnessInput{
+		Invocation: invocation, AuthorizationEpoch: epoch, BootstrapRevision: j.server.nativeStrict.bootstrapRevision, ExpectedCapability: *expected,
+	})
+	if err != nil {
+		return j.fail(err)
+	}
+	return record, decision, nil
+}
+
+func (j *nativeQueuedToolInvocationJournal) fail(err error) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {
+	if j.failure != nil {
+		j.failure.record(err)
+	}
+	if j.cancel != nil {
+		j.cancel()
+	}
+	return core.ToolInvocationRecord{}, "", err
 }

@@ -303,6 +303,18 @@ func (l *executionProjectionLease) requiresStartEvent() bool {
 	return l != nil && l.coordinator != nil && l.coordinator.reader != nil
 }
 
+func (l *executionProjectionLease) appliedEpoch() (int64, error) {
+	if l == nil || !l.held || l.coordinator == nil || l.coordinator.reader == nil {
+		return 0, fmt.Errorf("execution projection epoch lease is unavailable")
+	}
+	l.coordinator.stateMu.RLock()
+	defer l.coordinator.stateMu.RUnlock()
+	if !l.coordinator.appliedSet {
+		return 0, fmt.Errorf("execution projection epoch is not applied")
+	}
+	return l.coordinator.applied, nil
+}
+
 func (l *executionProjectionLease) Release() {
 	if l == nil || !l.held || l.coordinator == nil {
 		return

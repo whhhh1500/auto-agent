@@ -20,6 +20,22 @@ import (
 
 type checkpointTestModel struct{ calls *atomic.Int32 }
 
+type disablingCheckpointModel struct {
+	accounts *storage.SQLAccountStore
+	inner    checkpointTestModel
+}
+
+func (m disablingCheckpointModel) Provider() string { return m.inner.Provider() }
+
+func (m disablingCheckpointModel) Stream(ctx context.Context, options core.GenerateOptions, emit func(core.StreamChunk)) error {
+	if options.Messages[len(options.Messages)-1].Role != core.RoleTool {
+		if err := m.accounts.SetAccountStatus(ctx, "alice", storage.AccountDisabled); err != nil {
+			return err
+		}
+	}
+	return m.inner.Stream(ctx, options, emit)
+}
+
 func (checkpointTestModel) Provider() string { return "checkpoint-test" }
 
 func (m checkpointTestModel) Stream(_ context.Context, options core.GenerateOptions, emit func(core.StreamChunk)) error {
@@ -326,6 +342,182 @@ func TestToolJournalCheckpointFailurePreventsBegin(t *testing.T) {
 	}
 	if !errors.Is(failure.Err(), checkpointErr) {
 		t.Fatalf("checkpoint failure state = %v, want %v", failure.Err(), checkpointErr)
+	}
+}
+
+func enableNativeQueuedWitness(t *testing.T, fixture *runWorkerFixture) {
+	t.Helper()
+	journal, err := storage.NewSQLToolInvocationJournal(fixture.db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.server.runtime.ToolJournal = journal
+	accounts, err := storage.NewSQLAccountStore(fixture.db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.CreateTenant(context.Background(), fixture.principal.TenantID, "Acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.CreateAccount(context.Background(), storage.Account{
+		AccountID: fixture.principal.SubjectID, Email: "alice@example.test", Role: storage.RoleAccountUser,
+		TenantID: fixture.principal.TenantID, Status: storage.AccountActive,
+	}, "native-password"); err != nil {
+		t.Fatal(err)
+	}
+	root := fixture.principal.Scope.Segments()[:2]
+	resolver, err := storage.NewSQLQueuedPrincipalResolver(accounts, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.server.runPrincipal = resolver
+	fixture.server.nativeStrict = &nativeStrictOwnership{
+		bootstrapRevision: "native-witness-v1", phase: nativeStrictPhaseStaticBootstrap,
+		db: fixture.db, dialect: storage.SQLDialectSQLite,
+	}
+	fixture.server.executionProjection = newExecutionProjectionCoordinator(resolver)
+	epoch, err := resolver.AuthorizationEpoch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.server.initializeNativeStrictExecutionProjection(epoch); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func nativeQueuedWitnessCount(t *testing.T, fixture *runWorkerFixture) int {
+	t.Helper()
+	var count int
+	if err := fixture.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM native_queued_tool_effect_witnesses").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func TestNativeQueuedWorkerWritesEffectAdmissionWitness(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	toolCalls, _, _ := enableCheckpointTool(t, fixture)
+	record := enqueueRunHTTP(t, fixture, "write")
+	enableNativeQueuedWitness(t, fixture)
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-witness")
+	if err != nil || !claimed {
+		t.Fatalf("worker claimed=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) {
+		loaded, _ := fixture.sessions.Load(context.Background(), fixture.session.ID())
+		var durable core.RunStartData
+		_ = json.Unmarshal(loaded.Events()[0].Data, &durable)
+		snapshot, _ := (core.CapabilityResolver{Registry: fixture.server.runtime.Capabilities}).Resolve(fixture.principal, fixture.session.Scope())
+		t.Fatalf("terminal=%+v durable=%#v current=%#v err=%v", terminal, durable.Composition.Capabilities, snapshot.Capabilities(), err)
+	}
+	if toolCalls.Load() != 1 || nativeQueuedWitnessCount(t, fixture) != 1 {
+		t.Fatalf("tool calls=%d witnesses=%d", toolCalls.Load(), nativeQueuedWitnessCount(t, fixture))
+	}
+}
+
+func TestGenericQueuedWorkerDoesNotWriteNativeEffectWitness(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	toolCalls, _, _ := enableCheckpointTool(t, fixture)
+	journal, err := storage.NewSQLToolInvocationJournal(fixture.db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.server.runtime.ToolJournal = journal
+	enqueueRunHTTP(t, fixture, "write")
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-generic-no-witness")
+	if err != nil || !claimed || toolCalls.Load() != 1 || nativeQueuedWitnessCount(t, fixture) != 0 {
+		t.Fatalf("claimed=%t tool calls=%d witnesses=%d err=%v", claimed, toolCalls.Load(), nativeQueuedWitnessCount(t, fixture), err)
+	}
+}
+
+func TestNativeQueuedApprovalKeepsOrdinaryJournalPath(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	providerCalls := enableApprovalWorker(t, fixture)
+	record := enqueueRunHTTP(t, fixture, "release payment")
+	enableNativeQueuedWitness(t, fixture)
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-approval-first")
+	if err != nil || !claimed {
+		t.Fatalf("first claimed=%t err=%v", claimed, err)
+	}
+	approvals, err := fixture.approvals.ListApprovals(context.Background(), storage.ApprovalFilter{TenantID: "acme", Status: core.ApprovalPending})
+	if err != nil || len(approvals) != 1 {
+		t.Fatalf("approvals=%+v err=%v", approvals, err)
+	}
+	if _, changed, err := fixture.approvals.DecideApproval(context.Background(), approvals[0].ID, core.ApprovalApproved, "admin@acme"); err != nil || !changed {
+		t.Fatalf("approval changed=%t err=%v", changed, err)
+	}
+	claimed, err = fixture.server.RunWorkerOnce(context.Background(), "worker-native-approval-resume")
+	if err != nil || !claimed {
+		t.Fatalf("resume claimed=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCompleted) || providerCalls.Load() != 1 || nativeQueuedWitnessCount(t, fixture) != 0 {
+		t.Fatalf("terminal=%+v calls=%d witnesses=%d err=%v", terminal, providerCalls.Load(), nativeQueuedWitnessCount(t, fixture), err)
+	}
+}
+
+func TestNativeQueuedWorkerRechecksPrincipalBeforeToolAdmission(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	toolCalls, modelCalls, _ := enableCheckpointTool(t, fixture)
+	record := enqueueRunHTTP(t, fixture, "write")
+	enableNativeQueuedWitness(t, fixture)
+	accounts, err := storage.NewSQLAccountStore(fixture.db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.server.runtime.Models = core.ModelResolverFunc(func(context.Context, core.ModelSelection) (core.LlmAdapter, error) {
+		return disablingCheckpointModel{accounts: accounts, inner: checkpointTestModel{calls: modelCalls}}, nil
+	})
+	claimed, err := fixture.server.RunWorkerOnce(context.Background(), "worker-native-principal-recheck")
+	if err != nil || !claimed {
+		t.Fatalf("claimed=%t err=%v", claimed, err)
+	}
+	terminal, err := fixture.queue.GetRun(context.Background(), record.RunID)
+	if err != nil || terminal.Status != string(core.RunCancelled) || toolCalls.Load() != 0 || nativeQueuedWitnessCount(t, fixture) != 0 {
+		t.Fatalf("terminal=%+v tools=%d witnesses=%d err=%v", terminal, toolCalls.Load(), nativeQueuedWitnessCount(t, fixture), err)
+	}
+}
+
+func TestNativeQueuedToolAdmissionStopsAtCheckpointFailure(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	checkpointErr := errors.New("native checkpoint failed")
+	failing := &failingCheckpointStore{SQLSessionStore: fixture.sessions, err: checkpointErr}
+	runID := "run-native-checkpoint-failure"
+	call := core.ToolCall{ID: "call-native-checkpoint-failure", Name: "checkpoint.write", Args: map[string]any{"value": "one"}}
+	for _, entry := range []struct {
+		kind core.SessionEventType
+		data any
+	}{
+		{core.EvRunStart, core.RunStartData{}},
+		{core.EvStepStart, core.StepData{Index: 0}},
+		{core.EvAssistantMessage, core.AssistantMessageData{ToolCall: &call, ToolCalls: []core.ToolCall{call}}},
+		{core.EvRunUsage, core.RunUsageData{InvocationID: "model:1"}},
+		{core.EvToolCall, core.ToolCallData{CallID: call.ID, Name: call.Name, Args: call.Args}},
+	} {
+		if _, err := fixture.session.Append(runID, entry.kind, entry.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fence := storage.SessionWriteFence{
+		SessionID: fixture.session.ID(), RunID: runID, TenantID: fixture.principal.TenantID, SubjectID: fixture.principal.SubjectID,
+		WorkerID: "worker-native-checkpoint-failure", QueueGeneration: 1, LeaseHolder: "lease-native-checkpoint-failure",
+	}
+	writer, err := storage.NewFencedWriteBehind(failing, fence, fixture.session, 0, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := &countingToolJournal{}
+	failure := &toolCheckpointFailure{}
+	var cancelled atomic.Bool
+	journal := &nativeQueuedToolInvocationJournal{
+		ToolInvocationJournal: inner, writer: writer, cancel: func() { cancelled.Store(true) }, failure: failure,
+	}
+	if _, _, err := journal.BeginToolInvocation(context.Background(), core.ToolInvocation{}); !errors.Is(err, checkpointErr) {
+		t.Fatalf("error=%v", err)
+	}
+	if inner.begins.Load() != 0 || !cancelled.Load() || !errors.Is(failure.Err(), checkpointErr) {
+		t.Fatalf("begins=%d cancelled=%t failure=%v", inner.begins.Load(), cancelled.Load(), failure.Err())
 	}
 }
 
