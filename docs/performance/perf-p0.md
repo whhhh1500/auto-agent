@@ -53,7 +53,7 @@ go run ./cmd/perf-p0 -soak 30s -soak-workers 100 -out data/perf-p0-soak
 
 ## 指标边界
 
-当前基线记录 Go runtime 的 heap、累计分配、malloc/free、采样期间 goroutine 最大值、`PauseTotalNs` 增量和 GC 次数。Windows 构建记录 working set before/after/peak、进程 kernel/user/total CPU time 增量及由 wall time 推导的进程 CPU 百分比；该百分比是聚合 CPU 时间，多核进程可能超过 100%。非 Windows 构建明确为 `unsupported`。`perfp0.Run` 这个库接口的 case 在同一进程内执行：每个 case 虽在计时前执行一次 `runtime.GC()`，但不会调用 `debug.FreeOSMemory`，所以其 RSS 会受到前序 case 和 Go arena 保留影响，不能表述为隔离 case 的常驻内存。CLI 默认使用 P5 的 `RunIsolated`，每个 case 在独立 child 中采样；这消除了跨 case 污染，但 child 内的 allocator/arena 保留和采样间隔仍然存在。短 case 也会受 Windows 计时分辨率影响。不会用 heap 数字冒充 RSS，也不会把暂未测量的 provisional 目标标为通过。
+当前基线记录 Go runtime 的 heap、累计分配、malloc/free、采样期间 goroutine 最大值、`PauseTotalNs` 增量和 GC 次数。Markdown 中的 `Ops` 和 `Attempt ops/s` 都统计完成的调用尝试，包括返回错误的尝试；`Errors` 单列，只有 `Errors == 0` 时才可将吞吐用于成功路径比较。Windows 构建记录 working set before/after/peak、进程 kernel/user/total CPU time 增量及由 wall time 推导的进程 CPU 百分比；该百分比是聚合 CPU 时间，多核进程可能超过 100%。非 Windows 构建明确为 `unsupported`。`perfp0.Run` 这个库接口的 case 在同一进程内执行：每个 case 虽在计时前执行一次 `runtime.GC()`，但不会调用 `debug.FreeOSMemory`，所以其 RSS 会受到前序 case 和 Go arena 保留影响，不能表述为隔离 case 的常驻内存。CLI 默认使用 P5 的 `RunIsolated`，每个 case 在独立 child 中采样；这消除了跨 case 污染，但 child 内的 allocator/arena 保留和采样间隔仍然存在。短 case 也会受 Windows 计时分辨率影响。不会用 heap 数字冒充 RSS，也不会把暂未测量的 provisional 目标标为通过。
 
 ## 历史 P4：同进程 GC 隔离两轮结果
 

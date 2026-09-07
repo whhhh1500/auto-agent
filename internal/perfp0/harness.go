@@ -840,7 +840,7 @@ func (r Report) Markdown() string {
 	} else {
 		fmt.Fprintf(&out, "Process RSS/CPU: unsupported (%s).\n\n", r.Process.Unsupported)
 	}
-	out.WriteString("| Workload | Scenario | Concurrency | Payload | Ops | Errors | Warmup ops/errors | Error kinds | Error samples | Ops/s | p50 | p95 | p99 | Fixture heap | Fixture RSS delta | Heap after | Heap max seen | Alloc delta | GC pause ns | GCs | Goroutines peak | RSS peak | CPU % |\n")
+	out.WriteString("| Workload | Scenario | Concurrency | Payload | Ops | Errors | Warmup ops/errors | Error kinds | Error samples | Attempt ops/s | p50 | p95 | p99 | Fixture heap | Fixture RSS delta | Heap after | Heap max seen | Alloc delta | GC pause ns | GCs | Goroutines peak | RSS peak | CPU % |\n")
 	out.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, c := range r.Cases {
 		fmt.Fprintf(&out, "| %s | %s | %d | %d | %d | %d | %d/%d | %v | %v | %.2f | %s | %s | %s | %d | %s | %d | %d | %d | %d | %d | %d | %s | %s |\n",
@@ -853,7 +853,7 @@ func (r Report) Markdown() string {
 	for _, catalog := range r.Catalogs {
 		fmt.Fprintf(&out, "| %s | %d | %d | %d | %d | %d |\n", catalog.Scenario, catalog.ToolCount, catalog.HeapBeforeGC, catalog.HeapAfterBuild, catalog.HeapAfterGC, catalog.RetainedApprox)
 	}
-	out.WriteString("\nNotes:\n\n- Concurrency is genuine simultaneous goroutine execution; this harness adds no admission, queue, backpressure, rate-limit, or 429 behavior.\n- `legacy_session_projection_compaction` intentionally measures the older `DeriveMessages` then `Compact` path for diagnostic attribution; it is not the current default Agent path.\n- `agent_production_recent_compaction_setup_inclusive` retains the previous setup-inclusive Agent path for attribution only.\n- `agent_production_recent_compaction` prepares every Session, Agent, and TurnInput before the measured barrier; Runtime/Process values cover RunTurn only, while Fixture values expose the retained setup baseline.\n")
+	out.WriteString("\nNotes:\n\n- Concurrency is genuine simultaneous goroutine execution; this harness adds no admission, queue, backpressure, rate-limit, or 429 behavior.\n- Ops and Attempt ops/s count completed operation attempts, including attempts that return an error. Errors is reported separately; compare throughput only when Errors == 0.\n- `legacy_session_projection_compaction` intentionally measures the older `DeriveMessages` then `Compact` path for diagnostic attribution; it is not the current default Agent path.\n- `agent_production_recent_compaction_setup_inclusive` retains the previous setup-inclusive Agent path for attribution only.\n- `agent_production_recent_compaction` prepares every Session, Agent, and TurnInput before the measured barrier; Runtime/Process values cover RunTurn only, while Fixture values expose the retained setup baseline.\n")
 	if r.ProcessIsolated {
 		out.WriteString("- Case RSS is sampled in a fresh child process for each CLI case; within that case, allocator/arena retention still means max_seen is an observation, not an absolute peak.\n")
 	} else {
