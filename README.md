@@ -228,7 +228,7 @@ Plugins do not receive permission to mutate the runtime kernel. Untrusted tenant
 These execution options have different assurance and resource boundaries. The
 current WASM adapter still needs explicit runtime memory and execution-cancellation
 configuration before it can promise those limits; see the
-[WASM assessment](docs/agent-module-assessment.md#m27).
+[WASM assessment](docs/agent-module-assessment.md#m27--wasm-执行).
 
 ### Sessions and runs
 
