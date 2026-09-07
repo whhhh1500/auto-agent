@@ -821,6 +821,13 @@ func BootstrapInitialAdmin(ctx context.Context, store *SQLAccountStore, accounts
 	if store == nil || store.db == nil {
 		return InitialAdminCredentials{}, fmt.Errorf("initial administrator requires a SQL account store")
 	}
+	return bootstrapInitialAdmin(ctx, store.db, store.dialect, false)
+}
+
+func bootstrapInitialAdmin(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect, accountsTableExisted bool) (InitialAdminCredentials, error) {
+	if accountsTableExisted {
+		return InitialAdminCredentials{}, nil
+	}
 	password, err := randomPassword(20)
 	if err != nil {
 		return InitialAdminCredentials{}, err
@@ -829,17 +836,17 @@ func BootstrapInitialAdmin(ctx context.Context, store *SQLAccountStore, accounts
 	if err != nil {
 		return InitialAdminCredentials{}, err
 	}
-	tx, err := store.db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return InitialAdminCredentials{}, err
 	}
 	defer tx.Rollback()
-	lockQuery := sqlQuery{"INSERT INTO store_meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"}.bind(store.dialect)
+	lockQuery := sqlQuery{"INSERT INTO store_meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"}.bind(dialect)
 	if _, err := tx.ExecContext(ctx, lockQuery, "initial_admin_lock", "1"); err != nil {
 		return InitialAdminCredentials{}, fmt.Errorf("lock initial administrator bootstrap: %w", err)
 	}
 	var count int
-	if err := tx.QueryRowContext(ctx, sqlCountAccounts.bind(store.dialect)).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, sqlCountAccounts.bind(dialect)).Scan(&count); err != nil {
 		return InitialAdminCredentials{}, err
 	}
 	if count > 0 {
@@ -850,7 +857,7 @@ func BootstrapInitialAdmin(ctx context.Context, store *SQLAccountStore, accounts
 	}
 	now := time.Now().UTC().UnixMilli()
 	for _, tenant := range []struct{ id, name string }{{"system", "Platform"}, {"default", "Default Tenant"}} {
-		query := sqlQuery{"INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"}.bind(store.dialect)
+		query := sqlQuery{"INSERT INTO tenants (id, name, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO NOTHING"}.bind(dialect)
 		if _, err := tx.ExecContext(ctx, query, tenant.id, tenant.name, now); err != nil {
 			return InitialAdminCredentials{}, err
 		}
@@ -862,7 +869,7 @@ func BootstrapInitialAdmin(ctx context.Context, store *SQLAccountStore, accounts
 			return InitialAdminCredentials{}, err
 		}
 		candidate := "admin_" + digits
-		_, err = tx.ExecContext(ctx, sqlInsertAccount.bind(store.dialect), candidate, nil, string(hash),
+		_, err = tx.ExecContext(ctx, sqlInsertAccount.bind(dialect), candidate, nil, string(hash),
 			RoleAccountAdmin, "system", AccountPendingActivation, 1, now)
 		if err == nil {
 			accountID = candidate

@@ -132,6 +132,42 @@ func TestDatabaseConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestDatabaseConnectionLimitsFromEnv(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		dialect  storage.SQLDialect
+		maxOpen  string
+		maxIdle  string
+		wantOpen int
+		wantIdle int
+		wantErr  bool
+	}{
+		{name: "postgres defaults", dialect: storage.SQLDialectPostgres, wantOpen: 20, wantIdle: 10},
+		{name: "postgres single connection", dialect: storage.SQLDialectPostgres, maxOpen: "1", wantOpen: 1, wantIdle: 1},
+		{name: "postgres explicit single idle", dialect: storage.SQLDialectPostgres, maxOpen: "1", maxIdle: "1", wantOpen: 1, wantIdle: 1},
+		{name: "sqlite defaults", dialect: storage.SQLDialectSQLite, wantOpen: 1, wantIdle: 1},
+		{name: "zero open rejected", dialect: storage.SQLDialectPostgres, maxOpen: "0", wantErr: true},
+		{name: "negative open rejected", dialect: storage.SQLDialectPostgres, maxOpen: "-1", wantErr: true},
+		{name: "invalid open rejected", dialect: storage.SQLDialectPostgres, maxOpen: "many", wantErr: true},
+		{name: "zero idle rejected", dialect: storage.SQLDialectPostgres, maxIdle: "0", wantErr: true},
+		{name: "negative idle rejected", dialect: storage.SQLDialectPostgres, maxIdle: "-1", wantErr: true},
+		{name: "invalid idle rejected", dialect: storage.SQLDialectPostgres, maxIdle: "many", wantErr: true},
+		{name: "explicit idle above open rejected", dialect: storage.SQLDialectPostgres, maxOpen: "1", maxIdle: "2", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("HARNESS_DB_MAX_OPEN_CONNS", test.maxOpen)
+			t.Setenv("HARNESS_DB_MAX_IDLE_CONNS", test.maxIdle)
+			maxOpen, maxIdle, err := databaseConnectionLimitsFromEnv(test.dialect)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("limits=(%d,%d) err=%v wantErr=%t", maxOpen, maxIdle, err, test.wantErr)
+			}
+			if err == nil && (maxOpen != test.wantOpen || maxIdle != test.wantIdle) {
+				t.Fatalf("limits=(%d,%d), want (%d,%d)", maxOpen, maxIdle, test.wantOpen, test.wantIdle)
+			}
+		})
+	}
+}
+
 func TestPrivatePathHelpersRespectPlatformBoundary(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "private")
 	if err := privateMkdirAll(dir); err != nil {

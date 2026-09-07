@@ -25,18 +25,106 @@ func openPostgresFirstBoot(ctx context.Context, db *sql.DB) (credentials Initial
 		}
 	}()
 
-	accountsTableExisted, err := AccountsTableExists(ctx, db, SQLDialectPostgres)
+	accountsTableExisted, err := lock.AccountsTableExists(ctx)
 	if err != nil {
 		return InitialAdminCredentials{}, err
 	}
-	if _, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres); err != nil {
+	if _, err := lock.OpenSQLSessionStore(ctx); err != nil {
 		return InitialAdminCredentials{}, err
+	}
+	return lock.BootstrapInitialAdmin(ctx, accountsTableExisted)
+}
+
+func TestPostgresStartupBootstrapWithSingleConnection(t *testing.T) {
+	db := newPostgresTestDB(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	credentials, err := openPostgresFirstBoot(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !credentials.Created {
+		t.Fatal("single-connection first boot did not create the initial administrator")
 	}
 	accounts, err := NewSQLAccountStore(db, SQLDialectPostgres)
 	if err != nil {
-		return InitialAdminCredentials{}, err
+		t.Fatal(err)
 	}
-	return BootstrapInitialAdmin(ctx, accounts, accountsTableExisted)
+	if count, err := accounts.CountAccounts(ctx); err != nil || count != 1 {
+		t.Fatalf("single-connection account count = %d, %v; want 1", count, err)
+	}
+}
+
+func TestPostgresStartupUnlockFailureDiscardsSession(t *testing.T) {
+	db := newPostgresTestDB(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	independent := newPostgresTestDB(t)
+	ctx := context.Background()
+	lock, err := AcquirePostgresStartupLock(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lockedBackend, replacementBackend int
+	if err := lock.conn.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&lockedBackend); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := lock.Release(canceled); err == nil {
+		t.Fatal("startup unlock unexpectedly succeeded with canceled context")
+	}
+	acquired, err := tryPostgresAdvisoryLock(ctx, independent, postgresStartupLockKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("discarded startup session retained its advisory lock")
+	}
+	if err := db.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&replacementBackend); err != nil {
+		t.Fatal(err)
+	}
+	if replacementBackend == lockedBackend {
+		t.Fatalf("startup pool reused discarded backend %d", lockedBackend)
+	}
+}
+
+func TestPostgresStartupLockAcquireCancellationDiscardsWaitingSession(t *testing.T) {
+	holderDB := newPostgresTestDB(t)
+	waiterDB := newPostgresTestDB(t)
+	waiterDB.SetMaxOpenConns(1)
+	waiterDB.SetMaxIdleConns(1)
+	ctx := context.Background()
+	holder, err := AcquirePostgresStartupLock(ctx, holderDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := holder.Release(releaseCtx); releaseErr != nil {
+			t.Errorf("release startup lock holder: %v", releaseErr)
+		}
+	}()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if _, err := AcquirePostgresStartupLock(waitCtx, waiterDB); err == nil {
+		t.Fatal("competing startup lock acquisition ignored context deadline")
+	}
+	if err := holder.Release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err := tryPostgresAdvisoryLock(ctx, waiterDB, postgresStartupLockKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("canceled startup lock acquisition left a hidden session lock")
+	}
 }
 
 func TestPostgresStartupBootstrapSerializesConcurrentEmptySchema(t *testing.T) {

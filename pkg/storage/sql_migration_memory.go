@@ -22,7 +22,7 @@ type memoryRagTagsRow struct {
 // backfills the JSON projection, removes duplicate Memory keys, and creates
 // the unique scope/key index. Keeping the data rewrite together ensures an
 // error cannot advance schema_version with only part of the v26 data change.
-func migrateMemoryRagV26(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateMemoryRagV26(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	memoryExists, err := sqlTableExists(ctx, db, dialect, "memory_entries")
 	if err != nil {
 		return fmt.Errorf("inspect memory entries: %w", err)
@@ -132,7 +132,7 @@ type ragProjectionRow struct {
 // canonical rag_documents rows. The whole operation is transactional so a
 // malformed tags_json value or failed insert leaves a v26 database without a
 // partially committed projection and makes retry safe.
-func migrateRagProjectionV27(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateRagProjectionV27(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ type memorySearchProjectionRow struct {
 // COLUMN IF NOT EXISTS form. The projection rebuild itself remains atomic:
 // a failed decode, update, or insert leaves the version and old projection
 // unchanged, while a retry safely observes already-added columns.
-func migrateMemorySearchProjectionV28(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateMemorySearchProjectionV28(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	exists, err := sqlTableExists(ctx, db, dialect, "memory_entries")
 	if err != nil {
 		return fmt.Errorf("inspect memory search projection: %w", err)

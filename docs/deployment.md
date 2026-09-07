@@ -70,6 +70,17 @@ durable control-plane state, and completes first-admin bootstrap before it
 binds the HTTP listener. A failed migration or bootstrap exits the container;
 it does not accept traffic against a partially initialized schema.
 
+PostgreSQL startup and schema migration use session-level advisory locks. The
+DSN must connect directly to PostgreSQL or through a proxy configured for
+session pooling, so one backend session is retained for the lifetime of each
+lock. PgBouncer transaction pooling is not supported for the control database:
+it can switch backend sessions between lock and unlock and invalidate startup
+serialization. If PgBouncer is required, configure this database/user in
+`pool_mode=session` or bypass PgBouncer for the Harness control connection.
+`HARNESS_DB_MAX_OPEN_CONNS=1` is supported for constrained deployments and
+startup uses that same connection throughout, but normal runtime work is then
+serialized behind one database connection and throughput will be limited.
+
 The bootstrap decision uses the pre-migration database state. If `accounts`
 was absent, migration creates it and one pending `admin_12345`-shaped account;
 the process prints its random one-time password once. If `accounts` already

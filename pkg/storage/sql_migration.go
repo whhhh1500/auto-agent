@@ -25,16 +25,36 @@ var (
 
 const graphCheckpointHistorySchemaVersionV41 = 41
 
+// postgresSchemaMigrationLockKey serializes PostgreSQL OpenSQLSessionStore
+// schema work. It deliberately differs from postgresStartupLockKey: callers
+// can hold the initial-admin bootstrap lock while opening the store, and a
+// nested acquisition of that same session-level key on another pooled
+// connection would self-deadlock.
+//
+// This key is database-wide rather than derived from current_schema(). Schema
+// inspection and DDL use search_path, but a global migration gate prevents two
+// independently configured schemas from acquiring PostgreSQL catalog locks in
+// different migration phases. Store open is a startup operation, so that
+// conservative serialization is preferable to a catalog-lock deadlock.
+const postgresSchemaMigrationLockKey int64 = 0x4843534348454D41 // "HCSCHEMA"
+
+type postgresSchemaMigrationLock = postgresSessionAdvisoryLock
+
+func acquirePostgresSchemaMigrationLock(ctx context.Context, db *sql.DB) (*postgresSchemaMigrationLock, error) {
+	return acquirePostgresSessionAdvisoryLock(ctx, db, postgresSchemaMigrationLockKey, "postgres schema migration lock")
+}
+
 // OpenSQLSessionStore opens (and if needed creates) the schema on an open
-// database handle. Schema version mismatches fail closed.
-func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*SQLSessionStore, error) {
+// database handle. Schema version mismatches fail closed. PostgreSQL requires
+// a direct server connection or a session-pooling proxy; transaction pooling
+// cannot preserve the session-level migration lock.
+func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (store *SQLSessionStore, err error) {
 	if db == nil {
 		return nil, fmt.Errorf("sql session store requires a database handle")
 	}
 	if err := validateSQLDialect(dialect); err != nil {
 		return nil, err
 	}
-	store := &SQLSessionStore{db: db, dialect: dialect}
 	if dialect == SQLDialectSQLite {
 		for _, pragma := range []string{
 			"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=5000", "PRAGMA synchronous=NORMAL",
@@ -44,6 +64,58 @@ func OpenSQLSessionStore(ctx context.Context, db *sql.DB, dialect SQLDialect) (*
 			}
 		}
 	}
+	var schema sqlSchemaExecutor = db
+	if dialect == SQLDialectPostgres {
+		lock, lockErr := acquirePostgresSchemaMigrationLock(ctx, db)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		schema = lock.conn
+		defer func() {
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if releaseErr := lock.release(releaseCtx); releaseErr != nil {
+				store = nil
+				err = errors.Join(err, releaseErr)
+			}
+		}()
+	}
+	return openSQLSessionStore(ctx, db, schema, dialect)
+}
+
+// OpenSQLSessionStore opens the PostgreSQL store on the same session that owns
+// the startup lock. This is the required path while the startup lock is held:
+// it remains safe when the database pool permits only one open connection.
+func (l *PostgresStartupLock) OpenSQLSessionStore(ctx context.Context) (store *SQLSessionStore, err error) {
+	conn, err := l.connection()
+	if err != nil {
+		return nil, err
+	}
+	if err := acquirePostgresAdvisoryLock(ctx, conn, postgresSchemaMigrationLockKey); err != nil {
+		discardErr := l.discardConnection()
+		return nil, errors.Join(
+			fmt.Errorf("acquire postgres schema migration lock: %w", err),
+			wrapSQLConnDiscardError("postgres startup lock", discardErr),
+		)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := releasePostgresAdvisoryLock(releaseCtx, conn, postgresSchemaMigrationLockKey); releaseErr != nil {
+			discardErr := l.discardConnection()
+			store = nil
+			err = errors.Join(
+				err,
+				fmt.Errorf("release postgres schema migration lock: %w", releaseErr),
+				wrapSQLConnDiscardError("postgres startup lock", discardErr),
+			)
+		}
+	}()
+	return openSQLSessionStore(ctx, l.db, conn, SQLDialectPostgres)
+}
+
+func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecutor, dialect SQLDialect) (*SQLSessionStore, error) {
+	store := &SQLSessionStore{db: storeDB, dialect: dialect}
 	metaExists, err := sqlTableExists(ctx, db, dialect, "store_meta")
 	if err != nil {
 		return nil, fmt.Errorf("inspect sql schema: %w", err)
@@ -194,7 +266,7 @@ func applySQLiteStartupPragma(ctx context.Context, db *sql.DB, pragma string) er
 	return lastErr
 }
 
-func sqlTableExists(ctx context.Context, db *sql.DB, dialect SQLDialect, table string) (bool, error) {
+func sqlTableExists(ctx context.Context, db graphCheckpointHistoryExecutor, dialect SQLDialect, table string) (bool, error) {
 	if dialect == SQLDialectPostgres {
 		var relation sql.NullString
 		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1)", table).Scan(&relation); err != nil {
@@ -211,7 +283,7 @@ func sqlTableExists(ctx context.Context, db *sql.DB, dialect SQLDialect, table s
 	return count > 0, nil
 }
 
-func initializeSQLSchema(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func initializeSQLSchema(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	if _, err := db.ExecContext(ctx, sqlSchemaV15); err != nil {
 		return fmt.Errorf("ensure sql schema: %w", err)
 	}
@@ -318,7 +390,7 @@ func bumpControlRevision(ctx context.Context, tx *sql.Tx, dialect SQLDialect) er
 	return nil
 }
 
-func migrateSQLSchema(ctx context.Context, db *sql.DB, dialect SQLDialect, stored int) error {
+func migrateSQLSchema(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect, stored int) error {
 	if stored < 10 {
 		if err := addSQLColumn(ctx, db, dialect, "run_queue", "generation", "BIGINT NOT NULL DEFAULT 0"); err != nil {
 			return fmt.Errorf("upgrade run queue generation: %w", err)
@@ -443,10 +515,14 @@ func migrateSQLSchema(ctx context.Context, db *sql.DB, dialect SQLDialect, store
 // graph_checkpoints. PostgreSQL holds its locks in the same transaction as the
 // DDL and backfill. Both paths re-read the marker after acquiring their lock,
 // so concurrent Open calls converge on the one successful migration.
-func migrateGraphCheckpointHistoryV41(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateGraphCheckpointHistoryV41(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	switch dialect {
 	case SQLDialectSQLite:
-		return migrateGraphCheckpointHistoryV41SQLite(ctx, db, dialect)
+		sqlDB, ok := db.(*sql.DB)
+		if !ok {
+			return fmt.Errorf("SQLite graph checkpoint history migration requires a database handle")
+		}
+		return migrateGraphCheckpointHistoryV41SQLite(ctx, sqlDB, dialect)
 	case SQLDialectPostgres:
 		return migrateGraphCheckpointHistoryV41Postgres(ctx, db, dialect)
 	default:
@@ -458,6 +534,11 @@ type graphCheckpointHistoryExecutor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+type sqlSchemaExecutor interface {
+	graphCheckpointHistoryExecutor
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
 type graphCheckpointHistoryFloor struct {
@@ -507,7 +588,7 @@ func migrateGraphCheckpointHistoryV41SQLite(ctx context.Context, db *sql.DB, dia
 	return lastErr
 }
 
-func migrateGraphCheckpointHistoryV41Postgres(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateGraphCheckpointHistoryV41Postgres(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -714,9 +795,13 @@ func installGraphCheckpointHistoryWriteFence(ctx context.Context, exec graphChec
 	return nil
 }
 
-func verifyGraphCheckpointHistoryV41(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func verifyGraphCheckpointHistoryV41(ctx context.Context, db graphCheckpointHistoryExecutor, dialect SQLDialect) error {
 	if dialect == SQLDialectSQLite {
-		conn, err := db.Conn(ctx)
+		sqlDB, ok := db.(*sql.DB)
+		if !ok {
+			return fmt.Errorf("SQLite graph checkpoint history verification requires a database handle")
+		}
+		conn, err := sqlDB.Conn(ctx)
 		if err != nil {
 			return fmt.Errorf("reserve SQLite graph checkpoint history verifier connection: %w", err)
 		}
@@ -874,7 +959,7 @@ func sqliteIndexColumns(ctx context.Context, conn *sql.Conn, index string) ([]st
 	return columns, nil
 }
 
-func verifyPostgresGraphCheckpointHistoryConstraints(ctx context.Context, db *sql.DB) error {
+func verifyPostgresGraphCheckpointHistoryConstraints(ctx context.Context, db graphCheckpointHistoryExecutor) error {
 	rows, err := db.QueryContext(ctx, `SELECT con.contype, string_agg(att.attname, ',' ORDER BY key.ordinality)
 		FROM pg_catalog.pg_constraint AS con
 		JOIN pg_catalog.pg_class AS rel ON rel.oid = con.conrelid
@@ -940,7 +1025,7 @@ func verifySQLiteGraphCheckpointHistoryWriteFence(ctx context.Context, conn *sql
 	return nil
 }
 
-func verifyPostgresGraphCheckpointHistoryWriteFence(ctx context.Context, db *sql.DB) error {
+func verifyPostgresGraphCheckpointHistoryWriteFence(ctx context.Context, db graphCheckpointHistoryExecutor) error {
 	var triggerType int
 	var functionName, definition string
 	err := db.QueryRowContext(ctx, `SELECT trigger.tgtype::integer, procedure.proname, procedure.prosrc
@@ -1016,7 +1101,7 @@ func decodeGraphCheckpointDocument(raw []byte) (graph.Checkpoint, error) {
 	return graph.ValidateCheckpoint(checkpoint)
 }
 
-func migrateAccountsV32(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateAccountsV32(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	accountIDExists, err := sqlColumnExists(ctx, db, dialect, "accounts", "account_id")
 	if err != nil {
 		return fmt.Errorf("inspect accounts: %w", err)
@@ -1106,7 +1191,7 @@ func AccountsTableExists(ctx context.Context, db *sql.DB, dialect SQLDialect) (b
 	return sqlTableExists(ctx, db, dialect, "accounts")
 }
 
-func migrateRunnerTaskTraceV25(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateRunnerTaskTraceV25(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	exists, err := sqlTableExists(ctx, db, dialect, "runner_tasks")
 	if err != nil {
 		return fmt.Errorf("inspect runner task trace migration: %w", err)
@@ -1123,7 +1208,7 @@ func migrateRunnerTaskTraceV25(ctx context.Context, db *sql.DB, dialect SQLDiale
 	return nil
 }
 
-func migrateRunnerTaskRetryV30(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func migrateRunnerTaskRetryV30(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	exists, err := sqlTableExists(ctx, db, dialect, "runner_tasks")
 	if err != nil || !exists {
 		return err
@@ -1135,7 +1220,7 @@ func migrateRunnerTaskRetryV30(ctx context.Context, db *sql.DB, dialect SQLDiale
 	return err
 }
 
-func addSQLColumn(ctx context.Context, db *sql.DB, dialect SQLDialect, table, column, definition string) error {
+func addSQLColumn(ctx context.Context, db graphCheckpointHistoryExecutor, dialect SQLDialect, table, column, definition string) error {
 	exists, err := sqlColumnExists(ctx, db, dialect, table, column)
 	if err != nil {
 		return err
@@ -1154,7 +1239,7 @@ func addSQLColumn(ctx context.Context, db *sql.DB, dialect SQLDialect, table, co
 	return nil
 }
 
-func sqlColumnExists(ctx context.Context, db *sql.DB, dialect SQLDialect, table, column string) (bool, error) {
+func sqlColumnExists(ctx context.Context, db graphCheckpointHistoryExecutor, dialect SQLDialect, table, column string) (bool, error) {
 	if dialect == SQLDialectPostgres {
 		var count int
 		err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns

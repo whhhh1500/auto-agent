@@ -84,20 +84,8 @@ func main() {
 	db, err := sql.Open(dbDriver, dbDSN)
 	must(err)
 	defer db.Close()
-	defaultMaxOpen, defaultMaxIdle := 1, 1
-	if dialect == storage.SQLDialectPostgres {
-		defaultMaxOpen, defaultMaxIdle = 20, 10
-	}
-	dbMaxOpen, err := intEnv("HARNESS_DB_MAX_OPEN_CONNS", defaultMaxOpen)
+	dbMaxOpen, dbMaxIdle, err := databaseConnectionLimitsFromEnv(dialect)
 	must(err)
-	dbMaxIdle, err := intEnv("HARNESS_DB_MAX_IDLE_CONNS", defaultMaxIdle)
-	must(err)
-	if dbMaxIdle > dbMaxOpen {
-		must(fmt.Errorf("HARNESS_DB_MAX_IDLE_CONNS must not exceed HARNESS_DB_MAX_OPEN_CONNS"))
-	}
-	if dialect == storage.SQLDialectPostgres && dbMaxOpen < 2 {
-		must(fmt.Errorf("HARNESS_DB_MAX_OPEN_CONNS must be at least 2 for PostgreSQL startup locking"))
-	}
 	dbConnLifetime, err := durationEnv("HARNESS_DB_CONN_MAX_LIFETIME", 30*time.Minute)
 	must(err)
 	dbConnIdleTime, err := durationEnv("HARNESS_DB_CONN_MAX_IDLE_TIME", 5*time.Minute)
@@ -129,15 +117,24 @@ func main() {
 			}
 		}()
 	}
-	accountsTableExisted, err := storage.AccountsTableExists(context.Background(), db, dialect)
-	must(err)
+	var accountsTableExisted bool
+	var sqlStore *storage.SQLSessionStore
+	if postgresStartupLockHeld {
+		accountsTableExisted, err = postgresStartupLock.AccountsTableExists(context.Background())
+		must(err)
+		sqlStore, err = postgresStartupLock.OpenSQLSessionStore(context.Background())
+		must(err)
+	} else {
+		accountsTableExisted, err = storage.AccountsTableExists(context.Background(), db, dialect)
+		must(err)
+		sqlStore, err = storage.OpenSQLSessionStore(context.Background(), db, dialect)
+		must(err)
+	}
 	if dialect == storage.SQLDialectSQLite && dbDSN != ":memory:" {
 		must(privateChmod(dbDSN, 0o600))
 	}
 	log.Printf("control database: %s", dbLabel)
 	log.Printf("harness build: %s", buildinfo.String())
-	sqlStore, err := storage.OpenSQLSessionStore(context.Background(), db, dialect)
-	must(err)
 	accounts, err := storage.NewSQLAccountStore(db, dialect)
 	must(err)
 	queuedPrincipal, err := storage.NewSQLQueuedPrincipalResolver(accounts, product.Segments())
@@ -146,7 +143,12 @@ func main() {
 	// runtime/configuration restore can fail. Otherwise a failed first start
 	// would leave an empty accounts table that suppresses this one-time path on
 	// every retry.
-	initialAdmin, err := storage.BootstrapInitialAdmin(context.Background(), accounts, accountsTableExisted)
+	var initialAdmin storage.InitialAdminCredentials
+	if postgresStartupLockHeld {
+		initialAdmin, err = postgresStartupLock.BootstrapInitialAdmin(context.Background(), accountsTableExisted)
+	} else {
+		initialAdmin, err = storage.BootstrapInitialAdmin(context.Background(), accounts, accountsTableExisted)
+	}
 	must(err)
 	if initialAdmin.Created {
 		log.Printf("ONE-TIME INITIAL ADMIN ACCOUNT: %s", initialAdmin.AccountID)
@@ -673,6 +675,28 @@ func intEnv(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return value, nil
+}
+
+func databaseConnectionLimitsFromEnv(dialect storage.SQLDialect) (maxOpen, maxIdle int, err error) {
+	defaultMaxOpen, defaultMaxIdle := 1, 1
+	if dialect == storage.SQLDialectPostgres {
+		defaultMaxOpen, defaultMaxIdle = 20, 10
+	}
+	maxOpen, err = intEnv("HARNESS_DB_MAX_OPEN_CONNS", defaultMaxOpen)
+	if err != nil {
+		return 0, 0, err
+	}
+	if os.Getenv("HARNESS_DB_MAX_IDLE_CONNS") == "" && defaultMaxIdle > maxOpen {
+		defaultMaxIdle = maxOpen
+	}
+	maxIdle, err = intEnv("HARNESS_DB_MAX_IDLE_CONNS", defaultMaxIdle)
+	if err != nil {
+		return 0, 0, err
+	}
+	if maxIdle > maxOpen {
+		return 0, 0, fmt.Errorf("HARNESS_DB_MAX_IDLE_CONNS must not exceed HARNESS_DB_MAX_OPEN_CONNS")
+	}
+	return maxOpen, maxIdle, nil
 }
 
 func telemetryEnabled() bool {

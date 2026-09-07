@@ -396,7 +396,16 @@ an unset type defaults to SQLite and `HARNESS_SQLITE_PATH` defaults to
 with `HARNESS_DB_MAX_OPEN_CONNS`, `HARNESS_DB_MAX_IDLE_CONNS`,
 `HARNESS_DB_CONN_MAX_LIFETIME`, and `HARNESS_DB_CONN_MAX_IDLE_TIME`. Production
 DSNs should require TLS and deployments should manage credentials outside the
-repository.
+repository. PostgreSQL can start with `HARNESS_DB_MAX_OPEN_CONNS=1`; when idle
+connections are not configured separately, the idle limit is reduced to one as
+well. A single connection is safe for startup but severely limits runtime
+throughput and concurrency.
+
+Harness PostgreSQL startup and schema migration use session-level advisory
+locks. Connect directly or use session pooling. PgBouncer transaction pooling
+is unsupported for the control database because it does not preserve one
+backend session from lock through unlock; configure `pool_mode=session` or
+bypass the proxy for this DSN.
 
 The S3 backend speaks a minimal SigV4 REST client (no SDK dependency) against AWS S3, MinIO, R2, and S3-compatible gateways. Conditional writes (`x-amz-if-match` / `x-amz-if-none-match`) provide the CAS; for gateways without them, `DisableConditionalWrites` opts out behind an external single-writer lease. The same `ObjectStore` interface also has `FileObjectStore` (local disk, content-hash etags) and `MemoryObjectStore` (tests) implementations.
 

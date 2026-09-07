@@ -292,11 +292,15 @@ func TestPostgresGraphCheckpointHistoryV41ConcurrentOpenBackfillsOnce(t *testing
 		t.Fatal(err)
 	}
 	second := newPostgresGraphCheckpointHistoryHandle(t, schema)
+	second.SetMaxOpenConns(1)
+	second.SetMaxIdleConns(1)
 	assertConcurrentGraphCheckpointHistoryOpen(t, ctx, SQLDialectPostgres, first, second, 2)
 }
 
 func TestPostgresGraphCheckpointHistoryV41OpenUnderStartupLock(t *testing.T) {
 	db := newPostgresTestDB(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	openUnderStartupLock := func() error {
@@ -311,7 +315,7 @@ func TestPostgresGraphCheckpointHistoryV41OpenUnderStartupLock(t *testing.T) {
 				err = releaseErr
 			}
 		}()
-		_, err = OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+		_, err = lock.OpenSQLSessionStore(ctx)
 		return err
 	}
 	if err := openUnderStartupLock(); err != nil {
@@ -344,6 +348,216 @@ func TestPostgresGraphCheckpointHistoryV41V40OpenWithSingleConnection(t *testing
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_checkpoint_versions WHERE origin = 'migration_floor'`).Scan(&floors); err != nil || floors != 2 {
 		t.Fatalf("v40 floors with one connection=%d err=%v", floors, err)
 	}
+}
+
+func TestPostgresSchemaMigrationLockSerializesDifferentSearchPathsInSameDatabase(t *testing.T) {
+	ctx := context.Background()
+	first := newPostgresTestDB(t)
+	second := newPostgresTestDB(t)
+	var firstSchema, secondSchema string
+	if err := first.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&firstSchema); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&secondSchema); err != nil {
+		t.Fatal(err)
+	}
+	if firstSchema == secondSchema {
+		t.Fatalf("PostgreSQL test handles unexpectedly share search_path schema %q", firstSchema)
+	}
+
+	lock, err := acquirePostgresSchemaMigrationLock(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := lock.release(releaseCtx); releaseErr != nil {
+			t.Errorf("release first schema migration lock: %v", releaseErr)
+		}
+	}()
+
+	acquired, err := tryPostgresSchemaMigrationLock(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acquired {
+		t.Fatal("independent handle acquired schema migration lock for the same PostgreSQL database")
+	}
+	if err := lock.release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err = tryPostgresSchemaMigrationLock(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("schema migration lock remained held after release")
+	}
+}
+
+func TestPostgresSchemaMigrationLockIsScopedPerDatabase(t *testing.T) {
+	ctx := context.Background()
+	first := newPostgresTestDB(t)
+	var currentDatabase string
+	if err := first.QueryRowContext(ctx, `SELECT current_database()`).Scan(&currentDatabase); err != nil {
+		t.Fatal(err)
+	}
+	otherDatabase := "template1"
+	if currentDatabase == otherDatabase {
+		otherDatabase = "postgres"
+	}
+	second := newPostgresDatabaseHandle(t, otherDatabase)
+	lock, err := acquirePostgresSchemaMigrationLock(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := lock.release(releaseCtx); releaseErr != nil {
+			t.Errorf("release first database schema migration lock: %v", releaseErr)
+		}
+	}()
+	acquired, err := tryPostgresSchemaMigrationLock(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatalf("schema migration lock in database %q blocked database %q", currentDatabase, otherDatabase)
+	}
+}
+
+func TestPostgresSchemaMigrationUnlockFailureDiscardsSession(t *testing.T) {
+	db := newPostgresTestDB(t)
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	ctx := context.Background()
+	var schema string
+	if err := db.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	independent := newPostgresGraphCheckpointHistoryHandle(t, schema)
+	lock, err := acquirePostgresSchemaMigrationLock(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lockedBackend, replacementBackend int
+	if err := lock.conn.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&lockedBackend); err != nil {
+		t.Fatal(err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := lock.release(canceled); err == nil {
+		t.Fatal("schema migration unlock unexpectedly succeeded with canceled context")
+	}
+	acquired, err := tryPostgresAdvisoryLock(ctx, independent, postgresSchemaMigrationLockKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("discarded schema migration session retained its advisory lock")
+	}
+	if err := db.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&replacementBackend); err != nil {
+		t.Fatal(err)
+	}
+	if replacementBackend == lockedBackend {
+		t.Fatalf("schema migration pool reused discarded backend %d", lockedBackend)
+	}
+}
+
+func TestPostgresSchemaMigrationLockReleasesAfterOpenFailure(t *testing.T) {
+	db := newPostgresTestDB(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `CREATE TABLE store_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO store_meta (key, value) VALUES ('schema_version', '999')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres); err == nil {
+		t.Fatal("future PostgreSQL schema was accepted")
+	}
+	acquired, err := tryPostgresSchemaMigrationLock(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("failed OpenSQLSessionStore retained the schema migration lock")
+	}
+}
+
+func TestPostgresSchemaMigrationLockWaitCancellationDoesNotStrandOpen(t *testing.T) {
+	first := newPostgresTestDB(t)
+	ctx := context.Background()
+	var schema string
+	if err := first.QueryRowContext(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	second := newPostgresGraphCheckpointHistoryHandle(t, schema)
+	second.SetMaxOpenConns(1)
+	second.SetMaxIdleConns(1)
+	independent := newPostgresGraphCheckpointHistoryHandle(t, schema)
+	lock, err := acquirePostgresSchemaMigrationLock(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if releaseErr := lock.release(releaseCtx); releaseErr != nil {
+			t.Errorf("release first schema migration lock: %v", releaseErr)
+		}
+	}()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	if _, err := OpenSQLSessionStore(waitCtx, second, SQLDialectPostgres); err == nil {
+		t.Fatal("OpenSQLSessionStore succeeded while another handle held the schema migration lock")
+	}
+	if err := lock.release(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenSQLSessionStore(ctx, second, SQLDialectPostgres); err != nil {
+		t.Fatalf("OpenSQLSessionStore after canceled lock wait: %v", err)
+	}
+	acquired, err := tryPostgresSchemaMigrationLock(ctx, independent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("canceled schema lock acquisition left a hidden session lock")
+	}
+}
+
+func tryPostgresSchemaMigrationLock(ctx context.Context, db *sql.DB) (acquired bool, err error) {
+	return tryPostgresAdvisoryLock(ctx, db, postgresSchemaMigrationLockKey)
+}
+
+func tryPostgresAdvisoryLock(ctx context.Context, db *sql.DB, key int64) (acquired bool, err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if closeErr := conn.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&acquired); err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, nil
+	}
+	var unlocked bool
+	if err := conn.QueryRowContext(ctx, "SELECT pg_advisory_unlock($1)", key).Scan(&unlocked); err != nil {
+		return false, err
+	}
+	if !unlocked {
+		return false, errors.New("postgres schema migration lock was not held after successful try lock")
+	}
+	return true, nil
 }
 
 func prepareGraphCheckpointHistoryV40Fixture(t *testing.T, ctx context.Context, db *sql.DB, dialect SQLDialect) {
@@ -423,6 +637,28 @@ func newPostgresGraphCheckpointHistoryHandle(t *testing.T, schema string) *sql.D
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func newPostgresDatabaseHandle(t *testing.T, database string) *sql.DB {
+	t.Helper()
+	dsn := os.Getenv("HARNESS_TEST_PG_DSN")
+	config, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Database = database
+	delete(config.RuntimeParams, "search_path")
+	db := stdlib.OpenDB(*config)
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(1)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		t.Fatalf("connect PostgreSQL database %q: %v", database, err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db

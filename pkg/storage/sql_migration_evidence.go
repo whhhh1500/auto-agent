@@ -13,7 +13,7 @@ import (
 // backfillEvaluationRevisions upgrades v19 rows whose canonical JSON already
 // contains Composition/Assignment evidence. The indexed columns are derived
 // projections; result_json and composition_metadata_json remain canonical.
-func backfillEvaluationRevisions(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func backfillEvaluationRevisions(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	runs, err := db.QueryContext(ctx, "SELECT id, composition_metadata_json FROM evaluation_runs")
 	if err != nil {
 		return err
@@ -102,7 +102,7 @@ type sessionEvidenceRow struct {
 // backfillRunEvidence rebuilds the query projection from canonical Session
 // chunks. It is intentionally idempotent: the unique segment key makes a
 // repeated migration harmless.
-func backfillRunEvidence(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+func backfillRunEvidence(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
 	rows, err := db.QueryContext(ctx, "SELECT id, tenant_id, user_id, profile_id, header FROM sessions")
 	if err != nil {
 		return err

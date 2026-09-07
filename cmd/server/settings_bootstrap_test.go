@@ -147,7 +147,9 @@ func TestMainInitializesSettingsAfterBootstrapAndBeforeFirstPersistedRead(t *tes
 		t.Fatal(err)
 	}
 	contents := string(mainSource)
-	bootstrap := strings.Index(contents, "storage.BootstrapInitialAdmin(")
+	lockedAccounts := strings.Index(contents, "postgresStartupLock.AccountsTableExists(")
+	lockedOpen := strings.Index(contents, "postgresStartupLock.OpenSQLSessionStore(")
+	lockedBootstrap := strings.Index(contents, "postgresStartupLock.BootstrapInitialAdmin(")
 	initialize := strings.Index(contents, "initializeSettingsRepository(")
 	configure := strings.Index(contents, "configureStorage(")
 	release := -1
@@ -159,8 +161,29 @@ func TestMainInitializesSettingsAfterBootstrapAndBeforeFirstPersistedRead(t *tes
 		t.Fatal(err)
 	}
 	firstRead := strings.Index(string(bootstrapSource), "ResolveWithLegacyProvider(")
-	if bootstrap < 0 || release < 0 || initialize < 0 || configure < 0 || firstRead < 0 || !(bootstrap < release && release < initialize && initialize < configure) {
-		t.Fatalf("startup order bootstrap=%d release=%d initialize=%d configure=%d firstRead=%d", bootstrap, release, initialize, configure, firstRead)
+	if lockedAccounts < 0 || lockedOpen < 0 || lockedBootstrap < 0 || release < 0 || initialize < 0 || configure < 0 || firstRead < 0 ||
+		!(lockedAccounts < lockedOpen && lockedOpen < lockedBootstrap && lockedBootstrap < release && release < initialize && initialize < configure) {
+		t.Fatalf("startup order accounts=%d open=%d bootstrap=%d release=%d initialize=%d configure=%d firstRead=%d",
+			lockedAccounts, lockedOpen, lockedBootstrap, release, initialize, configure, firstRead)
+	}
+}
+
+func TestMainAllowsSinglePostgresConnectionPool(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	mainSource, err := os.ReadFile(filepath.Join(filepath.Dir(source), "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(mainSource)
+	if !strings.Contains(contents, "databaseConnectionLimitsFromEnv(dialect)") {
+		t.Fatal("main does not use the validated database connection limit configuration")
+	}
+	if strings.Contains(contents, "must be at least 2 for PostgreSQL startup locking") ||
+		strings.Contains(contents, "dialect == storage.SQLDialectPostgres && dbMaxOpen < 2") {
+		t.Fatal("main still rejects a one-connection PostgreSQL pool")
 	}
 }
 
