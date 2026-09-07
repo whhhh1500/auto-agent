@@ -249,13 +249,18 @@ type Server struct {
 	// nativeStrict is set only by NewNativeStrictServer. It deliberately has
 	// no Config representation: generic integrations retain caller-owned
 	// Runtime and registry lifecycles and can never acquire this authority.
-	nativeStrict                  *nativeStrictOwnership
-	nativeQueuedRecoveryTestHooks *nativeQueuedRecoveryTestHooks
-	defaultProfileID              string
-	maxBody                       int64
-	maxWriteDelay                 time.Duration
-	runExecutors                  *runexecutor.Registry
-	capabilityRuntimes            *capabilityruntime.Registry
+	nativeStrict                   *nativeStrictOwnership
+	nativeQueuedRecoveryTestHooks  *nativeQueuedRecoveryTestHooks
+	nativeQueuedRetentionTestHooks *nativeQueuedRetentionTestHooks
+	// Native retention values are private test seams. Tests set them before
+	// StartRunWorkers; deployments always use the shared retention defaults.
+	nativeQueuedRetentionEvery  time.Duration
+	nativeQueuedRetentionWindow time.Duration
+	defaultProfileID            string
+	maxBody                     int64
+	maxWriteDelay               time.Duration
+	runExecutors                *runexecutor.Registry
+	capabilityRuntimes          *capabilityruntime.Registry
 	// Releases is the optional publish/rollback surface for profiles. When
 	// nil, release routes answer 501 — transport-only deployments skip them.
 	Releases                *control.ReleaseManager

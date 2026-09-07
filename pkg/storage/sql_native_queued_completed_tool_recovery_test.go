@@ -104,7 +104,58 @@ func assertNativeQueuedCompletedToolRecoveryConcurrent(t *testing.T, fixture *na
 	assertNativeQueuedCompletedToolRecovery(t, fixture)
 }
 
+// assertNativeQueuedModelPruneAcceptsCoalescedBaseChunk exercises the
+// WriteBehind shape in which a physical chunk begins before the v45 admission
+// but contains the later v46 outcome. The v46 digest remains a logical batch
+// prefix, so retention must validate it from admission rather than the chunk
+// start while still rejecting a hash that starts in the middle of a chunk.
+func assertNativeQueuedModelPruneAcceptsCoalescedBaseChunk(t *testing.T, ctx context.Context, store *SQLSessionStore, sessionID, runID string) {
+	t.Helper()
+	fixture := newNativeQueuedModelOutcomeFixture(t, store, sessionID, runID)
+	if appended, err := store.AppendNativeQueuedModelOutcomeFenced(ctx, fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+		t.Fatalf("append=%t err=%v", appended, err)
+	}
+	appendNativeQueuedModelSuccessor(t, fixture)
+	var basePayload, outcomePayload string
+	if err := store.db.QueryRowContext(ctx, (sqlQuery{"SELECT payload FROM event_chunks WHERE session_id = ? AND start_seq = ?"}).bind(store.dialect), fixture.fence.SessionID, 0).Scan(&basePayload); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(ctx, (sqlQuery{"SELECT payload FROM event_chunks WHERE session_id = ? AND start_seq = ?"}).bind(store.dialect), fixture.fence.SessionID, fixture.version).Scan(&outcomePayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, (sqlQuery{"UPDATE event_chunks SET payload = ? WHERE session_id = ? AND start_seq = ?"}).bind(store.dialect), basePayload+outcomePayload, fixture.fence.SessionID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, (sqlQuery{"DELETE FROM event_chunks WHERE session_id = ? AND start_seq = ?"}).bind(store.dialect), fixture.fence.SessionID, fixture.version); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := store.PruneNativeQueuedModelInvocations(ctx, time.Now().UTC().Add(time.Hour)); err != nil || deleted != 1 {
+		t.Fatalf("coalesced prune deleted=%d err=%v", deleted, err)
+	}
+	if attempts, outcomes := nativeQueuedModelPairCounts(t, store, fixture.fence.SessionID); attempts != 0 || outcomes != 0 {
+		t.Fatalf("coalesced prune attempts=%d outcomes=%d", attempts, outcomes)
+	}
+}
+
 func TestSQLSessionStoreRecoverNativeQueuedCompletedToolResultFenced(t *testing.T) {
+	t.Run("prune_accepts_v46_after_coalesced_base_chunk", func(t *testing.T) {
+		assertNativeQueuedModelPruneAcceptsCoalescedBaseChunk(t, context.Background(), newTestSQLStore(t), "session-native-tool-prune-coalesced", "run-native-tool-prune-coalesced")
+	})
+	t.Run("prune_rejects_out_of_range_v46_indices", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-native-tool-prune-index", "run-native-tool-prune-index")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatalf("append=%t err=%v", appended, err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), (sqlQuery{`UPDATE native_queued_model_invocation_outcomes
+			SET assistant_event_seq = ?, usage_event_seq = ?, session_version_after_outcome = ? WHERE session_id = ?`}).bind(fixture.store.dialect), 99, 100, 101, fixture.fence.SessionID); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("out-of-range prune deleted=%d err=%v", deleted, err)
+		}
+	})
+
 	t.Run("A_delivery_and_B_readback_response_lost", func(t *testing.T) {
 		fixture := newNativeQueuedCompletedToolRecoveryFixture(t, newTestSQLStore(t), "session-native-tool-recovery", "run-native-tool-recovery")
 		session, recovered, err := fixture.store.RecoverNativeQueuedCompletedToolResultFenced(context.Background(), fixture.fence, fixture.input.AuthorizationEpoch, fixture.version)
@@ -290,6 +341,9 @@ func TestPostgresSQLSessionStoreRecoverNativeQueuedCompletedToolResultFenced(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("prune_accepts_v46_after_coalesced_base_chunk", func(t *testing.T) {
+		assertNativeQueuedModelPruneAcceptsCoalescedBaseChunk(t, ctx, store, "session-pg-native-tool-prune-coalesced", "run-pg-native-tool-prune-coalesced")
+	})
 	fixture := newNativeQueuedCompletedToolRecoveryFixture(t, store, "session-pg-native-tool-recovery", "run-pg-native-tool-recovery")
 	if session, recovered, err := store.RecoverNativeQueuedCompletedToolResultFenced(ctx, fixture.fence, fixture.input.AuthorizationEpoch, fixture.version); err != nil || !recovered || session == nil || session.Version() != fixture.version+1 {
 		t.Fatalf("A session=%v recovered=%t err=%v", session, recovered, err)

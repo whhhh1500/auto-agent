@@ -127,10 +127,15 @@ repeats current admission. Generic/dynamic servers, multiple or ambiguous
 pending calls, partial model streaming, unknown v45 attempts, and non-sequential
 executors remain ineligible and fail closed. Cancellation fencing and principal
 preflight may terminalize run control without a matching open-Session suffix;
-that reconciliation is not supplied here. Native retention wiring is deferred
-to a later slice, although the storage pruner retains unknown v45 attempts
-permanently. Detached control projection and current continuation admission
-remain required. See the
+that reconciliation is not supplied here. Native-static workers run a private
+v45/v46 pair-retention loop with a one-hour tick and 90-day window. It is
+started only by `StartRunWorkers`, joins worker shutdown drain, retains unknown
+v45 attempts permanently, and never collects V3, v44, or completed journal
+lineage. Successful deletion counts and failures use the existing structured
+retention logs; no separate retention metric is exported. Manual
+`StartRetentionLoop` remains caller-context owned, while generic servers and
+`RunWorkerOnce` do not start Native retention. Detached control projection and
+current continuation admission remain required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
 

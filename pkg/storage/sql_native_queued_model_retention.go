@@ -17,13 +17,11 @@ var (
 	sqlListPrunableNativeQueuedModels = sqlQuery{`SELECT session_id, run_id, invocation_id
 		FROM native_queued_model_invocation_outcomes WHERE created_at < ?
 		ORDER BY session_id, run_id, invocation_id LIMIT 8192`}
-	sqlLockNativeQueuedModelRun                 = sqlQuery{`SELECT status, session_id, tenant_id, subject_id FROM run_control WHERE run_id = ?`}
-	sqlLockNativeQueuedModelRunPostgres         = sqlQuery{`SELECT status, session_id, tenant_id, subject_id FROM run_control WHERE run_id = ? FOR UPDATE`}
-	sqlLockNativeQueuedModelSession             = sqlQuery{`SELECT version, header FROM sessions WHERE id = ?`}
-	sqlLockNativeQueuedModelSessionPostgres     = sqlQuery{`SELECT version, header FROM sessions WHERE id = ? FOR UPDATE`}
-	sqlSelectNativeQueuedModelOutcomeChunkStart = sqlQuery{`SELECT start_seq FROM event_chunks
-		WHERE session_id = ? AND start_seq <= ? ORDER BY start_seq DESC LIMIT 1`}
-	sqlDeleteNativeQueuedModelOutcome = sqlQuery{`DELETE FROM native_queued_model_invocation_outcomes
+	sqlLockNativeQueuedModelRun             = sqlQuery{`SELECT status, session_id, tenant_id, subject_id FROM run_control WHERE run_id = ?`}
+	sqlLockNativeQueuedModelRunPostgres     = sqlQuery{`SELECT status, session_id, tenant_id, subject_id FROM run_control WHERE run_id = ? FOR UPDATE`}
+	sqlLockNativeQueuedModelSession         = sqlQuery{`SELECT version, header FROM sessions WHERE id = ?`}
+	sqlLockNativeQueuedModelSessionPostgres = sqlQuery{`SELECT version, header FROM sessions WHERE id = ? FOR UPDATE`}
+	sqlDeleteNativeQueuedModelOutcome       = sqlQuery{`DELETE FROM native_queued_model_invocation_outcomes
 		WHERE session_id = ? AND run_id = ? AND invocation_id = ?`}
 	sqlDeleteNativeQueuedModelAttempt = sqlQuery{`DELETE FROM native_queued_model_invocations
 		WHERE session_id = ? AND run_id = ? AND invocation_id = ?`}
@@ -148,20 +146,11 @@ func (s *SQLSessionStore) pruneNativeQueuedModelCandidate(ctx context.Context, t
 	if err != nil {
 		return false, err
 	}
-	var outcomeStartSeq int64
-	if err := tx.QueryRowContext(ctx, sqlSelectNativeQueuedModelOutcomeChunkStart.bind(s.dialect), candidate.sessionID, outcome.assistantEventSeq).Scan(&outcomeStartSeq); errors.Is(err, sql.ErrNoRows) {
-		return false, completedToolResultProofInvalid()
-	} else if err != nil {
-		return false, err
-	}
-	if outcomeStartSeq < 0 || outcomeStartSeq > outcome.assistantEventSeq || outcome.versionAfterOutcome > int64(len(session.Events())) {
-		return false, completedToolResultProofInvalid()
-	}
-	outcomeEvents := session.Events()[outcomeStartSeq:outcome.versionAfterOutcome]
-	if err := verifyCompletedToolResultRecoveryPrefixChunk(ctx, tx, s.dialect, candidate.sessionID, outcomeStartSeq, outcomeEvents); err != nil {
-		return false, err
-	}
-	if err := validateNativeQueuedModelOutcomeForPrune(session, attempt, outcome, outcomeStartSeq); err != nil {
+	// The v46 prefix is a logical batch boundary, not a physical event_chunks
+	// boundary. Its hash can start after admission when assistant chunks were
+	// already durable, or share a chunk with earlier run events. Re-derive it
+	// from the exact durable Session and v46 digest.
+	if _, err := nativeQueuedModelOutcomePrefixStart(ctx, tx, s.dialect, candidate.sessionID, session, attempt, outcome); err != nil {
 		return false, err
 	}
 	if outcome.createdAt.UnixMilli() >= cutoff || active && version <= outcome.versionAfterOutcome {

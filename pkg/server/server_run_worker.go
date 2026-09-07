@@ -119,6 +119,15 @@ func (s *Server) StartRunWorkers(ctx context.Context) error {
 			s.runApprovalExpiryLoop(claimCtx)
 		}()
 	}
+	if _, enabled, err := s.nativeQueuedModelInvocationRetentionPruner(); err != nil {
+		s.logRetention("native_queued_model_invocations", 0, err)
+	} else if enabled {
+		s.workersWG.Add(1)
+		go func() {
+			defer s.workersWG.Done()
+			s.runNativeQueuedModelInvocationRetention(claimCtx)
+		}()
+	}
 	for index := 0; index < s.runWorkerCount; index++ {
 		workerID := fmt.Sprintf("%s:run-worker:%d", s.instanceID, index)
 		s.workersWG.Add(1)

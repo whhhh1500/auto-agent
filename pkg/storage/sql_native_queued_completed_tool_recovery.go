@@ -321,7 +321,7 @@ func validateNativeQueuedModelOutcomeHistory(ctx context.Context, tx *sql.Tx, di
 		if err != nil || !found || outcome.attemptRequestSHA256 != attempt.requestSHA256 {
 			return completedToolResultProofInvalid()
 		}
-		if err := validateNativeQueuedModelOutcomeForPrune(session, attempt, outcome, attempt.sessionVersionAtAdmission); err != nil {
+		if _, err := nativeQueuedModelOutcomePrefixStart(ctx, tx, dialect, sessionID, session, attempt, outcome); err != nil {
 			return err
 		}
 	}

@@ -205,13 +205,68 @@ generic or dynamic recovery surface.
 
 ## Retention boundary
 
-Only the existing v45/v46 pair pruner is in scope for later worker wiring. It
-locks and verifies each pair and may remove it only when the Run is terminal
-or a durable Session successor exists; it never selects v45 attempts without
-outcomes, which remain permanent replay fences. v43 sidecars, v44 witnesses
-and completed journal rows have no retention change in this slice. In
-particular, no epoch, queue-generation or age-only cleanup may remove evidence
-that remains a current recovery tail.
+The v45/v46 pair pruner locks and verifies each candidate, then may remove it
+only when the Run is terminal or a durable Session successor already covers the
+outcome. It never selects a v45 attempt without v46, which remains a permanent
+model replay fence. The v46 digest is over a logical outcome prefix: its start
+is either v45 admission or a later durable event-chunk boundary. It is not the
+start of whichever physical chunk happens to contain the assistant event, so a
+WriteBehind batch that coalesces `run/start`, `user`, or `step/start` with the
+later outcome remains verifiable. A hash that begins inside a previously
+persisted assistant-chunk batch remains invalid.
+
+v43 sidecars, v44 witnesses, and completed journal rows have no GC path here.
+The ordinary journal pruner also preserves a completed journal row referenced
+by either V3 or v44. This keeps both Native A/B recovery windows' direct
+lineage after an old, durable v45/v46 pair is removed. No epoch,
+queue-generation, or age-only cleanup may remove evidence that remains a
+current recovery tail.
+
+## Third-batch Native retention acceptance recorded 2026-09-08
+
+`StartRunWorkers` starts a private Native-static v45/v46 retention loop only
+after the sealed SQL authority has been established. Its defaults are a
+one-hour tick and a 90-day window; the values have no public configuration
+surface. The loop is part of the workers wait group and receives `claimCtx`, so
+`Shutdown` stops new claims, cancels the loop, and waits for it with the other
+worker-owned routines. Manual `StartRetentionLoop` remains caller-context
+owned and does not own this Native loop. `RunWorkerOnce` and generic servers do
+not start Native retention. Successful deletions use the existing structured
+`retention prune` log with `table` and `deleted`; errors use `retention prune
+failed` with `table` and `error`. No separate retention metric/exporter exists.
+
+Focused gates completed with native exit `0`: the Native worker ticker safely
+pruned v45/v46 after a completed A-recovery lineage while V3, v44, and its
+completed journal remained; an unknown v45 stayed durable; lifecycle tests
+covered one loop only, generic/manual exclusion, and shutdown drain. The
+storage gates cover coalesced physical chunks, separately checkpointed
+assistant chunks, in-chunk subsuffix-hash rejection, corrupt v46 index
+rejection without panic, and the existing terminal/successor, bounded-8192,
+rollback, SQLite, and PostgreSQL pair-pruner contracts. No live or metered
+provider participates.
+
+```text
+D:\cc\auto_agent\.codex-v46-audit\third-batch-full-test.exit.txt
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-retention-server-pg.exit.txt
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-storage-pg-retention-recovery.exit.txt
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-native-hardkill-regression.exit.txt
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-key-retention-recovery-race.exit.txt
+```
+
+The strict full PostgreSQL runner completed with 102 tests, 65 subtests, 10
+packages, and zero named-test skips. Its test exit and task PostgreSQL-stop
+exit are `0`:
+
+```text
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-final-test-postgres.jsonl
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-final-test-postgres.console.log
+D:\cc\auto_agent\.codex-v46-audit\pg-debug-55441\third-batch-final-test-postgres.exit.txt
+```
+
+Cancellation and revoked-principal preflight retain the second-batch control/
+open-Session reconciliation limitation: a lost current fence stops the old
+owner without a recovery suffix, and this retention loop does not create a new
+terminalization authority.
 
 ## First-batch acceptance recorded 2026-09-08
 

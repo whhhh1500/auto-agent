@@ -237,25 +237,32 @@ func (s *Server) StartRetentionLoop(ctx context.Context, every time.Duration, au
 	if !s.retentionLoopEnabled() {
 		return
 	}
+	go s.runRetentionLoop(ctx, every, auditRetention, s.pruneRetentionOnce)
+}
+
+// runRetentionLoop blocks until ctx is cancelled. Its caller owns the
+// goroutine lifetime, which lets worker startup include Native retention in
+// the same shutdown wait group without changing the public manual API.
+func (s *Server) runRetentionLoop(ctx context.Context, every time.Duration, auditRetention time.Duration, prune func(context.Context, time.Time)) {
 	if every <= 0 {
 		every = time.Hour
 	}
 	if auditRetention <= 0 {
 		auditRetention = 90 * 24 * time.Hour
 	}
-	go func() {
-		ticker := time.NewTicker(every)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if ctx.Err() != nil {
 				return
-			case <-ticker.C:
-				cutoff := time.Now().UTC().Add(-auditRetention)
-				s.pruneRetentionOnce(ctx, cutoff)
 			}
+			prune(ctx, time.Now().UTC().Add(-auditRetention))
 		}
-	}()
+	}
 }
 
 func (s *Server) retentionLoopEnabled() bool {

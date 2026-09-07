@@ -31,6 +31,8 @@ var (
 		attempt_request_sha256, assistant_event_seq, usage_event_seq, session_version_after_outcome,
 		outcome_sha256, created_at FROM native_queued_model_invocation_outcomes
 		WHERE session_id = ? AND run_id = ? AND invocation_id = ? FOR UPDATE`}
+	sqlListNativeQueuedModelOutcomePrefixStarts = sqlQuery{`SELECT start_seq FROM event_chunks
+		WHERE session_id = ? AND start_seq >= ? AND start_seq <= ? ORDER BY start_seq`}
 )
 
 type nativeQueuedModelOutcome struct {
@@ -309,6 +311,69 @@ func validateNativeQueuedModelOutcomeBatchCommitted(session *core.Session, optio
 		return err
 	}
 	return nil
+}
+
+// nativeQueuedModelOutcomePrefixStart derives v46's logical hash boundary.
+// That boundary is the batch's expected version, which can be after v45
+// admission when already-persisted assistant chunks precede the eventual
+// assistant/message. Event-chunk storage boundaries are unrelated: a
+// WriteBehind batch may also coalesce earlier non-outcome events into the
+// same physical chunk. The v46 digest identifies exactly one permitted
+// suffix of the consecutive assistant-chunk region. A candidate is either
+// v45's admission version (a coalesced write may begin its physical chunk
+// earlier) or a later event_chunks boundary, because every append creates one
+// chunk at its expected version. This excludes a forged hash which starts in
+// the middle of a previously persisted assistant-chunk batch.
+func nativeQueuedModelOutcomePrefixStart(ctx context.Context, tx *sql.Tx, dialect SQLDialect, sessionID string, session *core.Session, attempt nativeQueuedModelInvocation, outcome nativeQueuedModelOutcome) (int64, error) {
+	if session == nil || attempt.sessionVersionAtAdmission < 1 || outcome.assistantEventSeq < attempt.sessionVersionAtAdmission || outcome.versionAfterOutcome > session.Version() {
+		return 0, completedToolResultProofInvalid()
+	}
+	eventCount := int64(len(session.Events()))
+	if outcome.assistantEventSeq < 0 || outcome.assistantEventSeq >= eventCount || outcome.usageEventSeq != outcome.assistantEventSeq+1 || outcome.usageEventSeq >= eventCount || outcome.versionAfterOutcome != outcome.usageEventSeq+1 || outcome.versionAfterOutcome <= 0 || outcome.versionAfterOutcome > eventCount {
+		return 0, completedToolResultProofInvalid()
+	}
+	rows, err := tx.QueryContext(ctx, sqlListNativeQueuedModelOutcomePrefixStarts.bind(dialect), sessionID, attempt.sessionVersionAtAdmission, outcome.assistantEventSeq)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	candidates := map[int64]struct{}{attempt.sessionVersionAtAdmission: {}}
+	for rows.Next() {
+		var start int64
+		if err := rows.Scan(&start); err != nil {
+			return 0, err
+		}
+		candidates[start] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	events := session.Events()
+	first := outcome.assistantEventSeq
+	for first > attempt.sessionVersionAtAdmission {
+		event := events[first-1]
+		if event.Type != core.EvAssistantChunk || event.RunID != outcome.runID {
+			break
+		}
+		first--
+	}
+	matched := int64(-1)
+	for candidate := first; candidate <= outcome.assistantEventSeq; candidate++ {
+		if _, allowed := candidates[candidate]; !allowed {
+			continue
+		}
+		if err := validateNativeQueuedModelOutcomeForPrune(session, attempt, outcome, candidate); err != nil {
+			continue
+		}
+		if matched >= 0 {
+			return 0, completedToolResultProofInvalid()
+		}
+		matched = candidate
+	}
+	if matched < 0 {
+		return 0, completedToolResultProofInvalid()
+	}
+	return matched, nil
 }
 
 func validateNativeQueuedModelOutcomeForPrune(session *core.Session, attempt nativeQueuedModelInvocation, outcome nativeQueuedModelOutcome, outcomeStartSeq int64) error {

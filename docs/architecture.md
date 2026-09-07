@@ -246,7 +246,9 @@ to the adapter configuration, outside the core contract.
   provider replay, prove provider execution or transport receipt. SQL
   retention may delete an old outcome/attempt pair only after strict proof
   validation and either a terminal run or a durable Session successor;
-  attempts without outcomes remain permanent replay fences.
+  attempts without outcomes remain permanent replay fences. The validated
+  prefix begins at admission or a later durable event-chunk boundary, never at
+  an arbitrary offset in the physical chunk containing the outcome.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -338,8 +340,12 @@ to the adapter configuration, outside the core contract.
    and every later tool or model effect wins its own current admission. A
    cancellation-lost fence or unresolved current principal stops without a
    recovery suffix; control and open-Session terminal reconciliation remains a
-   separate concern. Native-static retention wiring is deferred; the existing
-   storage pruner remains limited to safe v45/v46 pairs.
+   separate concern. Native-static workers own a private one-hour/90-day
+   v45/v46 retention loop in the worker wait group. It prunes only safe pairs,
+   leaves unknown v45 attempts permanent, and never collects V3, v44, or their
+   completed journal lineage. Generic servers and `RunWorkerOnce` do not start
+   this loop. Existing structured retention logs expose successful deletion
+   counts and failures; there is no separate retention metrics surface.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or
