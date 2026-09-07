@@ -24,6 +24,8 @@
       "types": [
         "AuthorizationEpochReader",
         "CompletedToolResultRecoveryPrefix",
+        "CompletedToolResultRecoverySidecar",
+        "CompletedToolResultRecoverySidecarInput",
         "FencedCompletedToolResultAppender",
         "FencedCompletedToolResultRecoveryAppender",
         "FencedSessionAppender",
@@ -37,8 +39,10 @@
         "SQLRunControlStore.AuthorizationEpoch",
         "SQLSessionStore.AppendCompletedToolResultFenced",
         "SQLSessionStore.AppendCompletedToolResultRecoveryPrefixFenced",
+        "SQLSessionStore.AppendCompletedToolResultRecoverySidecarFenced",
         "SQLSessionStore.AppendEventsFenced",
         "SQLSessionStore.AuthorizationEpoch",
+        "SQLSessionStore.LoadCompletedToolResultRecoverySidecarFenced",
         "SQLQueuedPrincipalResolver.AuthorizationEpoch",
         "SQLQueuedPrincipalResolver.ResolveRunPrincipal",
         "SQLToolInvocationJournal.GetToolInvocation",
@@ -62,7 +66,7 @@
         "ErrSessionWriteFenceLost"
       ],
       "constants": null,
-      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery and recovery prefixes, plus an authorization epoch read/fence. SQLQueuedPrincipalResolver is a native, same-authority queued-owner resolver; its stable non-disclosure errors let a server distinguish permanent account identity/state failures from retryable storage failures. These are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
+      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery, recovery prefixes, and V3 SQL-local sidecars, plus an authorization epoch read/fence. A V3 sidecar is immutable historical delivery evidence beside one canonical tool/result; it does not authorize continuation, consume/ack recovery state, or enable automatic recovery. SQLQueuedPrincipalResolver is a native, same-authority queued-owner resolver; its stable non-disclosure errors let a server distinguish permanent account identity/state failures from retryable storage failures. These are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
     },
     {
       "package": "pkg/runtime",
@@ -3839,6 +3843,8 @@
         "Cipher",
         "ColdSweeper",
         "CompletedToolResultRecoveryPrefix",
+        "CompletedToolResultRecoverySidecar",
+        "CompletedToolResultRecoverySidecarInput",
         "DynamicObjectStore",
         "EvidenceKind",
         "EvidencePage",
@@ -4087,6 +4093,7 @@
         "SQLSessionStore.AcquireSessionLease",
         "SQLSessionStore.AppendCompletedToolResultFenced",
         "SQLSessionStore.AppendCompletedToolResultRecoveryPrefixFenced",
+        "SQLSessionStore.AppendCompletedToolResultRecoverySidecarFenced",
         "SQLSessionStore.AppendEvents",
         "SQLSessionStore.AppendEventsFenced",
         "SQLSessionStore.AuthorizationEpoch",
@@ -4095,6 +4102,7 @@
         "SQLSessionStore.FindReleaseByOperation",
         "SQLSessionStore.LibraryObserver",
         "SQLSessionStore.ListReleaseProfiles",
+        "SQLSessionStore.LoadCompletedToolResultRecoverySidecarFenced",
         "SQLSessionStore.ListSessions",
         "SQLSessionStore.Load",
         "SQLSessionStore.LoadReleases",
@@ -4411,7 +4419,7 @@
     "control/error"
   ],
   "sql_schema": {
-    "current_version": 42,
+    "current_version": 43,
     "history": [
       {
         "version": 1,
@@ -4703,6 +4711,13 @@
         "version": 42,
         "change": "separate durable authorization epoch for SQL recovery fencing",
         "tables_added": []
+      },
+      {
+        "version": 43,
+        "change": "immutable SQL-local completed-tool-result recovery sidecars beside canonical tool/result delivery",
+        "tables_added": [
+          "completed_tool_result_recovery_sidecars"
+        ]
       }
     ],
     "canonical_tables_at_v41": [

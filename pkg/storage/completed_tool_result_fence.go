@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
@@ -46,6 +47,36 @@ type CompletedToolResultRecoveryPrefix struct {
 	ExpectedAuthorizationEpoch int64
 }
 
+// CompletedToolResultRecoverySidecarInput is the immutable historical
+// composition evidence that a native SQL writer stores beside one canonical
+// completed tool result. It is not a continuation request or authorization
+// grant. AuthorizationEpoch is the expected current delivery epoch checked
+// and locked by Append; after commit it is historical delivery evidence.
+type CompletedToolResultRecoverySidecarInput struct {
+	Composition          *core.RunCompositionData
+	ProfileSnapshotID    string
+	CapabilitySnapshotID string
+	CompositionRevision  string
+	AssignmentRevision   string
+	Invocation           core.ToolInvocation
+	ResultDigest         string
+	AuthorizationEpoch   int64
+	OriginStepSeq        int64
+}
+
+// CompletedToolResultRecoverySidecar is the immutable SQL-local record bound
+// to one canonical tool/result event. Input is named rather than embedded so
+// callers do not confuse its historical fields with current execution
+// authority. Readback of this value never grants a continuation.
+type CompletedToolResultRecoverySidecar struct {
+	Protocol          string
+	Input             CompletedToolResultRecoverySidecarInput
+	CompositionSHA256 string
+	CallEventSeq      int64
+	ResultEventSeq    int64
+	CreatedAt         time.Time
+}
+
 // FencedCompletedToolResultRecoveryAppender is the optional V2 companion to
 // FencedCompletedToolResultAppender. Native SQL implementations atomically
 // lock the expected authorization epoch, fenced ownership, and exact completed
@@ -53,6 +84,11 @@ type CompletedToolResultRecoveryPrefix struct {
 // It must not be emulated across separate SQL authorities. Callers must reload
 // after either outcome; appended=false only reports exact response-lost
 // convergence while both the supplied fence and authorization epoch are live.
+//
+// Deprecated: the Core continuation parser does not accept a run/resume event
+// between a tool/call and tool/result. New native SQL work must use the V3
+// sidecar methods on SQLSessionStore instead; they write only canonical
+// tool/result events and do not enable a recovery coordinator.
 type FencedCompletedToolResultRecoveryAppender interface {
 	AppendCompletedToolResultRecoveryPrefixFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, prefix CompletedToolResultRecoveryPrefix) (appended bool, err error)
 }

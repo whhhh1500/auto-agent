@@ -238,11 +238,30 @@ func (s *SQLBindingJournal) List(ctx context.Context) ([]BindingRecord, error) {
 // Retention prunes: bounded-table hygiene for audit, hits, and leases.
 
 var (
-	sqlPruneAudit           = sqlQuery{"DELETE FROM audit_events WHERE time < ?"}
-	sqlPruneHits            = sqlQuery{"DELETE FROM obs_hits WHERE time < ?"}
-	sqlPruneLeases          = sqlQuery{"DELETE FROM session_leases WHERE expires_at < ?"}
-	sqlPruneToolInvocations = sqlQuery{`DELETE FROM tool_invocations
-		WHERE state = 'completed' AND completed_at > 0 AND completed_at < ?`}
+	sqlPruneAudit  = sqlQuery{"DELETE FROM audit_events WHERE time < ?"}
+	sqlPruneHits   = sqlQuery{"DELETE FROM obs_hits WHERE time < ?"}
+	sqlPruneLeases = sqlQuery{"DELETE FROM session_leases WHERE expires_at < ?"}
+	// Sidecars currently have no GC path. Retain every completed journal proof
+	// they reference rather than risk deleting an eligible historical result.
+	// A future retention transaction may collect only terminal or superseded
+	// sidecars and their journal rows together.
+	sqlListPrunableToolInvocations = sqlQuery{`SELECT tenant_id, subject_id, session_id, run_id,
+		call_id, capability_id, args_digest, idempotent
+		FROM tool_invocations
+		WHERE state = 'completed' AND completed_at > 0 AND completed_at < ?
+		ORDER BY session_id, run_id, call_id, capability_id, args_digest, idempotent LIMIT 8192`}
+	sqlListPrunableToolInvocationsPostgres = sqlQuery{`SELECT tenant_id, subject_id, session_id, run_id,
+		call_id, capability_id, args_digest, idempotent
+		FROM tool_invocations
+		WHERE state = 'completed' AND completed_at > 0 AND completed_at < ?
+		ORDER BY session_id, run_id, call_id, capability_id, args_digest, idempotent
+		LIMIT 8192 FOR UPDATE`}
+	sqlDeleteToolInvocation = sqlQuery{`DELETE FROM tool_invocations
+		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
+		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
+	sqlSidecarExistsForToolInvocation = sqlQuery{`SELECT 1 FROM completed_tool_result_recovery_sidecars
+		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
+		AND call_id = ? AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
 	sqlPruneApprovals = sqlQuery{`DELETE FROM approval_requests
 		WHERE status <> 'pending' AND decided_at > 0 AND decided_at < ?`}
 	sqlPruneRunSubmissions = sqlQuery{`DELETE FROM run_submissions
@@ -278,15 +297,78 @@ func (s *SQLSessionStore) PruneExpiredLeases(ctx context.Context) (int64, error)
 	return result.RowsAffected()
 }
 
-// PruneToolInvocations deletes only old completed outcomes. Started and
-// uncertain rows are retained because deleting them could permit a duplicate
-// non-idempotent side effect.
+// PruneToolInvocations deletes only old completed outcomes not referenced by
+// a V3 recovery sidecar. Started and uncertain rows are retained because
+// deleting them could permit a duplicate non-idempotent side effect. Sidecar
+// rows are intentionally not collected in this first storage-only slice.
 func (s *SQLSessionStore) PruneToolInvocations(ctx context.Context, olderThan time.Time) (int64, error) {
-	result, err := s.db.ExecContext(ctx, sqlPruneToolInvocations.bind(s.dialect), olderThan.UTC().UnixMilli())
+	if s == nil || s.db == nil {
+		return 0, fmt.Errorf("tool invocation pruning requires an SQL session store")
+	}
+	epoch, err := s.AuthorizationEpoch(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := lockAuthorizationEpoch(ctx, tx, s.dialect, epoch); err != nil {
+		return 0, err
+	}
+	query := sqlListPrunableToolInvocations
+	if s.dialect == SQLDialectPostgres {
+		query = sqlListPrunableToolInvocationsPostgres
+	}
+	rows, err := tx.QueryContext(ctx, query.bind(s.dialect), olderThan.UTC().UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	type toolInvocationKey struct {
+		tenantID, subjectID, sessionID, runID, callID, capabilityID, argsDigest string
+		idempotent                                                              int
+	}
+	var candidates []toolInvocationKey
+	for rows.Next() {
+		var candidate toolInvocationKey
+		if err := rows.Scan(&candidate.tenantID, &candidate.subjectID, &candidate.sessionID, &candidate.runID, &candidate.callID, &candidate.capabilityID, &candidate.argsDigest, &candidate.idempotent); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	var deleted int64
+	for _, candidate := range candidates {
+		var present int
+		err := tx.QueryRowContext(ctx, sqlSidecarExistsForToolInvocation.bind(s.dialect), candidate.tenantID, candidate.subjectID, candidate.sessionID, candidate.runID, candidate.callID, candidate.capabilityID, candidate.argsDigest, candidate.idempotent).Scan(&present)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		result, err := tx.ExecContext(ctx, sqlDeleteToolInvocation.bind(s.dialect), candidate.tenantID, candidate.subjectID, candidate.sessionID, candidate.runID, candidate.callID, candidate.capabilityID, candidate.argsDigest, candidate.idempotent)
+		if err != nil {
+			return 0, err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		deleted += count
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }
 
 // PruneApprovals deletes old decided requests. Pending approvals remain until

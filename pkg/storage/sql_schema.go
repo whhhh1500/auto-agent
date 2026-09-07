@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place: the schema DDL only adds objects, so
 // opening a v1 database creates the missing tables and advances the
 // recorded version.
-const SQLSchemaVersion = 42
+const SQLSchemaVersion = 43
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -804,4 +804,38 @@ CREATE TABLE IF NOT EXISTS graph_checkpoint_versions (
 const sqlSchemaV42AuthorizationEpoch = `
 INSERT INTO store_meta (key, value) VALUES ('authorization_epoch', '0')
 	ON CONFLICT (key) DO NOTHING;
+`
+
+// sqlSchemaV43CompletedToolResultRecoverySidecars stores immutable SQL-local
+// proof beside a canonical completed tool/result. It deliberately does not
+// add a Session event, run_evidence segment, acknowledgement, or execution
+// grant. Future native coordination must separately prove current authority.
+const sqlSchemaV43CompletedToolResultRecoverySidecars = `
+CREATE TABLE IF NOT EXISTS completed_tool_result_recovery_sidecars (
+	protocol                 TEXT NOT NULL CHECK (protocol = 'completed_tool_result_sidecar/v1'),
+	tenant_id                TEXT NOT NULL CHECK (length(tenant_id) BETWEEN 1 AND 256),
+	subject_id               TEXT NOT NULL CHECK (length(subject_id) BETWEEN 1 AND 256),
+	session_id               TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id                   TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	call_id                  TEXT NOT NULL CHECK (length(call_id) BETWEEN 1 AND 128),
+	capability_id            TEXT NOT NULL CHECK (length(capability_id) BETWEEN 1 AND 256),
+	args_digest              TEXT NOT NULL CHECK (length(args_digest) = 64),
+	idempotent               INTEGER NOT NULL CHECK (idempotent IN (0, 1)),
+	origin_step_seq          BIGINT NOT NULL CHECK (origin_step_seq >= 0),
+	call_event_seq           BIGINT NOT NULL CHECK (call_event_seq >= 0),
+	result_event_seq         BIGINT NOT NULL CHECK (result_event_seq = call_event_seq + 1),
+	result_sha256            TEXT NOT NULL CHECK (length(result_sha256) = 64),
+	authorization_epoch      BIGINT NOT NULL CHECK (authorization_epoch >= 0),
+	profile_snapshot_id      TEXT NOT NULL CHECK (length(profile_snapshot_id) BETWEEN 1 AND 512),
+	capability_snapshot_id   TEXT NOT NULL CHECK (length(capability_snapshot_id) BETWEEN 1 AND 512),
+	composition_revision     TEXT NOT NULL CHECK (length(composition_revision) = 64),
+	assignment_revision      TEXT NOT NULL CHECK (length(assignment_revision) = 64),
+	composition_json         TEXT NOT NULL CHECK (length(composition_json) BETWEEN 1 AND 1048576),
+	composition_sha256       TEXT NOT NULL CHECK (length(composition_sha256) = 64),
+	created_at               BIGINT NOT NULL CHECK (created_at > 0),
+	PRIMARY KEY (session_id, run_id, call_id),
+	UNIQUE (session_id, result_event_seq)
+);
+CREATE INDEX IF NOT EXISTS completed_tool_result_recovery_sidecars_run_created
+	ON completed_tool_result_recovery_sidecars (run_id, created_at);
 `

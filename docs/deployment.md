@@ -92,9 +92,11 @@ credential and model-settings control, and resource reconfiguration are out of
 scope. Give it a dedicated control database/SQL authority that is never shared
 with a generic `server.New` instance or any dynamic-control writer. Its
 authorization-epoch check detects projection lag and fails closed; it is not a
-transaction-level grant held to `run/start` or queue claim. Completed-result
-continuation stays disabled until V2 re-entry, detached control projection, and
-a model-invocation journal are implemented. See the
+transaction-level grant held to `run/start` or queue claim. Schema v43
+sidecars provide only fenced SQL historical-delivery evidence; they do not
+enable completed-result continuation, consume/ack state, or a recovery
+coordinator. Detached control projection, current execution admission, and a
+model-invocation journal are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
 

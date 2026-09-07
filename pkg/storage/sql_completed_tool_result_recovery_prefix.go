@@ -31,6 +31,10 @@ type completedToolResultRecoveryMarker struct {
 // AppendCompletedToolResultRecoveryPrefixFenced atomically records the V2
 // recovery prefix. It is intentionally separate from V1: callers must reload
 // the authoritative Session after return before starting any continuation.
+//
+// Deprecated: the Core continuation parser does not accept the intermediate
+// run/resume event. New native SQL work should use the V3 sidecar method on
+// SQLSessionStore; it does not enable an automatic recovery coordinator.
 func (s *SQLSessionStore) AppendCompletedToolResultRecoveryPrefixFenced(ctx context.Context, fence SessionWriteFence, expectedVersion int64, prefix CompletedToolResultRecoveryPrefix) (bool, error) {
 	marker, err := validateCompletedToolResultRecoveryPrefix(fence, expectedVersion, prefix)
 	if err != nil {

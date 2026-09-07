@@ -210,6 +210,13 @@ to the adapter configuration, outside the core contract.
   Composition/Assignment lookups across ordinary Runs and Backtests. The
   projection is rebuilt from canonical Session chunks during migration and is
   written atomically with new event chunks.
+- Schema v43 also has an immutable SQL-local completed-tool-result sidecar.
+  A native SQL writer can atomically bind it to one canonical `tool/result`
+  under the authorization epoch, queued-run fence, session lease, Session
+  version, and exact completed journal proof. It does not write `run/resume`,
+  alter `run_evidence`, consume the sidecar, authorize continuation, or invoke
+  Core. The historical journal proof is retained fail-safe while the first
+  slice has no terminal/superseded-sidecar garbage collector.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -284,9 +291,10 @@ to the adapter configuration, outside the core contract.
   authority must be dedicated to native-static instances, never shared with a
   generic server or dynamic-control writer. The authorization-epoch gate is a
   fail-closed lag detector, not a transaction-level authorization grant held
-  through `run/start` or a queued claim. Completed-result recovery remains
-  disabled: V2 re-entry, a detached control projection, and a model-invocation
-  journal are still required before any strict recovery coordinator can exist.
+  through `run/start` or a queued claim. V43 sidecars only provide storage
+  evidence; completed-result recovery remains disabled. Detached control
+  projection, current execution admission, and a model-invocation journal are
+  still required before any strict recovery coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or

@@ -231,6 +231,9 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 		if _, err := db.ExecContext(ctx, sqlSchemaV42AuthorizationEpoch); err != nil {
 			return nil, fmt.Errorf("ensure authorization epoch: %w", err)
 		}
+		if _, err := db.ExecContext(ctx, sqlSchemaV43CompletedToolResultRecoverySidecars); err != nil {
+			return nil, fmt.Errorf("ensure completed tool result recovery sidecars: %w", err)
+		}
 		if stored < SQLSchemaVersion {
 			if _, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 				return nil, fmt.Errorf("upgrade sql schema version: %w", err)
@@ -346,6 +349,9 @@ func initializeSQLSchema(ctx context.Context, db sqlSchemaExecutor, dialect SQLD
 	}
 	if _, err := db.ExecContext(ctx, sqlSchemaV42AuthorizationEpoch); err != nil {
 		return fmt.Errorf("ensure authorization epoch: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, sqlSchemaV43CompletedToolResultRecoverySidecars); err != nil {
+		return fmt.Errorf("ensure completed tool result recovery sidecars: %w", err)
 	}
 	result, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion))
 	if err != nil {
