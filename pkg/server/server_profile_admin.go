@@ -97,6 +97,10 @@ func (s *Server) handleAdminProfileGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
+	if err := s.rejectNativeStrictDynamicControl("profile binding publication"); err != nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": err.Error()})
+		return
+	}
 	principal, ok := s.authenticate(w, r)
 	if !ok {
 		return

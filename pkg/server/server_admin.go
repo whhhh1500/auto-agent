@@ -541,6 +541,9 @@ type bindingProjectionMount func() (func(), error)
 // guard opens. Publishing SQL first would instead expose a durable binding
 // that this process had not yet materialized.
 func (s *Server) addBinding(ctx context.Context, kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	if err := s.rejectNativeStrictDynamicControl("binding publication"); err != nil {
+		return "", err
+	}
 	if mount == nil {
 		return "", fmt.Errorf("binding projection mount is required")
 	}
@@ -592,6 +595,9 @@ func (s *Server) addBinding(ctx context.Context, kind string, scope core.ScopePa
 }
 
 func (s *Server) addEphemeralBinding(kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	if err := s.rejectNativeStrictDynamicControl("ephemeral binding publication"); err != nil {
+		return "", err
+	}
 	if mount == nil {
 		return "", fmt.Errorf("binding projection mount is required")
 	}
@@ -604,6 +610,9 @@ func (s *Server) addEphemeralBinding(kind string, scope core.ScopePath, payload 
 }
 
 func (s *Server) publishEphemeralBinding(kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	if err := s.rejectNativeStrictDynamicControl("ephemeral binding mount"); err != nil {
+		return "", err
+	}
 	unmount, err := mount()
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", errBindingProjectionInvalid, err)
@@ -619,6 +628,9 @@ func (s *Server) publishEphemeralBinding(kind string, scope core.ScopePath, payl
 // unbindBinding removes a journaled binding and drops its journal record.
 // Returns true when the binding existed.
 func (s *Server) unbindBinding(ctx context.Context, id string, principal core.Principal) (bool, error) {
+	if err := s.rejectNativeStrictDynamicControl("binding removal"); err != nil {
+		return false, err
+	}
 	initial, ok := s.adminStateFor().get(id)
 	if !ok {
 		return false, nil

@@ -243,9 +243,13 @@ type Config struct {
 
 // Server is a transport adapter; it contains no product capabilities.
 type Server struct {
-	runtime            *core.Runtime
-	sessions           core.SessionStore
-	authenticator      Authenticator
+	runtime       *core.Runtime
+	sessions      core.SessionStore
+	authenticator Authenticator
+	// nativeStrict is set only by NewNativeStrictServer. It deliberately has
+	// no Config representation: generic integrations retain caller-owned
+	// Runtime and registry lifecycles and can never acquire this authority.
+	nativeStrict       *nativeStrictOwnership
 	defaultProfileID   string
 	maxBody            int64
 	maxWriteDelay      time.Duration
@@ -362,6 +366,12 @@ const (
 
 // New validates dependencies and creates a server.
 func New(config Config) (*Server, error) {
+	return newServer(config, nil)
+}
+
+// newServer is the shared construction path. nativeStrict is private
+// constructor authority, never caller supplied configuration.
+func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, error) {
 	if config.Runtime == nil || config.Sessions == nil || config.Authenticator == nil {
 		return nil, fmt.Errorf("server dependencies are incomplete")
 	}
@@ -377,11 +387,13 @@ func New(config Config) (*Server, error) {
 		}
 	}
 	if config.AuthorizationEpochReader != nil {
-		if config.BindingJournal == nil {
+		if config.BindingJournal == nil && nativeStrict == nil {
 			return nil, fmt.Errorf("authorization-epoch admission requires a durable binding journal")
 		}
-		if err := storage.ValidateAuthorizationEpochBindingJournalAuthority(config.Sessions, config.BindingJournal, config.AuthorizationEpochReader); err != nil {
-			return nil, fmt.Errorf("authorization-epoch admission requires a binding journal in the same SQL authority: %w", err)
+		if config.BindingJournal != nil {
+			if err := storage.ValidateAuthorizationEpochBindingJournalAuthority(config.Sessions, config.BindingJournal, config.AuthorizationEpochReader); err != nil {
+				return nil, fmt.Errorf("authorization-epoch admission requires a binding journal in the same SQL authority: %w", err)
+			}
 		}
 	}
 	if config.RunExecutors == nil {
@@ -467,11 +479,11 @@ func New(config Config) (*Server, error) {
 		}
 	}
 	settingsRepository := config.SettingsRepository
-	if settingsRepository == nil && config.Accounts != nil {
+	if settingsRepository == nil && config.Accounts != nil && nativeStrict == nil {
 		settingsRepository = config.Accounts
 	}
 	settingsUseCases := config.SettingsUseCases
-	if settingsUseCases == nil && settingsRepository != nil {
+	if settingsUseCases == nil && settingsRepository != nil && nativeStrict == nil {
 		service, err := appsettings.NewService(settingsRepository)
 		if err != nil {
 			return nil, err
@@ -479,7 +491,7 @@ func New(config Config) (*Server, error) {
 		settingsUseCases = service
 	}
 	modelSettingsRepository := config.ModelSettingsRepository
-	if modelSettingsRepository == nil && settingsRepository != nil {
+	if modelSettingsRepository == nil && settingsRepository != nil && nativeStrict == nil {
 		var err error
 		modelSettingsRepository, err = modelsettingsadapter.New(settingsRepository)
 		if err != nil {
@@ -487,7 +499,7 @@ func New(config Config) (*Server, error) {
 		}
 	}
 	modelSettingsUseCases := config.ModelSettingsUseCases
-	if modelSettingsUseCases == nil && modelSettingsRepository != nil {
+	if modelSettingsUseCases == nil && modelSettingsRepository != nil && nativeStrict == nil {
 		var service *appmodelsettings.Service
 		var err error
 		if config.ModelCatalog != nil {
@@ -581,6 +593,7 @@ func New(config Config) (*Server, error) {
 	}
 	server := &Server{
 		runtime: config.Runtime, sessions: config.Sessions, authenticator: config.Authenticator,
+		nativeStrict:     nativeStrict,
 		defaultProfileID: config.DefaultProfileID,
 		maxBody:          config.MaxRequestBody, maxWriteDelay: writeDelay,
 		runExecutors: config.RunExecutors,
@@ -615,13 +628,15 @@ func New(config Config) (*Server, error) {
 		obs: config.Obs, libraryObserver: config.LibraryObserver, logger: config.Logger, telemetry: config.Telemetry,
 		executionProjection: newExecutionProjectionCoordinator(config.AuthorizationEpochReader),
 	}
-	factories := append([]capabilityruntime.Factory{}, config.CapabilityRuntimeFactories...)
-	factories = append(factories, server.builtinCapabilityRuntimeFactories()...)
-	capabilityRuntimes, err := capabilityruntime.New(32, factories...)
-	if err != nil {
-		return nil, fmt.Errorf("capability runtime registry: %w", err)
+	if nativeStrict == nil {
+		factories := append([]capabilityruntime.Factory{}, config.CapabilityRuntimeFactories...)
+		factories = append(factories, server.builtinCapabilityRuntimeFactories()...)
+		capabilityRuntimes, err := capabilityruntime.New(32, factories...)
+		if err != nil {
+			return nil, fmt.Errorf("capability runtime registry: %w", err)
+		}
+		server.capabilityRuntimes = capabilityRuntimes
 	}
-	server.capabilityRuntimes = capabilityRuntimes
 	liveness, err := runliveness.New(runliveness.Config{})
 	if err != nil {
 		return nil, err
@@ -644,6 +659,13 @@ func sameRunControlAndQueue(control storage.RunControlStore, queue storage.RunQu
 
 // Handler returns the complete public HTTP surface.
 func (s *Server) Handler() http.Handler {
+	if s.nativeStrict != nil {
+		return s.nativeStrictHandler()
+	}
+	return s.genericHandler()
+}
+
+func (s *Server) genericHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)

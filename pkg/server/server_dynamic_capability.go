@@ -108,6 +108,9 @@ func capabilityRuntimeSelector(raw string) (string, string, error) {
 // execution-projection write guard; restore may mount the prepared value
 // immediately while it already holds that guard.
 func (s *Server) prepareDynamicCapability(ctx context.Context, binding dynamicCapabilityMount) (dynamicCapabilityMount, core.CapabilityBinding, error) {
+	if err := s.rejectNativeStrictDynamicControl("dynamic capability preparation"); err != nil {
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, err
+	}
 	if s.runtime == nil || s.runtime.Capabilities == nil {
 		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("capability registry is unavailable")
 	}
@@ -166,6 +169,9 @@ func (s *Server) prepareDynamicCapability(ctx context.Context, binding dynamicCa
 }
 
 func (s *Server) mountPreparedDynamicCapability(binding core.CapabilityBinding) (func(), error) {
+	if err := s.rejectNativeStrictDynamicControl("dynamic capability mount"); err != nil {
+		return nil, err
+	}
 	if s.runtime == nil || s.runtime.Capabilities == nil {
 		return nil, fmt.Errorf("capability registry is unavailable")
 	}

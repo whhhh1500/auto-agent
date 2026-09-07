@@ -81,6 +81,23 @@ serialization. If PgBouncer is required, configure this database/user in
 startup uses that same connection throughout, but normal runtime work is then
 serialized behind one database connection and throughput will be limited.
 
+### Native-static Phase 1
+
+`server.NewNativeStrictServer` is a library construction mode, not the default
+`cmd/server` startup path. It is a server-owned static-bootstrap and SQL-
+authority foundation, not completed-result or strict recovery. A native-static
+deployment may provide only static profiles, policies, capabilities, and one
+fixed model adapter; dynamic bindings, Release/Canary, factories, plugins,
+credential and model-settings control, and resource reconfiguration are out of
+scope. Give it a dedicated control database/SQL authority that is never shared
+with a generic `server.New` instance or any dynamic-control writer. Its
+authorization-epoch check detects projection lag and fails closed; it is not a
+transaction-level grant held to `run/start` or queue claim. Completed-result
+continuation stays disabled until V2 re-entry, detached control projection, and
+a model-invocation journal are implemented. See the
+[runtime invariants](architecture.md#runtime-invariants) for the composition
+boundary.
+
 The bootstrap decision uses the pre-migration database state. If `accounts`
 was absent, migration creates it and one pending `admin_12345`-shaped account;
 the process prints its random one-time password once. If `accounts` already

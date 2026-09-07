@@ -270,6 +270,12 @@ func canaryCompositionMetadata(assignment *control.CanaryAssignment) map[string]
 }
 
 func (s *Server) refreshControlPlane(ctx context.Context) error {
+	if s.nativeStrict != nil {
+		if s.canaries != nil || s.Releases != nil {
+			return s.rejectNativeStrictDynamicControl("release or canary refresh")
+		}
+		return nil
+	}
 	if s.canaries != nil {
 		return s.canaries.Refresh(ctx)
 	}

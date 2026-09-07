@@ -28,6 +28,10 @@ func slogInt64(k string, v int64) slog.Attr { return slog.Int64(k, v) }
 // credentials are remounted; static credential values are absent from the
 // journal by design and must be re-bound by an operator.
 func (s *Server) RestoreBindings(ctx context.Context) error {
+	if err := s.rejectNativeStrictDynamicControl("binding restore"); err != nil {
+		s.setReadyError(err)
+		return err
+	}
 	if s.journal == nil {
 		s.setReadyError(nil)
 		return nil

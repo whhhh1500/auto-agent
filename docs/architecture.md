@@ -273,6 +273,20 @@ to the adapter configuration, outside the core contract.
 	proved epoch-bound. This only closes the local mount-before-commit window; it
 	does not materialize remote instances, arbitrary registry mutation, or a
 	complete binding/release/canary control-plane snapshot.
+- `server.New(Config)` remains the open integration constructor: callers own
+  its Runtime, registries, and extension seams, and it never receives native
+  ownership. `server.NewNativeStrictServer` is a separate Phase 1,
+  server-owned static-bootstrap and SQL-authority foundation. It constructs and
+  owns the Runtime, registries, SQL execution stores, and projection; it mounts
+  only static profiles, policies, and capabilities plus one fixed model adapter.
+  It excludes dynamic bindings, Release/Canary, capability factories, plugins,
+  credential resolution, model settings, and resource reconfiguration. Its SQL
+  authority must be dedicated to native-static instances, never shared with a
+  generic server or dynamic-control writer. The authorization-epoch gate is a
+  fail-closed lag detector, not a transaction-level authorization grant held
+  through `run/start` or a queued claim. Completed-result recovery remains
+  disabled: V2 re-entry, a detached control projection, and a model-invocation
+  journal are still required before any strict recovery coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or
