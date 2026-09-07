@@ -22,6 +22,22 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	if !s.ensureRunProjection(w) {
 		return
 	}
+	if s.requiresExecutionProjectionEpoch() {
+		if err := s.refreshExecutionProjection(r.Context()); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
+			return
+		}
+	}
+	projectionLease, err := s.acquireExecutionProjection(r.Context())
+	if err != nil {
+		if s.profileProjectionError() != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "profile projection is unavailable"})
+		} else {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
+		}
+		return
+	}
+	defer projectionLease.Release()
 	unlock := s.sessionLock(r.PathValue("id"))
 	defer unlock()
 
@@ -83,7 +99,13 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
-	runRuntime, canary, err := s.runtimeFor(runCtx, principal, session.ProfileID())
+	var runRuntime *core.Runtime
+	var canary *control.CanaryAssignment
+	if s.requiresExecutionProjectionEpoch() {
+		runRuntime, canary, err = s.runtimeForCurrent(principal, session.ProfileID())
+	} else {
+		runRuntime, canary, err = s.runtimeFor(runCtx, principal, session.ProfileID())
+	}
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 		return
@@ -101,6 +123,10 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	runExecutor, compositionMetadata, err := s.resolveRunExecutor(runCtx, principal, session, runRuntime, canary, runID, false)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := requireProjectionAwareExecutor(projectionLease, runExecutor); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
 		return
 	}
 	durableRunCreated := false
@@ -132,6 +158,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	// response completes. A crash loses at most one batching window.
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
+		projectionLease.releaseOnEvent(event)
 		// The core guard maps the cancellation used to stop after a checkpoint
 		// failure to tool_cancelled. That is an execution detail, not the
 		// authoritative terminal cause. Do not expose a contradictory terminal
@@ -200,9 +227,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runtimeFor(ctx context.Context, principal core.Principal, profileID string) (*core.Runtime, *control.CanaryAssignment, error) {
-	if err := s.refreshControlPlane(ctx); err != nil {
+	if err := s.refreshExecutionProjection(ctx); err != nil {
 		return nil, nil, err
 	}
+	return s.runtimeForCurrent(principal, profileID)
+}
+
+// runtimeForCurrent chooses the currently published live/canary profile
+// registry without refreshing control state. Callers holding an execution
+// projection read lease use this after refreshExecutionProjection completed.
+func (s *Server) runtimeForCurrent(principal core.Principal, profileID string) (*core.Runtime, *control.CanaryAssignment, error) {
 	if s.canaries == nil {
 		return s.runtime, nil, nil
 	}
@@ -246,7 +280,7 @@ func (s *Server) refreshControlPlane(ctx context.Context) error {
 }
 
 func (s *Server) ensureControlPlane(w http.ResponseWriter, r *http.Request) bool {
-	if err := s.refreshControlPlane(r.Context()); err != nil {
+	if err := s.refreshExecutionProjection(r.Context()); err != nil {
 		status := http.StatusServiceUnavailable
 		if errors.Is(err, control.ErrReleaseReserved) || errors.Is(err, control.ErrReleaseBaselineDrift) {
 			status = http.StatusConflict

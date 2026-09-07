@@ -90,6 +90,11 @@ type Config struct {
 	// Canaries is the optional durable staged-rollout surface. It must share
 	// the configured release manager and runtime profile registry.
 	Canaries *control.CanaryManager
+	// AuthorizationEpochReader optionally enables local execution-projection
+	// admission. Nil preserves legacy snapshot-time behavior. After a complete
+	// local projection rebuild, callers must mark that epoch applied before runs
+	// are admitted; this is not a strict authorization proof or detached replay.
+	AuthorizationEpochReader storage.AuthorizationEpochReader
 	// Leaser is the optional cross-instance session lease. It is required when
 	// RunQueue is configured. When set, a run
 	// only starts after acquiring the session's lease; a session already
@@ -307,6 +312,9 @@ type Server struct {
 	// profileMu serializes durable profile layer replacement. Readers may
 	// resolve concurrently; each PUT has one journal commit boundary.
 	profileMu sync.Mutex
+	// executionProjection serializes only projection publication against the
+	// short compose-to-run-start interval. It never guards a whole model run.
+	executionProjection *executionProjectionCoordinator
 
 	locks *storage.NamedLocks
 
@@ -316,9 +324,8 @@ type Server struct {
 	runs          map[string]*activeRun
 	maxActiveRuns int
 
-	readyMu            sync.RWMutex
-	readyErr           error
-	profileProjections map[string]error
+	readyMu  sync.RWMutex
+	readyErr error
 
 	workersMu           sync.Mutex
 	workersRunning      bool
@@ -598,6 +605,7 @@ func New(config Config) (*Server, error) {
 		runWorkerPoll: runWorkerPoll, runWorkerClaimTTL: runWorkerClaimTTL,
 		runWorkerCount: runWorkerCount, runWorkerAttempts: runWorkerAttempts,
 		obs: config.Obs, libraryObserver: config.LibraryObserver, logger: config.Logger, telemetry: config.Telemetry,
+		executionProjection: newExecutionProjectionCoordinator(config.AuthorizationEpochReader),
 	}
 	factories := append([]capabilityruntime.Factory{}, config.CapabilityRuntimeFactories...)
 	factories = append(factories, server.builtinCapabilityRuntimeFactories()...)

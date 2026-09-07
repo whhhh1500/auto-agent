@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
+	"github.com/cc-auto-agent/harness-core/pkg/control"
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 )
@@ -281,12 +282,19 @@ func (s *Server) RunWorkerOnce(ctx context.Context, workerID string) (bool, erro
 }
 
 func (s *Server) runWorkerOnce(claimCtx, activeCtx context.Context, workerID string) (bool, error) {
-	if err := s.profileProjectionError(); err != nil {
-		return false, fmt.Errorf("%w: %v", errProfileProjectionUnavailable, err)
-	}
 	if s.runQueue == nil {
 		return false, fmt.Errorf("run queue is not configured")
 	}
+	if s.requiresExecutionProjectionEpoch() {
+		if err := s.refreshExecutionProjection(claimCtx); err != nil {
+			return false, fmt.Errorf("%w: refresh control plane: %v", errExecutionProjectionUnavailable, err)
+		}
+	}
+	projectionLease, err := s.acquireExecutionProjection(claimCtx)
+	if err != nil {
+		return false, err
+	}
+	defer projectionLease.Release()
 	claimStarted := time.Now()
 	opCtx, cancel := context.WithTimeout(claimCtx, runControlOperationTimeout)
 	task, claimed, err := s.runQueue.ClaimRun(opCtx, workerID, s.runWorkerClaimTTL)
@@ -312,10 +320,10 @@ func (s *Server) runWorkerOnce(claimCtx, activeCtx context.Context, workerID str
 	if err != nil || !claimed {
 		return claimed, err
 	}
-	return true, s.executeQueuedRun(activeCtx, workerID, task)
+	return true, s.executeQueuedRun(activeCtx, workerID, task, projectionLease)
 }
 
-func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, task storage.QueuedRun) error {
+func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, task storage.QueuedRun, projectionLease *executionProjectionLease) error {
 	unlock := s.sessionLock(task.SessionID)
 	defer unlock()
 	traceCtx := core.ExtractTelemetryTraceContext(s.telemetry, workerCtx, task.TraceContext)
@@ -347,10 +355,10 @@ func (s *Server) executeQueuedRun(workerCtx context.Context, workerID string, ta
 		SessionID: task.SessionID, RunID: task.RunID, TenantID: task.TenantID, SubjectID: task.SubjectID,
 		WorkerID: workerID, QueueGeneration: task.Generation, LeaseHolder: lease.Holder(),
 	}
-	return s.executeQueuedRunWithFence(workerCtx, runCtx, cancelRun, claim, task, workerID, fence)
+	return s.executeQueuedRunWithFence(workerCtx, runCtx, cancelRun, claim, task, workerID, fence, projectionLease)
 }
 
-func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, cancelRun context.CancelFunc, claim *queuedRunClaimMonitor, task storage.QueuedRun, workerID string, fence storage.SessionWriteFence) error {
+func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, cancelRun context.CancelFunc, claim *queuedRunClaimMonitor, task storage.QueuedRun, workerID string, fence storage.SessionWriteFence, projectionLease *executionProjectionLease) error {
 	if claim.reason.Load() == claimStopLost {
 		return errRunClaimLost
 	}
@@ -433,7 +441,13 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 			cancelRun()
 		}
 	})
-	runRuntime, canary, err := s.runtimeFor(runCtx, principal, session.ProfileID())
+	var runRuntime *core.Runtime
+	var canary *control.CanaryAssignment
+	if s.requiresExecutionProjectionEpoch() {
+		runRuntime, canary, err = s.runtimeForCurrent(principal, session.ProfileID())
+	} else {
+		runRuntime, canary, err = s.runtimeFor(runCtx, principal, session.ProfileID())
+	}
 	if err != nil {
 		claim.stop()
 		if claim.reason.Load() == claimStopLost {
@@ -460,8 +474,16 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 		}
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "executor_selection_failed", err, true)
 	}
+	if err := requireProjectionAwareExecutor(projectionLease, runExecutor); err != nil {
+		claim.stop()
+		if claim.reason.Load() == claimStopLost {
+			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
+		}
+		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "execution_projection_unavailable", err, false)
+	}
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
+		projectionLease.releaseOnEvent(event)
 		writer.MarkDirty()
 		s.observeEventContext(runCtx, seenObsHits, session, event)
 	}

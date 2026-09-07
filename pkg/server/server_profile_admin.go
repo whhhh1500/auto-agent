@@ -152,6 +152,11 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 
 	s.profileMu.Lock()
 	defer s.profileMu.Unlock()
+	// Keep new executions out only while this durable mutation and its local
+	// projection publication are in flight. The gate is released before the
+	// route returns and never governs control-plane route admission itself.
+	releaseProjectionMutation := s.lockExecutionProjectionMutation()
+	defer releaseProjectionMutation()
 	existing, found, err := s.profileLayerRecord(r.Context(), profileID, request.Scope)
 	if err != nil {
 		s.writeProfileJournalError(w, r.Context(), "list", profileBindingID(profileID, request.Scope), err)
@@ -237,6 +242,7 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	durableMatches := found && existing.ID == id && profilePayloadEqual(existing.Payload, payload)
+	durableChanged := false
 	if !durableMatches {
 		if found {
 			replacer, ok := s.journal.(storage.BindingJournalReplacer)
@@ -248,9 +254,12 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 				s.writeProfileJournalError(w, r.Context(), "replace", id, err)
 				return
 			}
+			durableChanged = true
 		} else if err := s.journal.Record(r.Context(), record); err != nil {
 			s.writeProfileJournalError(w, r.Context(), "record", id, err)
 			return
+		} else {
+			durableChanged = true
 		}
 	}
 
@@ -277,6 +286,12 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.runtime.Profiles.Resolve(principal, request.Scope, profileID); err != nil {
 		s.handleProfileProjectionFailure(w, r.Context(), id, err)
 		return
+	}
+	if durableChanged {
+		// A strict epoch reader cannot treat this local publication as a
+		// complete control-plane reconciliation. Leave execution unavailable
+		// until a future detached reconciler marks the full projection applied.
+		s.markExecutionProjectionEpochStale()
 	}
 	s.clearProfileProjectionError(id)
 	s.recordAudit(r, principal, "profile.put", profileID, map[string]any{"scope": request.Scope.String(), "binding_id": id})

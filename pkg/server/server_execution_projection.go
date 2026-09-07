@@ -1,0 +1,254 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"sync"
+
+	"github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
+	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/cc-auto-agent/harness-core/pkg/storage"
+)
+
+const (
+	executionProjectionEpochSource = "authorization_epoch"
+	profileProjectionSourcePrefix  = "profile/"
+)
+
+var errExecutionProjectionUnavailable = errors.New("execution projection is unavailable")
+
+// executionProjectionCoordinator admits new execution only while the local
+// projection has no known fault and, when configured, matches the observed
+// durable authorization epoch. admissionMu is deliberately separate from
+// stateMu: a projection mutation may record faults while excluding only the
+// short compose-to-run-start admission interval, never a whole model run.
+//
+// The epoch is an optimistic lag detector here, not a control-plane replayer
+// or a transaction-level authorization grant. A future reconciler must rebuild
+// the projection and call markAppliedEpoch only after that rebuild succeeds.
+type executionProjectionCoordinator struct {
+	admissionMu sync.RWMutex
+	stateMu     sync.RWMutex
+	reader      storage.AuthorizationEpochReader
+	desired     int64
+	applied     int64
+	desiredSet  bool
+	appliedSet  bool
+	faults      map[string]error
+}
+
+func newExecutionProjectionCoordinator(reader storage.AuthorizationEpochReader) *executionProjectionCoordinator {
+	return &executionProjectionCoordinator{reader: reader, faults: map[string]error{}}
+}
+
+func (c *executionProjectionCoordinator) acquire(ctx context.Context) (*executionProjectionLease, error) {
+	if c == nil || c.reader == nil {
+		if c != nil {
+			if err := c.fault(""); err != nil {
+				return nil, err
+			}
+		}
+		return &executionProjectionLease{}, nil
+	}
+	if err := c.observeEpoch(ctx); err != nil {
+		return nil, err
+	}
+	c.admissionMu.RLock()
+	if err := c.observeEpoch(ctx); err != nil {
+		c.admissionMu.RUnlock()
+		return nil, err
+	}
+	if err := c.fault(""); err != nil {
+		c.admissionMu.RUnlock()
+		return nil, err
+	}
+	return &executionProjectionLease{coordinator: c, held: true}, nil
+}
+
+func (c *executionProjectionCoordinator) requiresEpoch() bool {
+	return c != nil && c.reader != nil
+}
+
+func (c *executionProjectionCoordinator) observeEpoch(ctx context.Context) error {
+	epoch, err := c.reader.AuthorizationEpoch(ctx)
+	if err != nil {
+		c.setFault(executionProjectionEpochSource, fmt.Errorf("read authorization epoch: %w", err))
+		return fmt.Errorf("read authorization epoch: %w", err)
+	}
+	c.stateMu.Lock()
+	c.desired, c.desiredSet = epoch, true
+	if !c.appliedSet || c.applied != epoch {
+		c.faults[executionProjectionEpochSource] = fmt.Errorf("authorization epoch %d is not applied to the execution projection", epoch)
+	} else {
+		delete(c.faults, executionProjectionEpochSource)
+	}
+	c.stateMu.Unlock()
+	return c.fault(executionProjectionEpochSource)
+}
+
+// markAppliedEpoch is intentionally private. Its caller must already have
+// rebuilt the complete local execution projection for epoch; it does not sync
+// bindings, releases, canaries, or any external authorization source itself.
+func (c *executionProjectionCoordinator) markAppliedEpoch(ctx context.Context) error {
+	if c == nil || c.reader == nil {
+		return nil
+	}
+	epoch, err := c.reader.AuthorizationEpoch(ctx)
+	if err != nil {
+		c.setFault(executionProjectionEpochSource, fmt.Errorf("read authorization epoch: %w", err))
+		return fmt.Errorf("read authorization epoch: %w", err)
+	}
+	c.stateMu.Lock()
+	c.desired, c.desiredSet = epoch, true
+	c.applied, c.appliedSet = epoch, true
+	delete(c.faults, executionProjectionEpochSource)
+	c.stateMu.Unlock()
+	return nil
+}
+
+// markEpochStale records that a local mutation or restore changed projection
+// inputs. It intentionally does not read or apply an epoch; only a future
+// complete reconciler may make that claim.
+func (c *executionProjectionCoordinator) markEpochStale() {
+	if c == nil || c.reader == nil {
+		return
+	}
+	c.stateMu.Lock()
+	c.appliedSet = false
+	c.faults[executionProjectionEpochSource] = errors.New("execution projection requires authorization epoch reconciliation")
+	c.stateMu.Unlock()
+}
+
+func (c *executionProjectionCoordinator) lockMutation() func() {
+	if c == nil {
+		return func() {}
+	}
+	c.admissionMu.Lock()
+	return c.admissionMu.Unlock
+}
+
+func (c *executionProjectionCoordinator) setFault(source string, err error) {
+	if c == nil || source == "" {
+		return
+	}
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if err == nil {
+		delete(c.faults, source)
+		return
+	}
+	c.faults[source] = err
+}
+
+func (c *executionProjectionCoordinator) fault(prefix string) error {
+	if c == nil {
+		return nil
+	}
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	keys := make([]string, 0, len(c.faults))
+	for source := range c.faults {
+		if prefix == "" || len(source) >= len(prefix) && source[:len(prefix)] == prefix {
+			keys = append(keys, source)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	return c.faults[keys[0]]
+}
+
+type executionProjectionLease struct {
+	coordinator *executionProjectionCoordinator
+	once        sync.Once
+	held        bool
+}
+
+func (l *executionProjectionLease) releaseOnEvent(event core.SessionEvent) {
+	if event.Type == core.EvRunStart || event.Type == core.EvRunResume {
+		l.Release()
+	}
+}
+
+func (l *executionProjectionLease) requiresStartEvent() bool {
+	return l != nil && l.coordinator != nil && l.coordinator.reader != nil
+}
+
+func (l *executionProjectionLease) Release() {
+	if l == nil || !l.held || l.coordinator == nil {
+		return
+	}
+	l.once.Do(func() { l.coordinator.admissionMu.RUnlock() })
+}
+
+func (s *Server) executionProjectionCoordinator() *executionProjectionCoordinator {
+	s.readyMu.Lock()
+	defer s.readyMu.Unlock()
+	if s.executionProjection == nil {
+		s.executionProjection = newExecutionProjectionCoordinator(nil)
+	}
+	return s.executionProjection
+}
+
+func (s *Server) acquireExecutionProjection(ctx context.Context) (*executionProjectionLease, error) {
+	lease, err := s.executionProjectionCoordinator().acquire(ctx)
+	if err == nil {
+		return lease, nil
+	}
+	if s.profileProjectionError() != nil {
+		return nil, fmt.Errorf("%w: %v", errProfileProjectionUnavailable, err)
+	}
+	return nil, fmt.Errorf("%w: %v", errExecutionProjectionUnavailable, err)
+}
+
+func (s *Server) requiresExecutionProjectionEpoch() bool {
+	return s.executionProjectionCoordinator().requiresEpoch()
+}
+
+// refreshExecutionProjection serializes a live Release/Canary refresh with
+// new execution admission. It is intentionally a small foundation: it does
+// not claim that those managers form one detached, epoch-materialized bundle.
+func (s *Server) refreshExecutionProjection(ctx context.Context) error {
+	release := s.lockExecutionProjectionMutation()
+	defer release()
+	return s.refreshControlPlane(ctx)
+}
+
+func (s *Server) lockExecutionProjectionMutation() func() {
+	return s.executionProjectionCoordinator().lockMutation()
+}
+
+// MarkExecutionProjectionAppliedEpoch admits new epoch-gated executions after
+// the caller has completely rebuilt and published this Server's local
+// projection from its durable control source. It is a local admission marker,
+// not a detached replayer or a transaction-level authorization grant.
+func (s *Server) MarkExecutionProjectionAppliedEpoch(ctx context.Context) error {
+	release := s.lockExecutionProjectionMutation()
+	defer release()
+	return s.executionProjectionCoordinator().markAppliedEpoch(ctx)
+}
+
+func (s *Server) markExecutionProjectionEpochStale() {
+	s.executionProjectionCoordinator().markEpochStale()
+}
+
+func (s *Server) setProfileProjectionFault(bindingID string, err error) {
+	s.executionProjectionCoordinator().setFault(profileProjectionSourcePrefix+bindingID, err)
+}
+
+func (s *Server) clearProfileProjectionFault(bindingID string) {
+	s.executionProjectionCoordinator().setFault(profileProjectionSourcePrefix+bindingID, nil)
+}
+
+func requireProjectionAwareExecutor(lease *executionProjectionLease, executor runexecutor.RunExecutor) error {
+	if !lease.requiresStartEvent() {
+		return nil
+	}
+	if _, ok := executor.(*runexecutor.Sequential); !ok {
+		return fmt.Errorf("%w: authorization-epoch admission requires the built-in sequential executor", errExecutionProjectionUnavailable)
+	}
+	return nil
+}

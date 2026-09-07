@@ -37,6 +37,11 @@ func (s *Server) RestoreBindings(ctx context.Context) error {
 		s.setReadyError(err)
 		return err
 	}
+	// Restore mutates local profile/policy/capability projections. Exclude only
+	// new executions while replaying those mutations; health and admin routes do
+	// not take this read lease and remain available for diagnosis or repair.
+	releaseProjectionMutation := s.lockExecutionProjectionMutation()
+	defer releaseProjectionMutation()
 	failures := []error{}
 	type restoredBinding struct {
 		record  storage.BindingRecord
@@ -208,6 +213,9 @@ func (s *Server) RestoreBindings(ctx context.Context) error {
 			s.setReadyError(restoreErr)
 			return restoreErr
 		}
+	}
+	if len(records) > 0 {
+		s.markExecutionProjectionEpochStale()
 	}
 	s.setReadyError(restoreErr)
 	return restoreErr

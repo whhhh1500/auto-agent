@@ -93,40 +93,25 @@ func (s *Server) setReadyError(err error) {
 }
 
 func (s *Server) setProfileProjectionError(bindingID string, err error) {
-	s.readyMu.Lock()
-	if s.profileProjections == nil {
-		s.profileProjections = map[string]error{}
-	}
-	s.profileProjections[bindingID] = err
-	s.readyMu.Unlock()
+	s.setProfileProjectionFault(bindingID, err)
 }
 
 func (s *Server) clearProfileProjectionError(bindingID string) {
-	s.readyMu.Lock()
-	delete(s.profileProjections, bindingID)
-	s.readyMu.Unlock()
+	s.clearProfileProjectionFault(bindingID)
 }
 
 func (s *Server) readinessError() error {
 	s.readyMu.RLock()
-	defer s.readyMu.RUnlock()
-	if s.readyErr != nil {
-		return s.readyErr
+	err := s.readyErr
+	s.readyMu.RUnlock()
+	if err != nil {
+		return err
 	}
-	return firstProfileProjectionError(s.profileProjections)
+	return s.executionProjectionCoordinator().fault("")
 }
 
 func (s *Server) profileProjectionError() error {
-	s.readyMu.RLock()
-	defer s.readyMu.RUnlock()
-	return firstProfileProjectionError(s.profileProjections)
-}
-
-func firstProfileProjectionError(failures map[string]error) error {
-	for _, err := range failures {
-		return err
-	}
-	return nil
+	return s.executionProjectionCoordinator().fault(profileProjectionSourcePrefix)
 }
 
 func (s *Server) ensureRunProjection(w http.ResponseWriter) bool {

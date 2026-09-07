@@ -241,11 +241,27 @@ to the adapter configuration, outside the core contract.
   consequently observes a complete old or new projection, while the original
   unmount handle remains valid for the replacement. A post-commit projection
   failure is binding-specific readiness state: new synchronous Runs and queue
-  claims are rejected until a matching profile PUT reconciles that binding, but
-  control/admin recovery routes stay available. `RestoreBindings` is a startup
-  projection path, not an in-process replacement reconciler. This closes
-  profile-layer publication; Release/Canary managers still have their separate
-  live-publication boundary.
+	claims are rejected until a matching profile PUT reconciles that binding, but
+	control/admin recovery routes stay available. `RestoreBindings` is a startup
+	projection path, not an in-process replacement reconciler. This closes
+	profile-layer publication; Release/Canary managers still have their separate
+	live-publication boundary. An optional server execution-projection coordinator
+	adds a short read lease from runtime/executor composition through the emitted
+	`run/start` or `run/resume` event, and a matching write lease for profile
+	publication and restore. When configured with a durable authorization-epoch
+	reader, it rejects new synchronous runs before Session load and queued workers
+	before queue claim if a source/binding fault or desired/applied epoch lag is
+	known; active runs, health, and control/admin routes remain outside this
+	admission gate. An epoch mismatch is retryable and marks the projection
+	unavailable; it does not auto-sync bindings, releases, or canaries. After an
+	integration has completely rebuilt its own local projection, it must call
+	`Server.MarkExecutionProjectionAppliedEpoch` before new epoch-gated work is
+	admitted. The marker is local admission state, not a strict authorization
+	proof. The current foundation therefore permits only the built-in Sequential executor in
+	epoch-gated admission, because it can release the lease at the durable run
+	boundary without holding it across a model call. It is not an authorization
+	transaction fence or a replacement for a future detached control-plane
+	reconciler.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or
