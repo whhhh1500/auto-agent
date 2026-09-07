@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -160,13 +161,22 @@ func TestConsoleServesAppAndAssets(t *testing.T) {
 	if index.StatusCode != http.StatusOK || !strings.Contains(indexBody, "Harness Console") {
 		t.Fatalf("console index wrong: status=%d", index.StatusCode)
 	}
-	asset := doJSON(t, http.MethodGet, httpServer.URL+"/console/assets/alpine.min.js", "alice", "")
+	match := regexp.MustCompile(`src="(/console/assets/alpine\.min\.js\?v=[0-9a-f]{64})"`).FindStringSubmatch(indexBody)
+	if len(match) != 2 {
+		t.Fatal("console index missing versioned Alpine asset")
+	}
+	asset := doJSON(t, http.MethodGet, httpServer.URL+match[1], "alice", "")
 	assetBody := readBody(t, asset)
 	if asset.StatusCode != http.StatusOK || !strings.Contains(assetHeader(t, asset), "immutable") {
 		t.Fatalf("asset serving wrong: status=%d", asset.StatusCode)
 	}
 	if len(assetBody) < 10000 {
 		t.Fatalf("alpine asset suspiciously small: %d bytes", len(assetBody))
+	}
+	stable := doJSON(t, http.MethodGet, httpServer.URL+"/console/assets/alpine.min.js", "alice", "")
+	defer stable.Body.Close()
+	if stable.StatusCode != http.StatusOK || assetHeader(t, stable) != "no-cache" {
+		t.Fatalf("stable asset serving wrong: status=%d Cache-Control=%q", stable.StatusCode, assetHeader(t, stable))
 	}
 }
 

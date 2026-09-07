@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -280,7 +281,7 @@ func TestConsoleServesLocalJavaScriptModules(t *testing.T) {
 	}
 	page := pageResponse.Body.String()
 	for _, src := range []string{"/console/assets/alpine.min.js", "/console/js/lib.js", "/console/js/api.js", "/console/js/auth.js", "/console/js/accounts.js", "/console/js/audit.js", "/console/js/observability.js", "/console/js/policies.js", "/console/js/credentials.js", "/console/js/resources.js", "/console/js/sessions.js", "/console/js/playground.js", "/console/js/bindings.js", "/console/js/storage-settings.js", "/console/js/model-settings.js", "/console/js/notification-targets.js", "/console/js/sandbox.js", "/console/js/shell.js", "/console/js/capabilities.js", "/console/js/profiles.js", "/console/js/approvals.js", "/console/js/evaluations.js", "/console/js/delegations.js", "/console/js/runner-tasks.js", "/console/js/projections.js", "/console/js/app.js"} {
-		if !strings.Contains(page, `src="`+src+`"`) {
+		if !strings.Contains(page, `src="`+src+`?v=`) {
 			t.Fatalf("console missing local script %q", src)
 		}
 		if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") || strings.HasPrefix(src, "//") {
@@ -324,8 +325,12 @@ func TestConsoleServesLocalJavaScriptModules(t *testing.T) {
 		t.Fatalf("console script count=%d, want %d", len(matches), len(expectedOrder))
 	}
 	for i, expected := range expectedOrder {
-		if matches[i][1] != expected {
-			t.Fatalf("console script order[%d]=%q, want %q", i, matches[i][1], expected)
+		parsed, err := url.Parse(matches[i][1])
+		if err != nil {
+			t.Fatalf("parse console script URL %q: %v", matches[i][1], err)
+		}
+		if parsed.Path != expected || len(parsed.Query()) != 1 || len(parsed.Query()["v"]) != 1 || len(parsed.Query().Get("v")) != 64 {
+			t.Fatalf("console script order[%d]=%q, want versioned %q", i, matches[i][1], expected)
 		}
 	}
 }
@@ -478,7 +483,7 @@ func TestConsoleAccountsModuleIsComposedByApp(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/accounts.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/accounts.js?v=") {
 		t.Fatal("console must load the local accounts domain module")
 	}
 
@@ -525,7 +530,7 @@ func TestConsoleAuditModuleIsComposedByApp(t *testing.T) {
 	if pageResponse.Code != http.StatusOK {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
-	if !strings.Contains(pageResponse.Body.String(), "<script src=\"/console/js/audit.js\"></script>") {
+	if !strings.Contains(pageResponse.Body.String(), "<script src=\"/console/js/audit.js?v=") {
 		t.Fatal("console must load the local audit domain module")
 	}
 
@@ -568,7 +573,7 @@ func TestConsoleObservabilityModuleIsComposedByApp(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/observability.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/observability.js?v=") {
 		t.Fatal("console must load the local observability domain module")
 	}
 
@@ -621,7 +626,7 @@ func TestConsolePoliciesModuleIsComposedByApp(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/policies.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/policies.js?v=") {
 		t.Fatal("console must load the local policies domain module")
 	}
 
@@ -670,7 +675,7 @@ func TestConsoleCredentialsModuleIsComposedWithoutSecretStorage(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/credentials.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/credentials.js?v=") {
 		t.Fatal("console must load the local credentials domain module")
 	}
 
@@ -729,7 +734,7 @@ func TestConsoleResourcesModuleIsComposedWithLocalFileHandling(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/resources.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/resources.js?v=") {
 		t.Fatal("console must load the local resources domain module")
 	}
 
@@ -789,7 +794,7 @@ func TestConsoleSessionsModuleIsComposedByApp(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/sessions.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/sessions.js?v=") {
 		t.Fatal("console must load the local sessions domain module")
 	}
 
@@ -844,7 +849,7 @@ func TestConsolePlaygroundModuleIsComposedWithSSEEvents(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/playground.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/playground.js?v=") {
 		t.Fatal("console must load the local playground domain module")
 	}
 
@@ -953,7 +958,7 @@ func TestConsoleBindingsModuleIsComposedByApp(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/bindings.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/bindings.js?v=") {
 		t.Fatal("console must load the local bindings domain module")
 	}
 
@@ -1002,7 +1007,7 @@ func TestConsoleStorageSettingsModuleIsComposedWithoutSecretPersistence(t *testi
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/storage-settings.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/storage-settings.js?v=") {
 		t.Fatal("console must load the local storage settings domain module")
 	}
 
@@ -1085,7 +1090,7 @@ func TestConsoleModelSettingsUseDedicatedPresenceAwareSecretFlow(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/model-settings.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/model-settings.js?v=") {
 		t.Fatal("console must load the local model settings domain module")
 	}
 
@@ -1184,7 +1189,7 @@ func TestConsoleNotificationTargetsUseWriteOnlyConfigurationFlow(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/notification-targets.js\"></script>") {
+	if !strings.Contains(page, "<script src=\"/console/js/notification-targets.js?v=") {
 		t.Fatal("console must load the local notification targets domain module")
 	}
 	for _, forbidden := range []string{"has_config", "config_preview", "target.config"} {
@@ -1280,7 +1285,7 @@ func TestConsoleSandboxUsesDedicatedReadOnlyDiscoveryModule(t *testing.T) {
 		t.Fatalf("console status=%d", pageResponse.Code)
 	}
 	page := pageResponse.Body.String()
-	if !strings.Contains(page, "<script src=\"/console/js/sandbox.js\"></script>") || !strings.Contains(page, "view==='sandbox'") {
+	if !strings.Contains(page, "<script src=\"/console/js/sandbox.js?v=") || !strings.Contains(page, "view==='sandbox'") {
 		t.Fatal("console must load and render the sandbox discovery domain")
 	}
 	response := httptest.NewRecorder()
