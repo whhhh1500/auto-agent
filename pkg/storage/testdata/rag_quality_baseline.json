@@ -117,20 +117,20 @@
     },
     {
       "name": "cjk_fullwidth_punctuation_without_lexical_overlap",
-      "information_need": "Find Alice's receipt-retention evidence. The Chinese fullwidth punctuation record is relevant even when current whitespace keyword tokenization cannot match it.",
+      "information_need": "Find Alice's receipt-retention evidence. The Chinese fullwidth punctuation record is relevant and is matched by the fixed CJK/fullwidth delimiter tokenizer.",
       "scope": [{"kind":"global","id":"global"},{"kind":"product","id":"platform"},{"kind":"tenant","id":"acme"},{"kind":"user","id":"alice"}],
       "query": "保留凭证",
       "top_k": 5,
       "qrels": ["cjk-receipt"],
       "allowed_scopes": ["global:global/product:platform/tenant:acme/user:alice"],
-      "expected_ids": []
+      "expected_ids": ["cjk-receipt"]
     }
   ],
   "expected_baseline": {
-    "relevant_retrieved_at_5": 5,
+    "relevant_retrieved_at_5": 6,
     "relevant_total": 7,
-    "retrieved_total_at_5": 10,
-    "mrr_at_5": 0.5,
-    "diagnostic_missed_qrels": ["semantic-billing-date","cjk-receipt"]
+    "retrieved_total_at_5": 11,
+    "mrr_at_5": 0.7,
+    "diagnostic_missed_qrels": ["semantic-billing-date"]
   }
 }

@@ -168,6 +168,37 @@ migration rollback plan.
 
 ## Rolling upgrades
 
+### RAG tokenizer projection upgrade (v47)
+
+V47 changes the derived RAG token projection for a fixed CJK/fullwidth
+delimiter set. It is not compatible with a v46 process that is already running:
+the startup marker check rejects a v46 process opened after v47 commits, but it
+cannot stop an already-open v46 process from writing legacy tokens. Treat this
+upgrade as a maintenance window, not a mixed-version rolling deployment:
+
+1. Take and verify a database backup, retain the existing master key, and
+   drain traffic. Stop every v46 writer before any v47 process opens the shared
+   database.
+2. Start only v47 instances. Startup atomically rebuilds `rag_document_tokens`
+   and `rag_document_tags` from canonical `rag_documents`, then records marker
+   v47 in the same transaction. It does not add a table or alter canonical RAG
+   content.
+3. If startup reports a tokenizer projection failure, keep all writers stopped.
+   The transaction leaves the previous projection and v46 marker intact. Check
+   the canonical document named by the error, especially a document that now
+   exceeds the unchanged 8192 unique-token limit after delimiter splitting;
+   when the marker is confirmed as v46, use one controlled v46 maintenance
+   process to correct or split that canonical document through the normal RAG
+   write path. Stop that maintenance process, take a new verified backup, then
+   retry v47. Do not run a v47 process while the v46 maintenance process writes.
+4. Verify readiness and expected RAG retrieval before admitting traffic. Do not
+   restart or scale a v46 image against the v47 database; rollback requires a
+   restore to the verified pre-upgrade backup, not an in-place downgrade.
+
+For ordinary additive, schema-compatible releases only, use the rolling
+procedure below. It does not apply to v47 or any later migration whose release
+notes require a maintenance window.
+
 1. Take and verify a PostgreSQL backup and preserve the exact master key.
 2. Deploy the new image digest beside the old one with the same DSN and
    secrets. Wait for `/readyz` before shifting traffic.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -350,8 +351,8 @@ func TestSQLSchemaV43MigratesNativeQueuedToolEffectWitnesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version string
-	if err := reopened.db.QueryRowContext(ctx, sqlSelectMetaRow.bind(reopened.dialect)).Scan(&version); err != nil || version != "46" {
-		t.Fatalf("schema version=%q err=%v", version, err)
+	if err := reopened.db.QueryRowContext(ctx, sqlSelectMetaRow.bind(reopened.dialect)).Scan(&version); err != nil || version != strconv.Itoa(SQLSchemaVersion) {
+		t.Fatalf("schema version=%q want=%d err=%v", version, SQLSchemaVersion, err)
 	}
 	var witnesses int
 	if err := reopened.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM native_queued_tool_effect_witnesses").Scan(&witnesses); err != nil || witnesses != 0 {

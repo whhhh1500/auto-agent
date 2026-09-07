@@ -126,21 +126,30 @@ func (s *SQLRagIndex) RebuildProjection(ctx context.Context) (RagProjectionStats
 	return stats, nil
 }
 
-func ensureRagProjectionSchemaTx(ctx context.Context, tx *sql.Tx) error {
+type ragProjectionExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func ensureRagProjectionSchema(ctx context.Context, exec ragProjectionExecutor) error {
 	for _, statement := range ragProjectionSchemaStatements {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
+		if _, err := exec.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("ensure rag projection schema: %w", err)
 		}
 	}
 	return nil
 }
 
-func rebuildRagProjectionTx(ctx context.Context, tx *sql.Tx, dialect SQLDialect) error {
-	if err := ensureRagProjectionSchemaTx(ctx, tx); err != nil {
+// rebuildRagProjectionTx requires a transaction-scoped executor. SQL callers
+// use *sql.Tx; the v47 tokenizer migration uses a SQLite connection after
+// BEGIN IMMEDIATE so acquiring the write lock and replacing the projection are
+// one transaction.
+func rebuildRagProjectionTx(ctx context.Context, exec ragProjectionExecutor, dialect SQLDialect) error {
+	if err := ensureRagProjectionSchema(ctx, exec); err != nil {
 		return err
 	}
 	if dialect == SQLDialectPostgres {
-		if _, err := tx.ExecContext(ctx, `LOCK TABLE rag_documents, rag_document_tokens, rag_document_tags
+		if _, err := exec.ExecContext(ctx, `LOCK TABLE rag_documents, rag_document_tokens, rag_document_tags
 			IN SHARE ROW EXCLUSIVE MODE`); err != nil {
 			return fmt.Errorf("lock rag projection tables: %w", err)
 		}
@@ -148,23 +157,23 @@ func rebuildRagProjectionTx(ctx context.Context, tx *sql.Tx, dialect SQLDialect)
 
 	// On SQLite, the first DELETE obtains the write lock before any canonical
 	// document SELECT runs.
-	if _, err := tx.ExecContext(ctx, "DELETE FROM rag_document_tokens"); err != nil {
+	if _, err := exec.ExecContext(ctx, "DELETE FROM rag_document_tokens"); err != nil {
 		return fmt.Errorf("clear rag token projection: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM rag_document_tags"); err != nil {
+	if _, err := exec.ExecContext(ctx, "DELETE FROM rag_document_tags"); err != nil {
 		return fmt.Errorf("clear rag tag projection: %w", err)
 	}
 
 	var cursor *ragProjectionRow
 	for {
-		documents, err := readRagProjectionBatch(ctx, tx, dialect, cursor)
+		documents, err := readRagProjectionBatch(ctx, exec, dialect, cursor)
 		if err != nil {
 			return err
 		}
 		if len(documents) == 0 {
 			return nil
 		}
-		if err := insertRagProjectionBatch(ctx, tx, dialect, documents); err != nil {
+		if err := insertRagProjectionBatch(ctx, exec, dialect, documents); err != nil {
 			return err
 		}
 		last := documents[len(documents)-1]
@@ -172,14 +181,14 @@ func rebuildRagProjectionTx(ctx context.Context, tx *sql.Tx, dialect SQLDialect)
 	}
 }
 
-func readRagProjectionBatch(ctx context.Context, tx *sql.Tx, dialect SQLDialect, cursor *ragProjectionRow) ([]ragProjectionRow, error) {
+func readRagProjectionBatch(ctx context.Context, exec ragProjectionExecutor, dialect SQLDialect, cursor *ragProjectionRow) ([]ragProjectionRow, error) {
 	query := sqlRagProjectionFirstBatch.bind(dialect)
 	args := []any{ragProjectionBatchSize}
 	if cursor != nil {
 		query = sqlRagProjectionNextBatch.bind(dialect)
 		args = []any{cursor.Scope, cursor.Scope, cursor.ID, ragProjectionBatchSize}
 	}
-	rows, err := tx.QueryContext(ctx, query, args...)
+	rows, err := exec.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("read rag documents for projection: %w", err)
 	}
@@ -206,7 +215,7 @@ func readRagProjectionBatch(ctx context.Context, tx *sql.Tx, dialect SQLDialect,
 	return documents, nil
 }
 
-func insertRagProjectionBatch(ctx context.Context, tx *sql.Tx, dialect SQLDialect, documents []ragProjectionRow) error {
+func insertRagProjectionBatch(ctx context.Context, exec ragProjectionExecutor, dialect SQLDialect, documents []ragProjectionRow) error {
 	insertToken := sqlRagProjectionInsertToken.bind(dialect)
 	insertTag := sqlRagProjectionInsertTag.bind(dialect)
 	for _, document := range documents {
@@ -225,12 +234,12 @@ func insertRagProjectionBatch(ctx context.Context, tx *sql.Tx, dialect SQLDialec
 			return fmt.Errorf("rag document %s/%s: %w", document.Scope, document.ID, err)
 		}
 		for _, token := range ragProjectionTokens(document.Content) {
-			if _, err := tx.ExecContext(ctx, insertToken, document.Scope, document.ID, token); err != nil {
+			if _, err := exec.ExecContext(ctx, insertToken, document.Scope, document.ID, token); err != nil {
 				return fmt.Errorf("insert rag token %s/%s/%s: %w", document.Scope, document.ID, token, err)
 			}
 		}
 		for _, tag := range tags {
-			if _, err := tx.ExecContext(ctx, insertTag, document.Scope, document.ID, tag); err != nil {
+			if _, err := exec.ExecContext(ctx, insertTag, document.Scope, document.ID, tag); err != nil {
 				return fmt.Errorf("insert rag tag %s/%s/%s: %w", document.Scope, document.ID, tag, err)
 			}
 		}

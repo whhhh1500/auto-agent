@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
+	"time"
+
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 	"github.com/cc-auto-agent/harness-core/pkg/extensions/memory"
 	"github.com/cc-auto-agent/harness-core/pkg/extensions/rag"
@@ -142,6 +146,156 @@ func migrateRagProjectionV27(ctx context.Context, db sqlSchemaExecutor, dialect 
 		return err
 	}
 	return tx.Commit()
+}
+
+const ragTokenizerSchemaVersionV47 = 47
+
+// migrateRagTokenizerV47 rebuilds the derived token/tag projection for the
+// v47 tokenizer semantics. The marker and replacement projection commit in the
+// same transaction: reporting v47 therefore proves every canonical document
+// has been reindexed with the current tokenizer.
+func migrateRagTokenizerV47(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
+	switch dialect {
+	case SQLDialectSQLite:
+		sqlDB, ok := db.(*sql.DB)
+		if !ok {
+			return fmt.Errorf("SQLite RAG tokenizer migration requires a database handle")
+		}
+		return migrateRagTokenizerV47SQLite(ctx, sqlDB, dialect)
+	case SQLDialectPostgres:
+		return migrateRagTokenizerV47Postgres(ctx, db, dialect)
+	default:
+		return fmt.Errorf("unsupported SQL dialect %q", dialect)
+	}
+}
+
+func migrateRagTokenizerV47SQLite(ctx context.Context, db *sql.DB, dialect SQLDialect) error {
+	const attempts = 5
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE")
+		if err == nil {
+			err = applyRagTokenizerV47(ctx, conn, dialect)
+			if err == nil {
+				_, err = conn.ExecContext(ctx, "COMMIT")
+			}
+			if err != nil {
+				_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+			}
+		}
+		closeErr := conn.Close()
+		if err == nil && closeErr != nil {
+			err = closeErr
+		}
+		if err == nil {
+			return verifyRagTokenizerV47(ctx, db, dialect)
+		}
+		lastErr = err
+		if !isSQLiteMigrationBusy(err) || attempt == attempts-1 {
+			return err
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return lastErr
+}
+
+func migrateRagTokenizerV47Postgres(ctx context.Context, db sqlSchemaExecutor, dialect SQLDialect) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// store_meta serializes v47 openers. rebuildRagProjectionTx then acquires
+	// the projection-table lock before it clears any derived rows.
+	if _, err := tx.ExecContext(ctx, "LOCK TABLE store_meta IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return err
+	}
+	if err := applyRagTokenizerV47(ctx, tx, dialect); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return verifyRagTokenizerV47(ctx, db, dialect)
+}
+
+type ragTokenizerMigrationExecutor interface {
+	ragProjectionExecutor
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func applyRagTokenizerV47(ctx context.Context, exec ragTokenizerMigrationExecutor, dialect SQLDialect) error {
+	stored, found, err := ragTokenizerSchemaVersion(ctx, exec, dialect)
+	if err != nil {
+		return err
+	}
+	if found && stored > SQLSchemaVersion {
+		return fmt.Errorf("sql schema version %d is not supported (this build writes version %d)", stored, SQLSchemaVersion)
+	}
+	if found && stored >= ragTokenizerSchemaVersionV47 {
+		return nil
+	}
+	if err := rebuildRagProjectionTx(ctx, exec, dialect); err != nil {
+		return err
+	}
+	if err := recordRagTokenizerSchemaVersionV47(ctx, exec, dialect); err != nil {
+		return err
+	}
+	return nil
+}
+
+func verifyRagTokenizerV47(ctx context.Context, exec ragTokenizerMigrationExecutor, dialect SQLDialect) error {
+	stored, found, err := ragTokenizerSchemaVersion(ctx, exec, dialect)
+	if err != nil {
+		return err
+	}
+	if !found || stored != ragTokenizerSchemaVersionV47 {
+		return fmt.Errorf("RAG tokenizer migration did not record schema version %d", ragTokenizerSchemaVersionV47)
+	}
+	return nil
+}
+
+func ragTokenizerSchemaVersion(ctx context.Context, exec ragTokenizerMigrationExecutor, dialect SQLDialect) (int, bool, error) {
+	var raw string
+	err := exec.QueryRowContext(ctx, sqlSelectMetaRow.bind(dialect)).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	stored, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("sql schema version %q is not a number", raw)
+	}
+	return stored, true, nil
+}
+
+func recordRagTokenizerSchemaVersionV47(ctx context.Context, exec ragProjectionExecutor, dialect SQLDialect) error {
+	result, err := exec.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(ragTokenizerSchemaVersionV47))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		if _, err := exec.ExecContext(ctx, sqlInsertMetaRow.bind(dialect), strconv.Itoa(ragTokenizerSchemaVersionV47)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 const memorySearchProjectionBatchSize = 32

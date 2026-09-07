@@ -2,10 +2,10 @@ package storage
 
 // SQLSchemaVersion is the on-disk schema this store writes. Stores with a
 // HIGHER recorded version are refused (this code is too old to read them).
-// Lower versions are upgraded in place: the schema DDL only adds objects, so
-// opening a v1 database creates the missing tables and advances the
+// Lower versions are upgraded in place. Most migrations add objects; semantic
+// migrations may atomically rebuild a derived projection before advancing the
 // recorded version.
-const SQLSchemaVersion = 46
+const SQLSchemaVersion = 47
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (

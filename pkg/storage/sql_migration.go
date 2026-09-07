@@ -243,6 +243,15 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 		if _, err := db.ExecContext(ctx, sqlSchemaV46NativeQueuedModelOutcomes); err != nil {
 			return nil, fmt.Errorf("ensure native queued model outcomes: %w", err)
 		}
+		// v27 itself rebuilds the projection with this binary's tokenizer while
+		// upgrading pre-v27 stores. Only stores that already had the v27
+		// projection need the v47 semantic reindex.
+		if stored >= 27 && stored < ragTokenizerSchemaVersionV47 {
+			if err := migrateRagTokenizerV47(ctx, db, dialect); err != nil {
+				return nil, fmt.Errorf("rebuild RAG tokenizer projection: %w", err)
+			}
+			stored = ragTokenizerSchemaVersionV47
+		}
 		if stored < SQLSchemaVersion {
 			if _, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 				return nil, fmt.Errorf("upgrade sql schema version: %w", err)

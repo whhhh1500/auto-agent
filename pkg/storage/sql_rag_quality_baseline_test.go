@@ -19,8 +19,9 @@ import (
 
 // TestSQLRagQualityBaseline records the current deterministic lexical baseline
 // against fixed relevance labels. qrels are deliberately independent from the
-// current tokenizer and ranker: semantic and CJK punctuation cases remain
-// labelled relevant even when the current keyword retrieval returns no hit.
+// current ranker: the semantic case remains labelled relevant even when the
+// keyword retrieval returns no hit, while the CJK punctuation case validates
+// the fixed delimiter tokenizer and its SQL projection.
 //
 // Recall and precision here are micro metrics across all returned top-five
 // chunks: relevant returned chunks divided by total qrels and returned chunks,

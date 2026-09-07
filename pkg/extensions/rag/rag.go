@@ -110,16 +110,52 @@ func ValidateDocument(document Document) error {
 	return ValidateTags(document.Tags)
 }
 
+// cjkFullwidthTokenSeparators is deliberately limited to CJK/fullwidth
+// sentence and paired punctuation. It is not a Chinese word segmenter: text
+// without a separator remains one keyword token. ASCII punctuation and Latin
+// apostrophes stay within tokens so identifiers, email addresses, URLs, and
+// words such as l'été retain their existing keyword contract.
+const cjkFullwidthTokenSeparators = "，、。；：！？（）［］【】「」『』《》〈〉"
+
 // Tokenize is the keyword tokenizer shared by the reference index, SQL ingest,
-// and projection rebuild. It lower-cases, splits on Unicode whitespace, and
-// trims the same ASCII punctuation from each token.
+// and projection rebuild. It lower-cases, splits on Unicode whitespace plus
+// the fixed CJK/fullwidth delimiters, and trims the same ASCII punctuation
+// from each token.
 func Tokenize(text string) map[string]bool {
 	tokens := map[string]bool{}
-	for _, field := range strings.Fields(strings.ToLower(text)) {
-		tokens[strings.Trim(field, ".,;:!?")] = true
+	lower := strings.ToLower(text)
+	if !containsCJKFullwidthTokenSeparator(lower) {
+		for _, field := range strings.Fields(lower) {
+			tokens[strings.Trim(field, ".,;:!?")] = true
+		}
+		delete(tokens, "")
+		return tokens
+	}
+	for _, field := range strings.Fields(lower) {
+		for token := range strings.FieldsFuncSeq(field, isCJKFullwidthTokenSeparator) {
+			tokens[strings.Trim(token, ".,;:!?")] = true
+		}
 	}
 	delete(tokens, "")
 	return tokens
+}
+
+func isCJKFullwidthTokenSeparator(char rune) bool {
+	switch char {
+	case '，', '、', '。', '；', '：', '！', '？', '（', '）', '［', '］', '【', '】', '「', '」', '『', '』', '《', '》', '〈', '〉':
+		return true
+	default:
+		return false
+	}
+}
+
+func containsCJKFullwidthTokenSeparator(text string) bool {
+	for _, char := range text {
+		if char > unicode.MaxASCII && isCJKFullwidthTokenSeparator(char) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateQuery checks the size and unique token bounds for one RAG query.

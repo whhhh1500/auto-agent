@@ -102,6 +102,86 @@ func stringsAsAny(values []string) []any {
 	return out
 }
 
+func TestTokenizeUsesOnlyFixedCJKFullwidthSeparators(t *testing.T) {
+	for _, separator := range cjkFullwidthTokenSeparators {
+		t.Run(string(separator), func(t *testing.T) {
+			if got := Tokenize("alpha" + string(separator) + "bravo"); !reflect.DeepEqual(got, map[string]bool{"alpha": true, "bravo": true}) {
+				t.Fatalf("tokens for separator %q = %#v", separator, got)
+			}
+		})
+	}
+
+	for text, want := range map[string]map[string]bool{
+		"用户，保留凭证":                              {"用户": true, "保留凭证": true},
+		"（保留凭证）":                               {"保留凭证": true},
+		"用户保留凭证":                               {"用户保留凭证": true},
+		"retry_policy_v2 owner@example.com":    {"retry_policy_v2": true, "owner@example.com": true},
+		"https://api.example.com/v1?mode=fast": {"https://api.example.com/v1?mode=fast": true},
+		"l’été retention":                      {"l’été": true, "retention": true},
+		"...alpha, bravo!?":                    {"alpha": true, "bravo": true},
+	} {
+		if got := Tokenize(text); !reflect.DeepEqual(got, want) {
+			t.Fatalf("tokens for %q = %#v, want %#v", text, got, want)
+		}
+	}
+}
+
+func cjkSeparatedTokenText(count int) string {
+	parts := make([]string, count)
+	for i := range parts {
+		parts[i] = fmt.Sprintf("token-%d", i)
+	}
+	return strings.Join(parts, "，")
+}
+
+func TestValidateDocumentCountsCJKFullwidthSeparatedTokens(t *testing.T) {
+	for name, count := range map[string]int{
+		"at cap":   MaxDocumentTokens,
+		"over cap": MaxDocumentTokens + 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := ValidateDocument(Document{ID: "cjk-token-cap", Content: cjkSeparatedTokenText(count)})
+			if count == MaxDocumentTokens && err != nil {
+				t.Fatalf("document at CJK-separated token cap rejected: %v", err)
+			}
+			if count > MaxDocumentTokens && err == nil {
+				t.Fatal("document above CJK-separated token cap was accepted")
+			}
+		})
+	}
+}
+
+func legacyTokenizeForBenchmark(text string) map[string]bool {
+	tokens := map[string]bool{}
+	for _, field := range strings.Fields(strings.ToLower(text)) {
+		tokens[strings.Trim(field, ".,;:!?")] = true
+	}
+	delete(tokens, "")
+	return tokens
+}
+
+func BenchmarkTokenize(b *testing.B) {
+	inputs := map[string]string{
+		"ascii_document": strings.Repeat("retention policy evidence billing deployment ", 24),
+		"cjk_document":   strings.Repeat("用户，保留凭证；审计记录。", 48),
+		"cjk_query":      "保留凭证",
+	}
+	for name, text := range inputs {
+		b.Run("legacy/"+name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = legacyTokenizeForBenchmark(text)
+			}
+		})
+		b.Run("v47/"+name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = Tokenize(text)
+			}
+		})
+	}
+}
+
 func TestValidateQueryAndTagsUseRuneAndRawItemLimits(t *testing.T) {
 	if err := ValidateQuery(strings.Repeat("界", MaxQueryRunes)); err != nil {
 		t.Fatalf("query at rune limit rejected: %v", err)
