@@ -100,7 +100,8 @@ an existing attempt, but stores neither prompt/tool digests nor canonical model
 outcomes. None proves current account state or enables completed-result continuation; they do not
 provide consume/ack state or a recovery
 coordinator. Detached control projection, current execution admission, and a
-canonical model-outcome and atomic outcome-delivery protocol are still required. See the
+native WriteBehind outcome route, completion-driven lifecycle/GC, and current
+continuation admission are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
 

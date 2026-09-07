@@ -227,6 +227,11 @@ to the adapter configuration, outside the core contract.
   queue generation, session lease, and durable model contract before Stream.
   An existing row forbids another provider request. This first slice has no
   prompt/tool digest, canonical assistant outcome, summary support, or replay.
+- Schema v46 adds immutable canonical model-outcome delivery evidence. One
+  fenced SQL transaction appends the Core-validated assistant/message plus
+  model usage suffix and binds it to the v45 attempt. It does not authorize
+  continuation or provider replay, prove provider execution or transport
+  receipt, and this storage-only slice has no GC.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -302,7 +307,7 @@ to the adapter configuration, outside the core contract.
   generic server or dynamic-control writer. The authorization-epoch gate is a
   fail-closed lag detector, not a transaction-level authorization grant held
   through `run/start` or a queued claim. V43 sidecars, v44 effect-admission
-  witnesses, and v45 model attempts only provide storage evidence; completed-result recovery remains disabled. Detached control
+  witnesses, v45 model attempts, and v46 outcomes only provide storage evidence; completed-result recovery remains disabled. Detached control
   projection, current execution admission, and a model-invocation journal are
   still required before any strict recovery coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and

@@ -128,8 +128,8 @@ func TestSQLSchemaV41MigratesAuthorizationEpoch(t *testing.T) {
 	}
 	assertAuthorizationEpoch(t, fresh, 0)
 	var freshVersion string
-	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&freshVersion); err != nil || freshVersion != "45" {
-		t.Fatalf("fresh schema version=%q err=%v, want 45", freshVersion, err)
+	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&freshVersion); err != nil || freshVersion != "46" {
+		t.Fatalf("fresh schema version=%q err=%v, want 46", freshVersion, err)
 	}
 	if _, err := db.ExecContext(ctx, "DELETE FROM store_meta WHERE key = 'authorization_epoch'; UPDATE store_meta SET value = '41' WHERE key = 'schema_version'"); err != nil {
 		t.Fatal(err)
@@ -140,8 +140,8 @@ func TestSQLSchemaV41MigratesAuthorizationEpoch(t *testing.T) {
 	}
 	assertAuthorizationEpoch(t, store, 0)
 	var version string
-	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "45" {
-		t.Fatalf("schema version=%q err=%v, want 45", version, err)
+	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "46" {
+		t.Fatalf("schema version=%q err=%v, want 46", version, err)
 	}
 }
 
@@ -160,8 +160,8 @@ func TestPostgresSchemaV41MigratesAuthorizationEpoch(t *testing.T) {
 	}
 	assertAuthorizationEpoch(t, store, 0)
 	var version string
-	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "45" {
-		t.Fatalf("schema version=%q err=%v, want 45", version, err)
+	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != "46" {
+		t.Fatalf("schema version=%q err=%v, want 46", version, err)
 	}
 }
 

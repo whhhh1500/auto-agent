@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place: the schema DDL only adds objects, so
 // opening a v1 database creates the missing tables and advances the
 // recorded version.
-const SQLSchemaVersion = 45
+const SQLSchemaVersion = 46
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -911,4 +911,27 @@ CREATE TABLE IF NOT EXISTS native_queued_model_invocations (
 );
 CREATE INDEX IF NOT EXISTS native_queued_model_invocations_run_created
 	ON native_queued_model_invocations (run_id, created_at);
+`
+
+// sqlSchemaV46NativeQueuedModelOutcomes binds one immutable canonical model
+// outcome to its v45 attempt and Session event pair. It is historical delivery
+// evidence, not a continuation grant or permission to replay a provider call.
+const sqlSchemaV46NativeQueuedModelOutcomes = `
+CREATE TABLE IF NOT EXISTS native_queued_model_invocation_outcomes (
+	protocol                       TEXT NOT NULL CHECK (protocol = 'native_queued_model_outcome/v1'),
+	session_id                     TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id                         TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	invocation_id                  TEXT NOT NULL CHECK (length(invocation_id) BETWEEN 7 AND 128),
+	attempt_request_sha256         TEXT NOT NULL CHECK (length(attempt_request_sha256) = 64),
+	assistant_event_seq            BIGINT NOT NULL CHECK (assistant_event_seq >= 0),
+	usage_event_seq                BIGINT NOT NULL CHECK (usage_event_seq = assistant_event_seq + 1),
+	session_version_after_outcome  BIGINT NOT NULL CHECK (session_version_after_outcome = usage_event_seq + 1),
+	outcome_sha256                 TEXT NOT NULL CHECK (length(outcome_sha256) = 64),
+	created_at                     BIGINT NOT NULL CHECK (created_at > 0),
+	PRIMARY KEY (session_id, run_id, invocation_id),
+	UNIQUE (session_id, assistant_event_seq),
+	UNIQUE (session_id, usage_event_seq)
+);
+CREATE INDEX IF NOT EXISTS native_queued_model_invocation_outcomes_run_created
+	ON native_queued_model_invocation_outcomes (run_id, created_at);
 `

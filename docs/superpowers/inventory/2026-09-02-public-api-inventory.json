@@ -46,6 +46,7 @@
         "SQLSessionStore.AuthorizationEpoch",
         "SQLSessionStore.BeginNativeQueuedToolEffectFenced",
         "SQLSessionStore.BeginNativeQueuedModelInvocationFenced",
+        "SQLSessionStore.AppendNativeQueuedModelOutcomeFenced",
         "SQLSessionStore.LoadCompletedToolResultRecoverySidecarFenced",
         "SQLQueuedPrincipalResolver.AuthorizationEpoch",
         "SQLQueuedPrincipalResolver.ResolveRunPrincipal",
@@ -4105,6 +4106,7 @@
         "SQLSessionStore.AuthorizationEpoch",
         "SQLSessionStore.BeginNativeQueuedToolEffectFenced",
         "SQLSessionStore.BeginNativeQueuedModelInvocationFenced",
+        "SQLSessionStore.AppendNativeQueuedModelOutcomeFenced",
         "SQLSessionStore.ControlRevision",
         "SQLSessionStore.Create",
         "SQLSessionStore.FindReleaseByOperation",
@@ -4427,7 +4429,7 @@
     "control/error"
   ],
   "sql_schema": {
-    "current_version": 45,
+    "current_version": 46,
     "history": [
       {
         "version": 1,
@@ -4740,6 +4742,13 @@
         "tables_added": [
           "native_queued_model_invocations"
         ]
+      },
+      {
+        "version": 46,
+        "change": "immutable canonical main-model outcome delivery evidence bound to v45 attempts",
+        "tables_added": [
+          "native_queued_model_invocation_outcomes"
+        ]
       }
     ],
     "canonical_tables_current": [
@@ -4789,7 +4798,8 @@
       "graph_segment_leases",
       "completed_tool_result_recovery_sidecars",
       "native_queued_tool_effect_witnesses",
-      "native_queued_model_invocations"
+      "native_queued_model_invocations",
+      "native_queued_model_invocation_outcomes"
     ]
   },
   "core_budget": {

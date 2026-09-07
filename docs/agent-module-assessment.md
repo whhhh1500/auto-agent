@@ -409,7 +409,7 @@ flowchart TD
 
 ### M23 — Graph 状态、检查点、历史与段授权
 
-**实现 / 状态：** [extensions/graph](../pkg/extensions/graph)定义标准库合同；[sql/graphcheckpoint](../pkg/adapter/sql/graphcheckpoint)持久化 CAS head、不可变版本与追加 transition，当前 schema v45（图历史表由 v41 引入）；[sql/graphsegment](../pkg/adapter/sql/graphsegment)处理段租约。ContextPlanner、SandboxAuthorizer、ApprovalAuthorizer 在 [ports.go](../pkg/execution/graph/ports.go)注入，不凭图节点文本授予权限。
+**实现 / 状态：** [extensions/graph](../pkg/extensions/graph)定义标准库合同；[sql/graphcheckpoint](../pkg/adapter/sql/graphcheckpoint)持久化 CAS head、不可变版本与追加 transition，当前 schema v46（图历史表由 v41 引入）；[sql/graphsegment](../pkg/adapter/sql/graphsegment)处理段租约。ContextPlanner、SandboxAuthorizer、ApprovalAuthorizer 在 [ports.go](../pkg/execution/graph/ports.go)注入，不凭图节点文本授予权限。
 
 **扩展：** E1：实现 Checkpoint Store / 可选 HistoryStore、段租约与授权端口；内存实现用于测试与嵌入。自定义存储须保持比较交换、版本历史和 transition 的原子性，不能只保存最后一份 JSON 就声称等价。
 
