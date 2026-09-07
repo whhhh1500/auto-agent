@@ -27,6 +27,9 @@ func (s *S3SessionStore) writeEvidence(ctx context.Context, sessionID string, ve
 }
 
 func (s *S3SessionStore) loadCanonicalForEvidence(ctx context.Context, id string, meta s3SessionMeta) (*core.Session, error) {
+	if err := validateCommittedSessionVersion(id, meta.Version); err != nil {
+		return nil, err
+	}
 	items, err := s.objects.List(ctx, s3EventsPrefix(id), "", 0)
 	if err != nil {
 		return nil, err

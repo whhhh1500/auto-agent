@@ -203,6 +203,9 @@ func (s *S3SessionStore) loadLocked(ctx context.Context, id string) (*core.Sessi
 	if meta.Initializing {
 		return nil, "", fmt.Errorf("session %s is still initializing", id)
 	}
+	if err := validateCommittedSessionVersion(id, meta.Version); err != nil {
+		return nil, "", err
+	}
 
 	items, err := s.objects.List(ctx, s3EventsPrefix(id), "", 0)
 	if err != nil {

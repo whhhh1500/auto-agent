@@ -231,6 +231,9 @@ func (s *SQLSessionStore) loadSessionRow(ctx context.Context, id string) (sqlSes
 }
 
 func (s *SQLSessionStore) restore(ctx context.Context, id string, row sqlSessionRow) (*core.Session, int64, error) {
+	if err := validateCommittedSessionVersion(id, row.Version); err != nil {
+		return nil, 0, err
+	}
 	rows, err := s.db.QueryContext(ctx, sqlSelectChunks.bind(s.dialect), id)
 	if err != nil {
 		return nil, 0, err
@@ -271,11 +274,21 @@ func (s *SQLSessionStore) restore(ctx context.Context, id string, row sqlSession
 	if int64(len(events)) > row.Version {
 		events = events[:row.Version]
 	}
+	if int64(len(events)) < row.Version {
+		return nil, 0, fmt.Errorf("session %s committed version %d exceeds restored event count %d", id, row.Version, len(events))
+	}
 	session, err := core.RestoreSession(row.Header, events)
 	if err != nil {
 		return nil, 0, err
 	}
 	return session, row.Version, nil
+}
+
+func validateCommittedSessionVersion(sessionID string, version int64) error {
+	if version < 0 || version > core.MaxSessionEvents {
+		return fmt.Errorf("session %s committed version %d is outside the supported range 0 through %d", sessionID, version, core.MaxSessionEvents)
+	}
+	return nil
 }
 
 func (s *SQLSessionStore) Save(ctx context.Context, session *core.Session, expectedVersion int64) error {

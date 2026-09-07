@@ -241,6 +241,9 @@ func validateFencedRepairCandidate(expectedVersion int64, candidate, synthetic [
 }
 
 func (s *SQLSessionStore) restoreFencedSession(ctx context.Context, tx *sql.Tx, sessionID string, options core.SessionOptions, committed int64) (*core.Session, error) {
+	if err := validateCommittedSessionVersion(sessionID, committed); err != nil {
+		return nil, err
+	}
 	rows, err := tx.QueryContext(ctx, sqlSelectChunks.bind(s.dialect), sessionID)
 	if err != nil {
 		return nil, err
