@@ -128,9 +128,22 @@ func TestWindowsProviderEnvironmentStaysFreshUntilCurrentUserLaunch(t *testing.T
 	if values["GOTMPDIR"] != filepath.Join(root, "tmp") {
 		t.Fatalf("GOTMPDIR=%q, want durable top-level tmp", values["GOTMPDIR"])
 	}
+	for _, key := range []string{
+		"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "GOTMPDIR", "GOCACHE", "GOMODCACHE",
+		"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "GOPATH", "PNPM_HOME", "NPM_CONFIG_CACHE", "YARN_CACHE_FOLDER", "CARGO_HOME", "RUSTUP_HOME",
+	} {
+		value, ok := values[key]
+		if !ok || !windowsPathIsStrictChild(root, value) {
+			t.Fatalf("%s=%q is not session-scoped below %q", key, value, root)
+		}
+	}
+	home := filepath.Join(root, "home")
+	if values["HOMEDRIVE"] != filepath.VolumeName(home) || !windowsPathsEqual(values["HOMEDRIVE"]+values["HOMEPATH"], home) {
+		t.Fatalf("HOMEDRIVE/HOMEPATH=%q/%q, want %q", values["HOMEDRIVE"], values["HOMEPATH"], home)
+	}
 	for _, value := range values {
-		if strings.HasPrefix(strings.ToLower(value), strings.ToLower(`C:\Users\`)) {
-			t.Fatalf("host profile path leaked into target policy: %q", value)
+		if windowsPathIsUnderUserProfiles(value) && !windowsPathsEqual(value, root) && !windowsPathIsStrictChild(root, value) {
+			t.Fatalf("host profile path leaked outside session root %q: %q", root, value)
 		}
 	}
 	for _, path := range []string{filepath.Join(root, "home"), filepath.Join(root, "tmp"), filepath.Join(root, "cache"), filepath.Join(root, "cache", "go-build")} {
@@ -138,6 +151,15 @@ func TestWindowsProviderEnvironmentStaysFreshUntilCurrentUserLaunch(t *testing.T
 			t.Fatalf("environment policy created nested session path %q: %v", path, err)
 		}
 	}
+}
+
+func windowsPathIsUnderUserProfiles(path string) bool {
+	cleanPath := filepath.Clean(path)
+	volume := filepath.VolumeName(cleanPath)
+	if volume == "" {
+		return false
+	}
+	return windowsPathIsStrictChild(filepath.Join(volume+string(filepath.Separator), "Users"), cleanPath)
 }
 
 func TestScanWindowsArtifactsRejectsUnsafeAndChangedFiles(t *testing.T) {
