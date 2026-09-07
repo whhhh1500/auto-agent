@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -436,7 +437,8 @@ func ValidateRunResult(run RunResult, final bool) error {
 	if final && run.Status == RunRunning {
 		return fmt.Errorf("finished evaluation run is still running")
 	}
-	if run.Score < 0 || run.Score > 1 || run.TotalCases < 1 || run.TotalCases > MaxDatasetCases ||
+	if math.IsNaN(run.Score) || math.IsInf(run.Score, 0) || run.Score < 0 || run.Score > 1 ||
+		run.TotalCases < 1 || run.TotalCases > MaxDatasetCases ||
 		run.PassedCases < 0 || run.PassedCases > run.TotalCases {
 		return fmt.Errorf("evaluation run scores or case counts are invalid")
 	}

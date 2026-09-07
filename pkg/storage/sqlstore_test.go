@@ -576,12 +576,27 @@ func TestSQLSchemaV19BackfillsEvaluationRevisionProjections(t *testing.T) {
 	}
 	metadata := map[string]string{"harness.assignment.id": "legacy-assignment"}
 	metadataJSON, _ := json.Marshal(metadata)
+	dataset := sqlEvaluationDataset()
+	if err := evaluation.ValidateDataset(&dataset); err != nil {
+		t.Fatal(err)
+	}
+	datasetJSON, err := json.Marshal(dataset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO evaluation_datasets
+		(id, version, revision, name, profile_id, case_count, definition_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		dataset.ID, dataset.Version, dataset.Revision, dataset.Name, dataset.ProfileID,
+		len(dataset.Cases), string(datasetJSON), time.Now().UTC().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO evaluation_runs
 		(id, dataset_id, dataset_version, dataset_revision, tenant_id, subject_id, profile_id,
 		 baseline_run_id, status, score, passed, total_cases, passed_cases, allow_capabilities,
 		 composition_metadata_json, metadata_json, error_message, created_at, completed_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"eval_legacy_projection", "evaluation.sql", 1, strings.Repeat("a", 64), "acme", "alice", "evaluation.agent",
+		"eval_legacy_projection", dataset.ID, dataset.Version, dataset.Revision, "acme", "alice", dataset.ProfileID,
 		"", "running", 0, 0, 1, 0, "[]", string(metadataJSON), "{}", "", time.Now().UnixMilli(), 0); err != nil {
 		t.Fatal(err)
 	}

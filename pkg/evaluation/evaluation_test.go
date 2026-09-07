@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"sync/atomic"
 	"testing"
@@ -158,6 +159,46 @@ func baseDataset(capability string) Dataset {
 			},
 		}},
 	}
+}
+
+func memoryStoreDataset(t *testing.T, store *MemoryStore, cases int) Dataset {
+	t.Helper()
+	if cases < 1 {
+		t.Fatal("memory store dataset needs at least one case")
+	}
+	dataset := baseDataset("eval.lookup")
+	for index := 2; index <= cases; index++ {
+		evalCase := dataset.Cases[0]
+		evalCase.ID = fmt.Sprintf("case-%d", index)
+		evalCase.Input = fmt.Sprintf("evaluate %d", index)
+		dataset.Cases = append(dataset.Cases, evalCase)
+	}
+	stored, created, err := store.PutDataset(context.Background(), dataset)
+	if err != nil || !created {
+		t.Fatalf("build memory store dataset: stored=%#v created=%t err=%v", stored, created, err)
+	}
+	return stored
+}
+
+func memoryStoreRun(dataset Dataset, id string) RunResult {
+	return RunResult{
+		ID: id, DatasetID: dataset.ID, DatasetVersion: dataset.Version, DatasetRevision: dataset.Revision,
+		TenantID: "acme", SubjectID: "alice", ProfileID: "evaluation.override", Status: RunRunning,
+		TotalCases: len(dataset.Cases), CompositionMetadata: map[string]string{"harness.assignment.id": "memory-assignment"},
+		CreatedAt: time.Unix(1, 2_345_678).UTC(),
+	}
+}
+
+func memoryStoreCaseResult(caseID string) CaseResult {
+	return CaseResult{
+		CaseID: caseID, SessionID: "evalsess_memory", AgentRunID: "evalcase_memory",
+		Status: core.RunCompleted, Answer: "done", Score: 1, Passed: true,
+		DurationMS: 1, CompletedAt: time.Unix(3, 4_567_890).UTC(),
+	}
+}
+
+func evaluationMillis(value time.Time) time.Time {
+	return time.UnixMilli(value.UnixMilli()).UTC()
 }
 
 func TestEvaluationRunnerExecutesIdempotentCapabilityAndPersistsArtifacts(t *testing.T) {
@@ -537,12 +578,218 @@ func TestEvaluationResumeRepairsInterruptedCaseSessionWithoutModelCall(t *testin
 	}
 }
 
+func TestMemoryStoreBindsRunToStoredDataset(t *testing.T) {
+	store := NewMemoryStore()
+	dataset := memoryStoreDataset(t, store, 2)
+
+	override := memoryStoreRun(dataset, "eval_memory_profile_override")
+	if err := store.CreateRun(context.Background(), override); err != nil {
+		t.Fatalf("explicit profile override was rejected: %v", err)
+	}
+	retry := override
+	retry.CreatedAt = time.Unix(99, 100).UTC()
+	if err := store.CreateRun(context.Background(), retry); err != nil {
+		t.Fatalf("same immutable run retry was rejected: %v", err)
+	}
+	stored, err := store.GetRun(context.Background(), override.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.CreatedAt.Equal(evaluationMillis(override.CreatedAt)) {
+		t.Fatalf("run retry changed durable creation time: %#v", stored)
+	}
+
+	for _, test := range []struct {
+		name   string
+		id     string
+		mutate func(*RunResult)
+	}{
+		{name: "unknown dataset", id: "eval_memory_bind_unknown", mutate: func(run *RunResult) { run.DatasetID = "evaluation.missing" }},
+		{name: "version", id: "eval_memory_bind_version", mutate: func(run *RunResult) { run.DatasetVersion++ }},
+		{name: "revision", id: "eval_memory_bind_revision", mutate: func(run *RunResult) {
+			run.DatasetRevision = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		}},
+		{name: "partial total", id: "eval_memory_bind_partial", mutate: func(run *RunResult) { run.TotalCases-- }},
+		{name: "expanded total", id: "eval_memory_bind_expanded", mutate: func(run *RunResult) { run.TotalCases++ }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			run := memoryStoreRun(dataset, test.id)
+			test.mutate(&run)
+			if err := store.CreateRun(context.Background(), run); err == nil {
+				t.Fatalf("run with changed %s was accepted", test.name)
+			}
+		})
+	}
+}
+
+func TestMemoryStoreGuardsBoundCaseResultsAndTerminalReplay(t *testing.T) {
+	store := NewMemoryStore()
+	dataset := memoryStoreDataset(t, store, 2)
+	run := memoryStoreRun(dataset, "eval_memory_case_guard")
+	if err := store.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := memoryStoreCaseResult(dataset.Cases[0].ID)
+	invalid.SessionID = ""
+	if err := store.RecordCaseResult(context.Background(), run.ID, invalid); err == nil {
+		t.Fatal("invalid case result was accepted")
+	}
+	unknown := memoryStoreCaseResult("invented-case")
+	if err := store.RecordCaseResult(context.Background(), run.ID, unknown); err == nil {
+		t.Fatal("case outside immutable dataset was accepted")
+	}
+	result := memoryStoreCaseResult(dataset.Cases[0].ID)
+	if err := store.RecordCaseResult(context.Background(), run.ID, result); err != nil {
+		t.Fatal(err)
+	}
+
+	terminal := run
+	terminal.Status, terminal.Error, terminal.CompletedAt = RunFailed, "interrupted", time.Unix(5, 6).UTC()
+	if err := store.FinishRun(context.Background(), terminal); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordCaseResult(context.Background(), run.ID, result); err != nil {
+		t.Fatalf("canonical terminal replay failed: %v", err)
+	}
+	changed := result
+	changed.Answer = "changed"
+	if err := store.RecordCaseResult(context.Background(), run.ID, changed); err == nil {
+		t.Fatal("changed terminal replay was accepted")
+	}
+	if err := store.RecordCaseResult(context.Background(), run.ID, memoryStoreCaseResult(dataset.Cases[1].ID)); err == nil {
+		t.Fatal("terminal run accepted a new case result")
+	}
+}
+
+func TestMemoryStoreFinishRequiresBoundHeaderAndPersistedCases(t *testing.T) {
+	newRun := func(t *testing.T, id string) (*MemoryStore, Dataset, RunResult, []CaseResult) {
+		t.Helper()
+		store := NewMemoryStore()
+		dataset := memoryStoreDataset(t, store, 2)
+		run := memoryStoreRun(dataset, id)
+		if err := store.CreateRun(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+		results := []CaseResult{memoryStoreCaseResult(dataset.Cases[0].ID), memoryStoreCaseResult(dataset.Cases[1].ID)}
+		return store, dataset, run, results
+	}
+	completed := func(run RunResult) RunResult {
+		run.Status, run.Score, run.Passed, run.PassedCases = RunCompleted, 1, true, 2
+		run.CompletedAt = time.Unix(7, 8_901_234).UTC()
+		return run
+	}
+
+	t.Run("completed requires every dataset case", func(t *testing.T) {
+		store, _, run, results := newRun(t, "eval_memory_finish_missing")
+		if err := store.RecordCaseResult(context.Background(), run.ID, results[0]); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.FinishRun(context.Background(), completed(run)); err == nil {
+			t.Fatal("completed run with a missing dataset case was accepted")
+		}
+	})
+
+	t.Run("immutable header and supplied cases", func(t *testing.T) {
+		store, _, run, results := newRun(t, "eval_memory_finish_header")
+		for _, result := range results {
+			if err := store.RecordCaseResult(context.Background(), run.ID, result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		changedHeader := completed(run)
+		changedHeader.ProfileID = "evaluation.changed"
+		if err := store.FinishRun(context.Background(), changedHeader); err == nil {
+			t.Fatal("changed immutable header was accepted")
+		}
+		mismatchedCases := completed(run)
+		mismatchedCases.Cases = []CaseResult{results[0]}
+		if err := store.FinishRun(context.Background(), mismatchedCases); err == nil {
+			t.Fatal("mismatched supplied case results were accepted")
+		}
+		matchingCases := completed(run)
+		matchingCases.Cases = []CaseResult{results[1], results[0]}
+		if err := store.FinishRun(context.Background(), matchingCases); err != nil {
+			t.Fatalf("matching supplied case results were rejected: %v", err)
+		}
+	})
+
+	t.Run("terminal replay leaves stored timestamps unchanged", func(t *testing.T) {
+		store, _, run, results := newRun(t, "eval_memory_finish_replay")
+		for _, result := range results {
+			if err := store.RecordCaseResult(context.Background(), run.ID, result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		first := completed(run)
+		if err := store.FinishRun(context.Background(), first); err != nil {
+			t.Fatal(err)
+		}
+		retry := first
+		retry.CreatedAt = time.Unix(99, 100).UTC()
+		retry.CompletedAt = time.Unix(101, 102).UTC()
+		if err := store.FinishRun(context.Background(), retry); err != nil {
+			t.Fatalf("equivalent terminal replay failed: %v", err)
+		}
+		stored, err := store.GetRun(context.Background(), run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !stored.CreatedAt.Equal(evaluationMillis(first.CreatedAt)) || !stored.CompletedAt.Equal(evaluationMillis(first.CompletedAt)) {
+			t.Fatalf("terminal replay changed durable timestamps: %#v", stored)
+		}
+		if len(stored.Cases) != len(results) || !stored.Cases[0].CompletedAt.Equal(results[0].CompletedAt) {
+			t.Fatalf("case result time was not preserved exactly: %#v", stored.Cases)
+		}
+		changed := first
+		changed.Error = "changed"
+		if err := store.FinishRun(context.Background(), changed); err == nil {
+			t.Fatal("changed terminal result was accepted")
+		}
+	})
+}
+
+func TestMemoryStoreFinishRejectsNonFiniteScoreWithoutMutation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		id    string
+		score float64
+	}{
+		{name: "nan", id: "eval_memory_nonfinite_nan", score: math.NaN()},
+		{name: "positive infinity", id: "eval_memory_nonfinite_posinf", score: math.Inf(1)},
+		{name: "negative infinity", id: "eval_memory_nonfinite_neginf", score: math.Inf(-1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := NewMemoryStore()
+			dataset := memoryStoreDataset(t, store, 1)
+			run := memoryStoreRun(dataset, test.id)
+			if err := store.CreateRun(context.Background(), run); err != nil {
+				t.Fatal(err)
+			}
+			terminal := run
+			terminal.Status, terminal.Score, terminal.CompletedAt = RunFailed, test.score, time.Unix(9, 10).UTC()
+			if err := store.FinishRun(context.Background(), terminal); err == nil {
+				stored, getErr := store.GetRun(context.Background(), run.ID)
+				t.Fatalf("non-finite score was accepted; stored=%#v getErr=%v", stored, getErr)
+			}
+			stored, err := store.GetRun(context.Background(), run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Status != RunRunning || stored.Score != 0 {
+				t.Fatalf("rejected terminal score changed durable run: %#v", stored)
+			}
+		})
+	}
+}
+
 func TestMemoryStoreRejectsRunningOverflow(t *testing.T) {
 	store := NewMemoryStore()
 	store.maxRunning = 2
 	ctx := context.Background()
+	dataset := memoryStoreDataset(t, store, 1)
 	run := func(id string) RunResult {
-		return RunResult{ID: id, DatasetID: "eval.dataset", Status: RunRunning, TotalCases: 1, CreatedAt: time.Now().UTC()}
+		return memoryStoreRun(dataset, id)
 	}
 	if err := store.CreateRun(ctx, run("eval_run_1")); err != nil {
 		t.Fatal(err)
@@ -625,8 +872,9 @@ func TestMemoryStoreRejectsStoredRunOverflow(t *testing.T) {
 	store := NewMemoryStore()
 	store.maxRuns = 2
 	ctx := context.Background()
+	dataset := memoryStoreDataset(t, store, 1)
 	run := func(id string) RunResult {
-		return RunResult{ID: id, DatasetID: "eval.dataset", Status: RunRunning, TotalCases: 1, CreatedAt: time.Now().UTC()}
+		return memoryStoreRun(dataset, id)
 	}
 	if err := store.CreateRun(ctx, run("eval_stored_1")); err != nil {
 		t.Fatal(err)
@@ -643,16 +891,18 @@ func TestMemoryStoreRejectsCaseOverflow(t *testing.T) {
 	store := NewMemoryStore()
 	store.maxCases = 2
 	ctx := context.Background()
-	if err := store.CreateRun(ctx, RunResult{ID: "eval_case_cap", DatasetID: "eval.dataset", Status: RunRunning, TotalCases: 3, CreatedAt: time.Now().UTC()}); err != nil {
+	dataset := memoryStoreDataset(t, store, 3)
+	run := memoryStoreRun(dataset, "eval_case_cap")
+	if err := store.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordCaseResult(ctx, "eval_case_cap", CaseResult{CaseID: "c1"}); err != nil {
+	if err := store.RecordCaseResult(ctx, run.ID, memoryStoreCaseResult(dataset.Cases[0].ID)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordCaseResult(ctx, "eval_case_cap", CaseResult{CaseID: "c2"}); err != nil {
+	if err := store.RecordCaseResult(ctx, run.ID, memoryStoreCaseResult(dataset.Cases[1].ID)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordCaseResult(ctx, "eval_case_cap", CaseResult{CaseID: "c3"}); err == nil {
+	if err := store.RecordCaseResult(ctx, run.ID, memoryStoreCaseResult(dataset.Cases[2].ID)); err == nil {
 		t.Fatal("memory case overflow was accepted")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
@@ -183,18 +184,15 @@ func (s *MemoryStore) ListDatasets(_ context.Context, id string, limit int) ([]D
 }
 
 func (s *MemoryStore) CreateRun(_ context.Context, run RunResult) error {
-	if run.ID == "" || run.DatasetID == "" || run.Status != RunRunning {
-		return fmt.Errorf("evaluation run is incomplete")
-	}
 	if len(run.Cases) != 0 {
 		return fmt.Errorf("new evaluation run already contains case results")
 	}
-	if run.AssignmentRevision == "" {
-		assignmentRevision, err := core.CompositionMetadataRevision(run.CompositionMetadata)
-		if err != nil {
-			return fmt.Errorf("evaluation assignment revision: %w", err)
-		}
-		run.AssignmentRevision = assignmentRevision
+	run.CreatedAt = truncateEvaluationTime(run.CreatedAt)
+	if err := normalizeMemoryStoreRunDefinition(&run); err != nil {
+		return err
+	}
+	if err := ValidateRunResult(run, false); err != nil {
+		return err
 	}
 	copyOf, err := cloneJSON(run)
 	if err != nil {
@@ -202,7 +200,13 @@ func (s *MemoryStore) CreateRun(_ context.Context, run RunResult) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := s.runs[run.ID]; exists {
+	if _, err := s.boundDatasetLocked(run); err != nil {
+		return err
+	}
+	if existing, exists := s.runs[run.ID]; exists {
+		if sameMemoryStoreRunHeader(existing, run) {
+			return nil
+		}
 		return fmt.Errorf("evaluation run %s already exists", run.ID)
 	}
 	if s.runningLocked() >= s.runningCap() {
@@ -279,6 +283,12 @@ func (s *MemoryStore) runningLocked() int {
 }
 
 func (s *MemoryStore) RecordCaseResult(_ context.Context, runID string, result CaseResult) error {
+	if err := core.ValidateRunID(runID); err != nil {
+		return fmt.Errorf("evaluation run id: %w", err)
+	}
+	if err := ValidateCaseResult(result); err != nil {
+		return err
+	}
 	copyOf, err := cloneJSON(result)
 	if err != nil {
 		return err
@@ -289,10 +299,23 @@ func (s *MemoryStore) RecordCaseResult(_ context.Context, runID string, result C
 	if !ok {
 		return ErrRunNotFound
 	}
+	dataset, err := s.boundDatasetLocked(run)
+	if err != nil {
+		return err
+	}
+	if !datasetHasCase(dataset, result.CaseID) {
+		return fmt.Errorf("evaluation case result %s is outside the dataset", result.CaseID)
+	}
 	for _, existing := range run.Cases {
 		if existing.CaseID == result.CaseID {
+			if sameMemoryStoreJSON(existing, result) {
+				return nil
+			}
 			return fmt.Errorf("case result %s already exists", result.CaseID)
 		}
+	}
+	if run.Status != RunRunning {
+		return fmt.Errorf("evaluation run %s is already terminal", runID)
 	}
 	if len(run.Cases) >= s.caseCap() {
 		return fmt.Errorf("evaluation case results exceed maximum of %d", s.caseCap())
@@ -318,8 +341,11 @@ func (s *MemoryStore) RecordRunError(_ context.Context, runID, message string) e
 }
 
 func (s *MemoryStore) FinishRun(_ context.Context, run RunResult) error {
-	copyOf, err := cloneJSON(run)
-	if err != nil {
+	run.CompletedAt = truncateEvaluationTime(run.CompletedAt)
+	if err := normalizeMemoryStoreRunDefinition(&run); err != nil {
+		return err
+	}
+	if err := ValidateRunResult(run, true); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -328,13 +354,35 @@ func (s *MemoryStore) FinishRun(_ context.Context, run RunResult) error {
 	if !ok {
 		return ErrRunNotFound
 	}
-	if run.Status == RunCompleted && len(existing.Cases) != run.TotalCases {
-		return fmt.Errorf("evaluation run %s has %d of %d case results", run.ID, len(existing.Cases), run.TotalCases)
+	dataset, err := s.boundDatasetLocked(existing)
+	if err != nil {
+		return err
 	}
-	if len(copyOf.Cases) == 0 {
-		copyOf.Cases = existing.Cases
+	if !sameMemoryStoreRunHeader(existing, run) {
+		return fmt.Errorf("evaluation run %s has another immutable definition", run.ID)
 	}
-	s.runs[run.ID] = copyOf
+	if len(run.Cases) != 0 && !sameMemoryStoreCaseResults(run.Cases, existing.Cases) {
+		return fmt.Errorf("evaluation run %s supplied case results do not match persisted results", run.ID)
+	}
+	if !caseResultsMatchDataset(existing.Cases, dataset) {
+		return fmt.Errorf("evaluation run %s has case results outside its dataset", run.ID)
+	}
+	if existing.Status != RunRunning {
+		if sameMemoryStoreTerminalResult(existing, run) {
+			return nil
+		}
+		return fmt.Errorf("evaluation run %s is already terminal with another result", run.ID)
+	}
+	if run.Status == RunCompleted && !caseResultsCoverDataset(existing.Cases, dataset) {
+		return fmt.Errorf("evaluation run %s has %d of %d case results", run.ID, len(existing.Cases), len(dataset.Cases))
+	}
+	existing.Status = run.Status
+	existing.Score = run.Score
+	existing.Passed = run.Passed
+	existing.PassedCases = run.PassedCases
+	existing.Error = run.Error
+	existing.CompletedAt = run.CompletedAt
+	s.runs[run.ID] = existing
 	return nil
 }
 
@@ -414,6 +462,107 @@ func cloneJSON[T any](value T) (T, error) {
 		return out, err
 	}
 	return out, nil
+}
+
+func (s *MemoryStore) boundDatasetLocked(run RunResult) (Dataset, error) {
+	dataset, ok := s.datasets[datasetKey(run.DatasetID, run.DatasetVersion)]
+	if !ok {
+		return Dataset{}, fmt.Errorf("evaluation run dataset %s version %d is not stored", run.DatasetID, run.DatasetVersion)
+	}
+	if dataset.Revision != run.DatasetRevision || len(dataset.Cases) != run.TotalCases {
+		return Dataset{}, fmt.Errorf("evaluation run dataset definition does not match stored dataset")
+	}
+	return dataset, nil
+}
+
+func normalizeMemoryStoreRunDefinition(run *RunResult) error {
+	if run.AssignmentRevision != "" {
+		return nil
+	}
+	assignmentRevision, err := core.CompositionMetadataRevision(run.CompositionMetadata)
+	if err != nil {
+		return fmt.Errorf("evaluation assignment revision: %w", err)
+	}
+	run.AssignmentRevision = assignmentRevision
+	return nil
+}
+
+func truncateEvaluationTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return value
+	}
+	return time.UnixMilli(value.UnixMilli()).UTC()
+}
+
+func datasetHasCase(dataset Dataset, caseID string) bool {
+	for _, evalCase := range dataset.Cases {
+		if evalCase.ID == caseID {
+			return true
+		}
+	}
+	return false
+}
+
+func caseResultsMatchDataset(results []CaseResult, dataset Dataset) bool {
+	datasetCaseIDs := make(map[string]bool, len(dataset.Cases))
+	for _, evalCase := range dataset.Cases {
+		datasetCaseIDs[evalCase.ID] = true
+	}
+	seen := make(map[string]bool, len(results))
+	for _, result := range results {
+		if seen[result.CaseID] || !datasetCaseIDs[result.CaseID] {
+			return false
+		}
+		seen[result.CaseID] = true
+	}
+	return true
+}
+
+func caseResultsCoverDataset(results []CaseResult, dataset Dataset) bool {
+	return len(results) == len(dataset.Cases) && caseResultsMatchDataset(results, dataset)
+}
+
+func sameMemoryStoreRunHeader(left, right RunResult) bool {
+	left.Cases, right.Cases = nil, nil
+	left.CreatedAt, right.CreatedAt = time.Time{}, time.Time{}
+	left.CompletedAt, right.CompletedAt = time.Time{}, time.Time{}
+	left.Status, right.Status = RunRunning, RunRunning
+	left.Score, right.Score = 0, 0
+	left.Passed, right.Passed = false, false
+	left.PassedCases, right.PassedCases = 0, 0
+	left.Error, right.Error = "", ""
+	return sameMemoryStoreJSON(left, right)
+}
+
+func sameMemoryStoreTerminalResult(left, right RunResult) bool {
+	return left.Status == right.Status && left.Score == right.Score && left.Passed == right.Passed &&
+		left.PassedCases == right.PassedCases && left.Error == right.Error
+}
+
+func sameMemoryStoreCaseResults(left, right []CaseResult) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	byID := make(map[string]CaseResult, len(right))
+	for _, result := range right {
+		if _, exists := byID[result.CaseID]; exists {
+			return false
+		}
+		byID[result.CaseID] = result
+	}
+	for _, result := range left {
+		existing, ok := byID[result.CaseID]
+		if !ok || !sameMemoryStoreJSON(existing, result) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameMemoryStoreJSON[T any](left, right T) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
 var _ Store = (*MemoryStore)(nil)

@@ -633,6 +633,18 @@ results, crash recovery, artifact snapshots, baseline comparison, and regression
 gates. Evaluation concepts stay outside `pkg/core`; the kernel contributes only
 the general subtractive `TurnInput.CapabilityFilter`. Concurrent `running` Evaluation Runs are capped at `evaluation.MaxRunningEvaluationRuns` (32); completing or failing a run frees a slot, and identical-header SQL replay still succeeds at the cap. Each Dataset ID keeps at most `evaluation.MaxDatasetVersionsPerID` (64) immutable versions; identical-version replay still succeeds at the cap. Distinct Dataset IDs are capped at `evaluation.MaxDatasetIDs` (256); a new version of an existing ID does not consume another ID slot. Stored Evaluation Runs (running plus terminal) are capped at `evaluation.MaxEvaluationRuns` (4096); identical-header SQL replay still succeeds at the cap. Case results per run are capped at `evaluation.MaxDatasetCases` (1000); identical SQL case rows still replay at the cap.
 
+Store writes bind a Run to the exact stored Dataset ID, version, revision, and
+full case count. A valid Run Profile override and a supplied custom Assignment
+Revision remain part of that immutable Run definition; the Store does not
+replace either with the Dataset default. Persisted Case rows are authoritative:
+new rows must belong to the bound Dataset, and a retry is a no-op only when its
+canonical Case or terminal result matches the persisted value, preserving the
+first durable timestamps. `completed` requires the full Dataset case set;
+`failed` may be partial. SQL `GetRun` rejects legacy rows with missing Dataset
+or foreign Case evidence, or an incomplete `completed` Run, instead of repairing
+or returning a false-green result. The Runner, rather than the Store, owns score,
+pass, weight, and assertion aggregation.
+
 Release Evaluation also performs a provider-neutral Capability compatibility
 gate over the Scope-visible declarations selected by the Live and Candidate
 Profiles. This comparison intentionally occurs before Principal grant, Policy,

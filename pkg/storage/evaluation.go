@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -41,7 +42,9 @@ var (
 		tenant_id, subject_id, profile_id, baseline_run_id, status, score, passed,
 		total_cases, passed_cases, assignment_revision, allow_capabilities, composition_metadata_json, metadata_json, error_message,
 		created_at, completed_at FROM evaluation_runs WHERE id = ?`}
-	sqlListEvaluationRuns = sqlQuery{`SELECT id, dataset_id, dataset_version, dataset_revision,
+	sqlGetEvaluationRunForUpdate = sqlQuery{sqlGetEvaluationRun.text + ` FOR UPDATE`}
+	sqlLockEvaluationRunSQLite   = sqlQuery{`UPDATE evaluation_runs SET id = id WHERE id = ?`}
+	sqlListEvaluationRuns        = sqlQuery{`SELECT id, dataset_id, dataset_version, dataset_revision,
 		tenant_id, subject_id, profile_id, baseline_run_id, status, score, passed,
 		total_cases, passed_cases, assignment_revision, allow_capabilities, composition_metadata_json, metadata_json, error_message,
 		created_at, completed_at FROM evaluation_runs`}
@@ -228,6 +231,13 @@ func (s *SQLEvaluationStore) CreateRun(ctx context.Context, run evaluation.RunRe
 	if err := evaluation.ValidateRunResult(run, false); err != nil {
 		return err
 	}
+	dataset, err := s.getEvaluationDataset(ctx, s.db, run.DatasetID, run.DatasetVersion)
+	if err != nil {
+		return err
+	}
+	if err := validateEvaluationRunDataset(run, dataset); err != nil {
+		return err
+	}
 	if run.AssignmentRevision == "" {
 		assignmentRevision, revisionErr := core.CompositionMetadataRevision(run.CompositionMetadata)
 		if revisionErr != nil {
@@ -296,54 +306,61 @@ func (s *SQLEvaluationStore) RecordCaseResult(ctx context.Context, runID string,
 	if err != nil {
 		return err
 	}
-	var cases int
-	if err := s.db.QueryRowContext(ctx, sqlCountEvaluationCases.bind(s.dialect), runID).Scan(&cases); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	if cases >= s.caseCap() {
-		var existing string
-		getErr := s.db.QueryRowContext(ctx, sqlGetEvaluationCase.bind(s.dialect), runID, result.CaseID).Scan(&existing)
-		if getErr == nil {
-			if !sameJSON(existing, string(encoded)) {
-				return fmt.Errorf("evaluation case result %s already exists with another value", result.CaseID)
-			}
-			return nil
-		}
-		if !errors.Is(getErr, sql.ErrNoRows) {
-			return getErr
-		}
-		return fmt.Errorf("evaluation case results exceed maximum of %d", s.caseCap())
-	}
-	insertResult, err := s.db.ExecContext(ctx, sqlInsertEvaluationCase.bind(s.dialect),
-		runID, result.CaseID, string(encoded), result.Score, boolInt(result.Passed),
-		result.Artifacts.CompositionRevision, result.Artifacts.AssignmentRevision, result.CompletedAt.UnixMilli(), runID,
-	)
-	if err == nil {
-		affected, affectedErr := insertResult.RowsAffected()
-		if affectedErr != nil {
-			return affectedErr
-		}
-		if affected > 0 {
-			return nil
-		}
-	} else if !isDuplicateConstraint(err) {
+	defer func() { _ = tx.Rollback() }()
+	run, err := s.lockEvaluationRun(ctx, tx, runID)
+	if err != nil {
 		return err
+	}
+	dataset, err := s.getEvaluationDataset(ctx, tx, run.DatasetID, run.DatasetVersion)
+	if err != nil {
+		return err
+	}
+	if err := validateEvaluationRunDataset(run, dataset); err != nil {
+		return err
+	}
+	if !evaluationDatasetHasCase(dataset, result.CaseID) {
+		return fmt.Errorf("evaluation case result %s is outside dataset", result.CaseID)
 	}
 	var existing string
-	getErr := s.db.QueryRowContext(ctx, sqlGetEvaluationCase.bind(s.dialect), runID, result.CaseID).Scan(&existing)
+	getErr := tx.QueryRowContext(ctx, sqlGetEvaluationCase.bind(s.dialect), runID, result.CaseID).Scan(&existing)
 	if getErr == nil {
-		if !sameJSON(existing, string(encoded)) {
+		if !sameEvaluationCaseResultJSON(existing, result) {
 			return fmt.Errorf("evaluation case result %s already exists with another value", result.CaseID)
 		}
-		return nil
+		return tx.Commit()
 	}
 	if !errors.Is(getErr, sql.ErrNoRows) {
 		return getErr
 	}
-	if _, runErr := s.GetRun(ctx, runID); errors.Is(runErr, evaluation.ErrRunNotFound) {
-		return evaluation.ErrRunNotFound
+	if run.Status != evaluation.RunRunning {
+		return fmt.Errorf("evaluation run %s is not accepting case results", runID)
 	}
-	return fmt.Errorf("evaluation run %s is not accepting case results", runID)
+	var cases int
+	if err := tx.QueryRowContext(ctx, sqlCountEvaluationCases.bind(s.dialect), runID).Scan(&cases); err != nil {
+		return err
+	}
+	if cases >= s.caseCap() {
+		return fmt.Errorf("evaluation case results exceed maximum of %d", s.caseCap())
+	}
+	insertResult, err := tx.ExecContext(ctx, sqlInsertEvaluationCase.bind(s.dialect),
+		runID, result.CaseID, string(encoded), result.Score, boolInt(result.Passed),
+		result.Artifacts.CompositionRevision, result.Artifacts.AssignmentRevision, result.CompletedAt.UnixMilli(), runID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := insertResult.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return fmt.Errorf("evaluation run %s is not accepting case results", runID)
+	}
+	return tx.Commit()
 }
 
 func (s *SQLEvaluationStore) RecordRunError(ctx context.Context, runID, message string) error {
@@ -375,22 +392,55 @@ func (s *SQLEvaluationStore) RecordRunError(ctx context.Context, runID, message 
 }
 
 func (s *SQLEvaluationStore) FinishRun(ctx context.Context, run evaluation.RunResult) error {
+	if !run.CompletedAt.IsZero() {
+		run.CompletedAt = time.UnixMilli(run.CompletedAt.UTC().UnixMilli()).UTC()
+	}
 	if err := evaluation.ValidateRunResult(run, true); err != nil {
 		return err
+	}
+	if run.AssignmentRevision == "" {
+		assignmentRevision, err := core.CompositionMetadataRevision(run.CompositionMetadata)
+		if err != nil {
+			return fmt.Errorf("compute evaluation assignment revision: %w", err)
+		}
+		run.AssignmentRevision = assignmentRevision
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if run.Status == evaluation.RunCompleted {
-		var cases int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM evaluation_case_results WHERE run_id = "+placeholder(s.dialect, 1), run.ID).Scan(&cases); err != nil {
-			return err
+	existing, err := s.lockEvaluationRun(ctx, tx, run.ID)
+	if err != nil {
+		return err
+	}
+	dataset, err := s.getEvaluationDataset(ctx, tx, existing.DatasetID, existing.DatasetVersion)
+	if err != nil {
+		return err
+	}
+	if err := validateEvaluationRunDataset(existing, dataset); err != nil {
+		return err
+	}
+	if !sameEvaluationRunHeader(existing, run) {
+		return fmt.Errorf("evaluation run %s has another immutable definition", run.ID)
+	}
+	storedCases, err := s.listStoredEvaluationCaseResults(ctx, tx, run.ID)
+	if err != nil {
+		return err
+	}
+	cases := evaluationCaseResults(storedCases)
+	if err := validateEvaluationCaseMembers(dataset, cases, run.Status == evaluation.RunCompleted); err != nil {
+		return err
+	}
+	if len(run.Cases) > 0 && !sameEvaluationCaseResults(storedCases, run.Cases) {
+		return fmt.Errorf("evaluation run %s case results differ from durable state", run.ID)
+	}
+	if existing.Status != evaluation.RunRunning {
+		if existing.Status == run.Status && existing.Score == run.Score && existing.Passed == run.Passed &&
+			existing.PassedCases == run.PassedCases && existing.Error == run.Error {
+			return tx.Commit()
 		}
-		if cases != run.TotalCases {
-			return fmt.Errorf("evaluation run %s has %d of %d case results", run.ID, cases, run.TotalCases)
-		}
+		return fmt.Errorf("evaluation run %s is already terminal with another result", run.ID)
 	}
 	result, err := tx.ExecContext(ctx, sqlUpdateEvaluationRun.bind(s.dialect),
 		string(run.Status), run.Score, boolInt(run.Passed), run.PassedCases,
@@ -406,32 +456,46 @@ func (s *SQLEvaluationStore) FinishRun(ctx context.Context, run evaluation.RunRe
 	if affected > 0 {
 		return tx.Commit()
 	}
-	_ = tx.Rollback()
-	existing, err := s.GetRun(ctx, run.ID)
-	if err != nil {
-		return err
-	}
-	if existing.Status == run.Status && existing.Score == run.Score && existing.Passed == run.Passed &&
-		existing.PassedCases == run.PassedCases && existing.Error == run.Error {
-		return nil
-	}
-	return fmt.Errorf("evaluation run %s is already terminal with another result", run.ID)
+	return fmt.Errorf("evaluation run %s is not running", run.ID)
 }
 
 func (s *SQLEvaluationStore) GetRun(ctx context.Context, id string) (evaluation.RunResult, error) {
 	if err := core.ValidateRunID(id); err != nil {
 		return evaluation.RunResult{}, fmt.Errorf("evaluation run id: %w", err)
 	}
-	run, err := scanEvaluationRun(s.db.QueryRowContext(ctx, sqlGetEvaluationRun.bind(s.dialect), id))
+	options := &sql.TxOptions{}
+	if s.dialect == SQLDialectPostgres {
+		options.Isolation = sql.LevelRepeatableRead
+	}
+	tx, err := s.db.BeginTx(ctx, options)
 	if err != nil {
 		return evaluation.RunResult{}, err
 	}
-	cases, err := s.listCaseResults(ctx, id)
+	defer func() { _ = tx.Rollback() }()
+	run, err := scanEvaluationRun(tx.QueryRowContext(ctx, sqlGetEvaluationRun.bind(s.dialect), id))
 	if err != nil {
 		return evaluation.RunResult{}, err
 	}
+	dataset, err := s.getEvaluationDataset(ctx, tx, run.DatasetID, run.DatasetVersion)
+	if err != nil {
+		return evaluation.RunResult{}, err
+	}
+	if err := validateEvaluationRunDataset(run, dataset); err != nil {
+		return evaluation.RunResult{}, err
+	}
+	storedCases, err := s.listStoredEvaluationCaseResults(ctx, tx, id)
+	if err != nil {
+		return evaluation.RunResult{}, err
+	}
+	cases := evaluationCaseResults(storedCases)
 	run.Cases = cases
+	if err := validateEvaluationCaseMembers(dataset, cases, run.Status == evaluation.RunCompleted); err != nil {
+		return evaluation.RunResult{}, err
+	}
 	if err := evaluation.ValidateRunResult(run, run.Status != evaluation.RunRunning); err != nil {
+		return evaluation.RunResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return evaluation.RunResult{}, err
 	}
 	return run, nil
@@ -500,13 +564,54 @@ func (s *SQLEvaluationStore) QueryRuns(ctx context.Context, filter evaluation.Ru
 	return out, nil
 }
 
-func (s *SQLEvaluationStore) listCaseResults(ctx context.Context, runID string) ([]evaluation.CaseResult, error) {
-	rows, err := s.db.QueryContext(ctx, sqlListEvaluationCases.bind(s.dialect), runID)
+type evaluationSQLExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *SQLEvaluationStore) getEvaluationDataset(ctx context.Context, executor evaluationSQLExecutor, id string, version int) (evaluation.Dataset, error) {
+	var raw string
+	err := executor.QueryRowContext(ctx, sqlGetEvaluationDataset.bind(s.dialect), id, version).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return evaluation.Dataset{}, evaluation.ErrDatasetNotFound
+	}
+	if err != nil {
+		return evaluation.Dataset{}, err
+	}
+	return decodeEvaluationDataset(raw)
+}
+
+func (s *SQLEvaluationStore) lockEvaluationRun(ctx context.Context, tx *sql.Tx, id string) (evaluation.RunResult, error) {
+	if s.dialect == SQLDialectSQLite {
+		result, err := tx.ExecContext(ctx, sqlLockEvaluationRunSQLite.bind(s.dialect), id)
+		if err != nil {
+			return evaluation.RunResult{}, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return evaluation.RunResult{}, err
+		}
+		if affected == 0 {
+			return evaluation.RunResult{}, evaluation.ErrRunNotFound
+		}
+		return scanEvaluationRun(tx.QueryRowContext(ctx, sqlGetEvaluationRun.bind(s.dialect), id))
+	}
+	return scanEvaluationRun(tx.QueryRowContext(ctx, sqlGetEvaluationRunForUpdate.bind(s.dialect), id))
+}
+
+type storedEvaluationCaseResult struct {
+	raw    string
+	result evaluation.CaseResult
+}
+
+func (s *SQLEvaluationStore) listStoredEvaluationCaseResults(ctx context.Context, executor evaluationSQLExecutor, runID string) ([]storedEvaluationCaseResult, error) {
+	rows, err := executor.QueryContext(ctx, sqlListEvaluationCases.bind(s.dialect), runID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []evaluation.CaseResult{}
+	out := []storedEvaluationCaseResult{}
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
@@ -519,9 +624,115 @@ func (s *SQLEvaluationStore) listCaseResults(ctx context.Context, runID string) 
 		if err := evaluation.ValidateCaseResult(result); err != nil {
 			return nil, err
 		}
-		out = append(out, result)
+		out = append(out, storedEvaluationCaseResult{raw: raw, result: result})
 	}
 	return out, rows.Err()
+}
+
+func evaluationCaseResults(stored []storedEvaluationCaseResult) []evaluation.CaseResult {
+	results := make([]evaluation.CaseResult, 0, len(stored))
+	for _, item := range stored {
+		results = append(results, item.result)
+	}
+	return results
+}
+
+func validateEvaluationRunDataset(run evaluation.RunResult, dataset evaluation.Dataset) error {
+	if run.DatasetID != dataset.ID || run.DatasetVersion != dataset.Version || run.DatasetRevision != dataset.Revision {
+		return fmt.Errorf("evaluation run dataset definition does not match durable dataset")
+	}
+	if run.TotalCases != len(dataset.Cases) {
+		return fmt.Errorf("evaluation run total cases does not match durable dataset")
+	}
+	return nil
+}
+
+func evaluationDatasetHasCase(dataset evaluation.Dataset, caseID string) bool {
+	for _, item := range dataset.Cases {
+		if item.ID == caseID {
+			return true
+		}
+	}
+	return false
+}
+
+func validateEvaluationCaseMembers(dataset evaluation.Dataset, cases []evaluation.CaseResult, requireComplete bool) error {
+	members := make(map[string]struct{}, len(dataset.Cases))
+	for _, item := range dataset.Cases {
+		members[item.ID] = struct{}{}
+	}
+	if requireComplete && len(cases) != len(members) {
+		return fmt.Errorf("evaluation run has %d of %d case results", len(cases), len(members))
+	}
+	seen := make(map[string]struct{}, len(cases))
+	for _, result := range cases {
+		if _, ok := members[result.CaseID]; !ok {
+			return fmt.Errorf("evaluation run contains case %s outside dataset", result.CaseID)
+		}
+		if _, duplicate := seen[result.CaseID]; duplicate {
+			return fmt.Errorf("evaluation run contains duplicate case %s", result.CaseID)
+		}
+		seen[result.CaseID] = struct{}{}
+	}
+	if requireComplete && len(seen) != len(members) {
+		return fmt.Errorf("evaluation run does not contain every durable dataset case")
+	}
+	return nil
+}
+
+func sameEvaluationCaseResults(left []storedEvaluationCaseResult, right []evaluation.CaseResult) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	byID := make(map[string]storedEvaluationCaseResult, len(left))
+	for _, item := range left {
+		if _, duplicate := byID[item.result.CaseID]; duplicate {
+			return false
+		}
+		byID[item.result.CaseID] = item
+	}
+	for _, result := range right {
+		stored, ok := byID[result.CaseID]
+		if !ok {
+			return false
+		}
+		if !sameEvaluationCaseResultJSON(stored.raw, result) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameEvaluationCaseResultJSON(raw string, result evaluation.CaseResult) bool {
+	expected, err := json.Marshal(result)
+	if err != nil {
+		return false
+	}
+	return sameEvaluationCaseJSON([]byte(raw), expected)
+}
+
+func sameEvaluationCaseJSON(left, right []byte) bool {
+	decode := func(raw []byte) (any, error) {
+		decoder := json.NewDecoder(strings.NewReader(string(raw)))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		var trailing any
+		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("multiple JSON values")
+		}
+		return value, nil
+	}
+	leftValue, leftErr := decode(left)
+	rightValue, rightErr := decode(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	leftJSON, leftErr := json.Marshal(leftValue)
+	rightJSON, rightErr := json.Marshal(rightValue)
+	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
 
 func scanEvaluationRun(scanner runScanner) (evaluation.RunResult, error) {
@@ -604,28 +815,11 @@ func sameEvaluationRunHeader(left, right evaluation.RunResult) bool {
 	return string(encodedLeft) == string(encodedRight)
 }
 
-func sameJSON(left, right string) bool {
-	var leftValue, rightValue any
-	if json.Unmarshal([]byte(left), &leftValue) != nil || json.Unmarshal([]byte(right), &rightValue) != nil {
-		return left == right
-	}
-	leftJSON, _ := json.Marshal(leftValue)
-	rightJSON, _ := json.Marshal(rightValue)
-	return string(leftJSON) == string(rightJSON)
-}
-
 func timeMillis(value time.Time) int64 {
 	if value.IsZero() {
 		return 0
 	}
 	return value.UTC().UnixMilli()
-}
-
-func placeholder(dialect SQLDialect, index int) string {
-	if dialect == SQLDialectPostgres {
-		return fmt.Sprintf("$%d", index)
-	}
-	return "?"
 }
 
 var _ evaluation.Store = (*SQLEvaluationStore)(nil)
