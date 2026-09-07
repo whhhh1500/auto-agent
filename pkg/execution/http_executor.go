@@ -140,19 +140,23 @@ func (e HTTPExecutor) Execute(ctx context.Context, spec core.ExecutionSpec, requ
 }
 
 func newPublicHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	return newPublicHTTPClientWithDial(net.DefaultResolver.LookupIPAddr, dialer.DialContext)
+}
+
+func newPublicHTTPClientWithDial(lookup func(context.Context, string) ([]net.IPAddr, error), dial func(context.Context, string, string) (net.Conn, error)) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// A process-wide proxy may resolve the target itself and reach networks the
 	// local safety dialer cannot observe. Secure defaults therefore connect
 	// directly; deployers needing a proxy must inject a separately hardened
 	// custom client and explicitly opt into that trust boundary.
 	transport.Proxy = nil
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, fmt.Errorf("split destination %q: %w", address, err)
 		}
-		addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		addresses, err := lookup(ctx, host)
 		if err != nil {
 			return nil, fmt.Errorf("resolve destination %q: %w", host, err)
 		}
@@ -164,7 +168,7 @@ func newPublicHTTPClient() *http.Client {
 			if !isPubliclyRoutable(resolved.IP) {
 				return nil, fmt.Errorf("destination %q resolved to non-public address %s", host, resolved.IP)
 			}
-			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
+			conn, err := dial(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
 			if err == nil {
 				return conn, nil
 			}
