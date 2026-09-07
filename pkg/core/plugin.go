@@ -122,7 +122,9 @@ func (m *PluginMount) Policy(layer PolicyLayer) error {
 	return nil
 }
 
-// OnUnmount registers resource cleanup in reverse installation order.
+// OnUnmount registers resource cleanup in reverse installation order. Plugins
+// must register cleanup synchronously from Install and must not retain a mount
+// for asynchronous or post-Close registration.
 func (m *PluginMount) OnUnmount(cleanup func(context.Context) error) {
 	if cleanup == nil {
 		return
