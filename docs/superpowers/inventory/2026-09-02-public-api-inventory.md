@@ -273,8 +273,11 @@ Version 45 records one admitted main-model attempt per durable step and forbids
 provider replay after an existing row; prompt/tool digests, canonical outcomes,
 summary calls, and automatic recovery remain out of scope. Version 46 binds a
 Core-validated assistant/message plus model usage suffix atomically to its v45
-attempt and Session tip; it is immutable historical delivery evidence with no
-GC in this storage-only slice. The v41 model is one
+attempt and Session tip; it is immutable historical delivery evidence.
+`SQLSessionStore.PruneNativeQueuedModelInvocations` deletes an old v45/v46 pair
+only after strict proof validation and either a terminal run or a durable
+Session successor. Attempts without outcomes remain permanent replay fences.
+The v41 model is one
 mutable CAS-protected `graph_checkpoints` head plus append-only versions and
 transitions. A v40 upgrade backfills only its current head as a
 `migration_floor`; it never manufactures older history. Existing schema names,

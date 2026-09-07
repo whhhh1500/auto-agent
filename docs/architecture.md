@@ -231,7 +231,9 @@ to the adapter configuration, outside the core contract.
   fenced SQL transaction appends the Core-validated assistant/message plus
   model usage suffix and binds it to the v45 attempt. It does not authorize
   continuation or provider replay, prove provider execution or transport
-  receipt, and this storage-only slice has no GC.
+  receipt. SQL retention may delete an old outcome/attempt pair only after
+  strict proof validation and either a terminal run or a durable Session
+  successor; attempts without outcomes remain permanent replay fences.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.

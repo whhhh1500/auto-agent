@@ -279,9 +279,15 @@ func loadNativeQueuedModelInvocation(ctx context.Context, tx *sql.Tx, dialect SQ
 	if json.Unmarshal([]byte(requestJSON), &record.input.Request) != nil {
 		return nativeQueuedModelInvocation{}, false, completedToolResultProofInvalid()
 	}
+	if record.input.Request.Validate() != nil {
+		return nativeQueuedModelInvocation{}, false, completedToolResultProofInvalid()
+	}
 	record.requestJSON = requestJSON
 	record.createdAt = time.UnixMilli(createdAt).UTC()
-	if protocol != nativeQueuedModelInvocationProtocol || createdAt <= 0 || record.invocationID != fmt.Sprintf("model:%d", record.stepStartSeq) || record.sessionVersionAtAdmission <= record.stepStartSeq ||
+	requestSum := sha256.Sum256([]byte(requestJSON))
+	if protocol != nativeQueuedModelInvocationProtocol || createdAt <= 0 || len(requestJSON) == 0 || len(requestJSON) > 1048576 || hex.EncodeToString(requestSum[:]) != record.requestSHA256 || record.invocationID != fmt.Sprintf("model:%d", record.stepStartSeq) || record.stepStartSeq < 0 || record.sessionVersionAtAdmission <= record.stepStartSeq || record.runStartSeq < 0 || record.runStartSeq > record.stepStartSeq || record.input.AuthorizationEpoch < 0 || record.queueGeneration < 1 ||
+		!validCapabilityResultDigest(record.leaseHolderSHA256) || !validCapabilityResultDigest(record.compositionRevision) || record.assignmentRevision != "" && !validCapabilityResultDigest(record.assignmentRevision) || !validCapabilityResultDigest(record.compositionSHA256) || !validCapabilityResultDigest(record.modelContractSHA256) ||
+		strings.TrimSpace(record.profileSnapshotID) == "" || len(record.profileSnapshotID) > 512 || strings.TrimSpace(record.capabilitySnapshotID) == "" || len(record.capabilitySnapshotID) > 512 || strings.TrimSpace(record.input.BootstrapRevision) == "" || len(record.input.BootstrapRevision) > 512 || strings.ContainsAny(record.input.BootstrapRevision, "\r\n\x00") ||
 		record.input.Request.Principal.TenantID != tenantID || record.input.Request.Principal.SubjectID != subjectID || record.input.Request.SessionID != storedSessionID || record.input.Request.RunID != storedRunID || record.input.Request.Step != stepIndex {
 		return nativeQueuedModelInvocation{}, false, completedToolResultProofInvalid()
 	}

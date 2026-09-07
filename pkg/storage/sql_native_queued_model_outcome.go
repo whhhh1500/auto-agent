@@ -234,6 +234,41 @@ func validateNativeQueuedModelOutcomeCommitted(session *core.Session, expectedVe
 	return nil
 }
 
+func validateNativeQueuedModelOutcomeForPrune(session *core.Session, attempt nativeQueuedModelInvocation, outcome nativeQueuedModelOutcome, outcomeStartSeq int64) error {
+	if session == nil || attempt.sessionVersionAtAdmission < 0 || outcomeStartSeq < attempt.sessionVersionAtAdmission || outcomeStartSeq > outcome.assistantEventSeq || outcome.assistantEventSeq < attempt.sessionVersionAtAdmission || outcome.versionAfterOutcome > session.Version() ||
+		attempt.input.Request.SessionID != outcome.sessionID || attempt.input.Request.RunID != outcome.runID || attempt.invocationID != outcome.invocationID {
+		return completedToolResultProofInvalid()
+	}
+	events := session.Events()
+	eventCount := int64(len(events))
+	if outcome.assistantEventSeq >= eventCount || outcome.usageEventSeq < 0 || outcome.usageEventSeq >= eventCount || outcome.versionAfterOutcome <= 0 || outcome.versionAfterOutcome > eventCount {
+		return completedToolResultProofInvalid()
+	}
+	assistant := events[outcome.assistantEventSeq]
+	usage := events[outcome.usageEventSeq]
+	if assistant.Type != core.EvAssistantMessage || usage.Type != core.EvRunUsage || assistant.RunID != outcome.runID || usage.RunID != outcome.runID {
+		return completedToolResultProofInvalid()
+	}
+	var usageData core.RunUsageData
+	if json.Unmarshal(usage.Data, &usageData) != nil || usageData.InvocationID != outcome.invocationID {
+		return completedToolResultProofInvalid()
+	}
+	for _, event := range events[outcomeStartSeq:outcome.assistantEventSeq] {
+		if event.Type != core.EvAssistantChunk || event.RunID != outcome.runID {
+			return completedToolResultProofInvalid()
+		}
+	}
+	encoded, err := json.Marshal(events[outcomeStartSeq:outcome.versionAfterOutcome])
+	if err != nil {
+		return completedToolResultProofInvalid()
+	}
+	sum := sha256.Sum256(encoded)
+	if hex.EncodeToString(sum[:]) != outcome.outcomeSHA256 {
+		return completedToolResultProofInvalid()
+	}
+	return nil
+}
+
 func loadNativeQueuedModelOutcome(ctx context.Context, tx *sql.Tx, dialect SQLDialect, sessionID, runID, invocationID string, lock bool) (nativeQueuedModelOutcome, bool, error) {
 	query := sqlSelectNativeQueuedModelOutcome
 	if lock && dialect == SQLDialectPostgres {
@@ -252,7 +287,7 @@ func loadNativeQueuedModelOutcome(ctx context.Context, tx *sql.Tx, dialect SQLDi
 		return nativeQueuedModelOutcome{}, false, err
 	}
 	outcome.createdAt = time.UnixMilli(createdAt).UTC()
-	if protocol != nativeQueuedModelOutcomeProtocol || createdAt <= 0 || outcome.usageEventSeq != outcome.assistantEventSeq+1 || outcome.versionAfterOutcome != outcome.usageEventSeq+1 || !validCapabilityResultDigest(outcome.attemptRequestSHA256) || !validCapabilityResultDigest(outcome.outcomeSHA256) {
+	if protocol != nativeQueuedModelOutcomeProtocol || outcome.sessionID != sessionID || outcome.runID != runID || outcome.invocationID != invocationID || createdAt <= 0 || outcome.assistantEventSeq < 0 || outcome.usageEventSeq <= 0 || outcome.versionAfterOutcome <= 0 || outcome.assistantEventSeq != outcome.usageEventSeq-1 || outcome.usageEventSeq != outcome.versionAfterOutcome-1 || !validCapabilityResultDigest(outcome.attemptRequestSHA256) || !validCapabilityResultDigest(outcome.outcomeSHA256) {
 		return nativeQueuedModelOutcome{}, false, completedToolResultProofInvalid()
 	}
 	return outcome, true, nil

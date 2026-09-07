@@ -2,11 +2,15 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 )
@@ -168,6 +172,288 @@ func TestSQLSchemaV45MigratesNativeQueuedModelOutcomes(t *testing.T) {
 	}
 }
 
+func nativeQueuedModelPairCounts(t *testing.T, store *SQLSessionStore, sessionID string) (attempts, outcomes int) {
+	t.Helper()
+	if err := store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT COUNT(*) FROM native_queued_model_invocations WHERE session_id = ?"}).bind(store.dialect), sessionID).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRowContext(context.Background(), (sqlQuery{"SELECT COUNT(*) FROM native_queued_model_invocation_outcomes WHERE session_id = ?"}).bind(store.dialect), sessionID).Scan(&outcomes); err != nil {
+		t.Fatal(err)
+	}
+	return attempts, outcomes
+}
+
+func appendNativeQueuedModelSuccessor(t *testing.T, fixture *nativeQueuedModelOutcomeFixture) {
+	t.Helper()
+	loaded, err := fixture.store.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := loaded.Append(fixture.fence.RunID, core.EvStepEnd, core.StepData{Index: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.AppendEventsFenced(context.Background(), fixture.fence, event.Seq, []core.SessionEvent{event}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSQLSessionStorePruneNativeQueuedModelInvocations(t *testing.T) {
+	t.Run("active_current_tail_is_retained", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-active", "run-model-prune-active")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); err != nil || deleted != 0 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("durable_successor_deletes_pair", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-successor", "run-model-prune-successor")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); err != nil || deleted != 1 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 0 || outcomes != 0 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("terminal_deletes_pair", func(t *testing.T) {
+		for _, status := range []core.RunStatus{core.RunCompleted, core.RunLimited, core.RunFailed, core.RunCancelled} {
+			t.Run(string(status), func(t *testing.T) {
+				fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-terminal-"+string(status), "run-model-prune-terminal-"+string(status))
+				if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+					t.Fatal(err)
+				}
+				if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE run_control SET status = ? WHERE run_id = ?", string(status), fixture.fence.RunID); err != nil {
+					t.Fatal(err)
+				}
+				if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); err != nil || deleted != 1 {
+					t.Fatalf("deleted=%d err=%v", deleted, err)
+				}
+			})
+		}
+	})
+	t.Run("attempt_without_outcome_is_permanent", func(t *testing.T) {
+		fixture := newNativeQueuedModelFixture(t, newTestSQLStore(t), "session-model-prune-attempt", "run-model-prune-attempt")
+		if admitted, err := fixture.store.BeginNativeQueuedModelInvocationFenced(context.Background(), fixture.fence, fixture.version, fixture.input); err != nil || !admitted {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); err != nil || deleted != 0 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 0 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("cutoff_retains_pair", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-cutoff", "run-model-prune-cutoff")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(-time.Hour)); err != nil || deleted != 0 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("cutoff_equal_retains_pair", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-cutoff-equal", "run-model-prune-cutoff-equal")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		var createdAt int64
+		if err := fixture.store.db.QueryRowContext(context.Background(), "SELECT created_at FROM native_queued_model_invocation_outcomes WHERE session_id = ?", fixture.session.ID()).Scan(&createdAt); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.UnixMilli(createdAt).UTC()); err != nil || deleted != 0 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("unknown_run_status_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-status-corrupt", "run-model-prune-status-corrupt")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE run_control SET status = 'draining' WHERE run_id = ?", fixture.fence.RunID); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("run_session_mismatch_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-owner-corrupt", "run-model-prune-owner-corrupt")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE run_control SET session_id = 'session-model-prune-other' WHERE run_id = ?", fixture.fence.RunID); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("digest_mismatch_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-corrupt", "run-model-prune-corrupt")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE native_queued_model_invocation_outcomes SET attempt_request_sha256 = ? WHERE session_id = ?", strings.Repeat("0", 64), fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("correlated_attempt_digest_mutation_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-correlated-corrupt", "run-model-prune-correlated-corrupt")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		mutated := strings.Repeat("0", 64)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE native_queued_model_invocations SET request_sha256 = ? WHERE session_id = ?", mutated, fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE native_queued_model_invocation_outcomes SET attempt_request_sha256 = ? WHERE session_id = ?", mutated, fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("canonical_outcome_mismatch_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-outcome-corrupt", "run-model-prune-outcome-corrupt")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE native_queued_model_invocation_outcomes SET outcome_sha256 = ? WHERE session_id = ?", strings.Repeat("0", 64), fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("chunked_outcome_uses_exact_append_boundary", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-chunked", "run-model-prune-chunked")
+		staged, err := fixture.session.Clone()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range []string{"a", "b"} {
+			if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantChunk, core.AssistantChunkData{Text: text}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "ab"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InputTokens: 4, OutputTokens: 2, InvocationID: "model:2"}); err != nil {
+			t.Fatal(err)
+		}
+		fixture.events = staged.EventsFrom(fixture.version)
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); err != nil || deleted != 1 {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("chunked_outcome_subsuffix_hash_rolls_back", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-chunk-subhash", "run-model-prune-chunk-subhash")
+		staged, err := fixture.session.Clone()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range []string{"a", "b"} {
+			if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantChunk, core.AssistantChunkData{Text: text}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := staged.Append(fixture.fence.RunID, core.EvAssistantMessage, core.AssistantMessageData{Text: "ab"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := staged.Append(fixture.fence.RunID, core.EvRunUsage, core.RunUsageData{InputTokens: 4, OutputTokens: 2, InvocationID: "model:2"}); err != nil {
+			t.Fatal(err)
+		}
+		fixture.events = staged.EventsFrom(fixture.version)
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		encoded, err := json.Marshal(fixture.events[1:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(encoded)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "UPDATE native_queued_model_invocation_outcomes SET outcome_sha256 = ? WHERE session_id = ?", hex.EncodeToString(sum[:]), fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+	t.Run("extreme_sequences_fail_closed_without_panic", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-extreme-seq", "run-model-prune-extreme-seq")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), "PRAGMA ignore_check_constraints = ON"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.store.db.ExecContext(context.Background(), `UPDATE native_queued_model_invocation_outcomes
+			SET assistant_event_seq = ?, usage_event_seq = ?, session_version_after_outcome = ? WHERE session_id = ?`,
+			math.MaxInt64, math.MinInt64, math.MinInt64+1, fixture.session.ID()); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || !errors.Is(err, ErrCompletedToolResultProofInvalid) {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+	})
+	t.Run("attempt_delete_failure_rolls_back_pair", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, newTestSQLStore(t), "session-model-prune-delete-failure", "run-model-prune-delete-failure")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(context.Background(), fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		if _, err := fixture.store.db.ExecContext(context.Background(), `CREATE TRIGGER fail_native_model_attempt_delete BEFORE DELETE ON native_queued_model_invocations
+			BEGIN SELECT RAISE(ABORT, 'injected attempt delete failure'); END`); err != nil {
+			t.Fatal(err)
+		}
+		if deleted, err := fixture.store.PruneNativeQueuedModelInvocations(context.Background(), time.Now().UTC().Add(time.Hour)); deleted != 0 || err == nil {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, fixture.store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
+}
+
 func TestPostgresSQLSessionStoreAppendNativeQueuedModelOutcomeFenced(t *testing.T) {
 	ctx := newPostgresFenceTestContext(t)
 	db := newPostgresTestDB(t)
@@ -238,6 +524,57 @@ func TestPostgresSchemaV45MigratesNativeQueuedModelOutcomes(t *testing.T) {
 	if _, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestPostgresPruneNativeQueuedModelInvocations(t *testing.T) {
+	ctx := newPostgresFenceTestContext(t)
+	db := newPostgresTestDB(t)
+	store, err := OpenSQLSessionStore(ctx, db, SQLDialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-prune-active", "run-pg-model-prune-active")
+	if appended, err := store.AppendNativeQueuedModelOutcomeFenced(ctx, active.fence, active.version, active.events); err != nil || !appended {
+		t.Fatal(err)
+	}
+	advanced := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-prune-advanced", "run-pg-model-prune-advanced")
+	if appended, err := store.AppendNativeQueuedModelOutcomeFenced(ctx, advanced.fence, advanced.version, advanced.events); err != nil || !appended {
+		t.Fatal(err)
+	}
+	appendNativeQueuedModelSuccessor(t, advanced)
+	if deleted, err := store.PruneNativeQueuedModelInvocations(ctx, time.Now().UTC().Add(time.Hour)); err != nil || deleted != 1 {
+		t.Fatalf("deleted=%d err=%v", deleted, err)
+	}
+	if attempts, outcomes := nativeQueuedModelPairCounts(t, store, active.session.ID()); attempts != 1 || outcomes != 1 {
+		t.Fatalf("active attempts=%d outcomes=%d", attempts, outcomes)
+	}
+	t.Run("attempt_delete_failure_rolls_back_pair", func(t *testing.T) {
+		fixture := newNativeQueuedModelOutcomeFixture(t, store, "session-pg-model-prune-delete-failure", "run-pg-model-prune-delete-failure")
+		if appended, err := fixture.store.AppendNativeQueuedModelOutcomeFenced(ctx, fixture.fence, fixture.version, fixture.events); err != nil || !appended {
+			t.Fatal(err)
+		}
+		appendNativeQueuedModelSuccessor(t, fixture)
+		function := "fail_native_model_attempt_delete"
+		trigger := function + "_trigger"
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE OR REPLACE FUNCTION %s() RETURNS trigger AS $$
+			BEGIN RAISE EXCEPTION 'injected attempt delete failure'; END;
+		$$ LANGUAGE plpgsql`, function)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE TRIGGER %s BEFORE DELETE ON native_queued_model_invocations FOR EACH ROW EXECUTE FUNCTION %s()", trigger, function)); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON native_queued_model_invocations", trigger))
+			_, _ = db.ExecContext(context.Background(), fmt.Sprintf("DROP FUNCTION IF EXISTS %s()", function))
+		})
+		if deleted, err := store.PruneNativeQueuedModelInvocations(ctx, time.Now().UTC().Add(time.Hour)); deleted != 0 || err == nil {
+			t.Fatalf("deleted=%d err=%v", deleted, err)
+		}
+		if attempts, outcomes := nativeQueuedModelPairCounts(t, store, fixture.session.ID()); attempts != 1 || outcomes != 1 {
+			t.Fatalf("attempts=%d outcomes=%d", attempts, outcomes)
+		}
+	})
 }
 
 func ExampleSQLSessionStore_AppendNativeQueuedModelOutcomeFenced() {

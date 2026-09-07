@@ -96,11 +96,13 @@ transaction-level grant held to `run/start` or queue claim. Schema v43
 sidecars provide fenced historical-delivery evidence, and schema v44 witnesses
 record generation-scoped queued effect admission before provider execution.
 Schema v45 records one main-model attempt before Stream and forbids replay of
-an existing attempt, but stores neither prompt/tool digests nor canonical model
-outcomes. None proves current account state or enables completed-result continuation; they do not
+an existing attempt; schema v46 records canonical assistant/message and model
+usage delivery. Old v45/v46 pairs are prunable only after a terminal run or a
+durable Session successor, while attempts without outcomes remain permanent.
+None proves current account state or enables completed-result continuation; they do not
 provide consume/ack state or a recovery
 coordinator. Detached control projection, current execution admission, and a
-native WriteBehind outcome route, completion-driven lifecycle/GC, and current
+native WriteBehind outcome route, native retention wiring, and current
 continuation admission are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
