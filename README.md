@@ -586,6 +586,22 @@ configured `server.Config.Runners`; runner bindings reject HTTP fields such as
 claim/generation/complete protocol. Dynamic bindings preserve their runtime in
 the binding journal, so restart restore applies the same provider decision. The journal keeps at most `storage.MaxAdminBindings` (256) records and rejects payloads above 256 KiB, because restart restore loads the full set. Profile replacement requires the optional `storage.BindingJournalReplacer`: the SQL implementation replaces the old durable row in one transaction and advances the authorization epoch once, rather than exposing a `Delete`/`Record` gap. The profile admin route validates a detached candidate, commits that durable replacement, then calls `AgentProfileRegistry.ReplaceExact` to swap the uniquely matching live layer at its existing mount order under one registry write lock. Concurrent resolves therefore see a complete old or new projection, never the intermediate mount/unmount mix; the existing unmount handle still removes the replacement. If a durable replacement cannot publish, the server records a binding-specific projection failure, rejects new synchronous runs and queue claims with `503`, and leaves control/admin recovery routes available. A same-payload PUT retries reconciliation without rewriting the durable binding; a successful matching repair clears only that binding's projection failure, not unrelated readiness errors. If the original live slot is missing or ambiguous, the server keeps that gate closed rather than remounting at a new order; restart or another clean projection rebuild from the durable journal is the safe recovery path. `Config.AuthorizationEpochReader` is an opt-in local execution-admission foundation: it blocks new runs and queue claims when a known projection fault or durable authorization-epoch lag exists, while leaving active runs and admin/health routes alone. It deliberately does not replay bindings, releases, or canaries. An integration that has completely rebuilt its local projection from a durable control source must call `Server.MarkExecutionProjectionAppliedEpoch`; this local marker is neither a strict authorization proof nor a transaction fence. In-process Capability, Policy, Profile, and Credential registries keep at most `core.MaxRegistryBindings` (4096) live mounts; unmount frees a slot. The process-local admin handle table uses the same cap, including ephemeral static-credential binds that are never journaled.
 
+When authorization-epoch admission is configured, a dynamic policy, disable,
+environment-credential, or capability binding holds the server-local projection
+write gate while it publishes locally and writes its durable binding record. New
+server-owned executions therefore cannot observe the temporary local mount
+before the SQL record/epoch commit. A known failed write rolls that mount back;
+an ambiguous write response or a non-single-step epoch change leaves admission
+faulted instead of guessing whether it is safe to publish or unmount. The
+admin-handle table is updated only after both local and durable publication
+succeed. This mode requires a native SQL binding journal and epoch reader in the
+same sealed SQL authority as Sessions; static/ephemeral credentials and
+third-party dynamic capability factories are rejected rather than treating
+factory construction or in-memory state as epoch-fenced. It closes this
+instance's mount-before-commit window only: it is not a cross-instance binding
+replayer, a complete Release/Canary projection snapshot, or strict
+completed-result recovery authorization.
+
 ```json
 {
   "scope": [{"kind": "global", "id": "global"}],

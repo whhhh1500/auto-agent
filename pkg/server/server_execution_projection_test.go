@@ -221,13 +221,17 @@ func TestExecutionProjectionSyncLeaseCoversCompositionUntilRunStart(t *testing.T
 	}
 	store := core.NewMemorySessionStore()
 	api, err = New(Config{
-		Runtime: runtime, Sessions: store,
-		Authenticator:            AuthenticatorFunc(func(*http.Request) (core.Principal, error) { return principal, nil }),
-		AuthorizationEpochReader: reader,
+		Runtime:       runtime,
+		Sessions:      store,
+		Authenticator: AuthenticatorFunc(func(*http.Request) (core.Principal, error) { return principal, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This test controls a local fake clock-like epoch reader to exercise the
+	// admission lease boundary. Native SQL authority validation is covered by
+	// TestNewAuthorizationEpochBindingJournalRequiresSharedNativeSQLAuthority.
+	api.executionProjection = newExecutionProjectionCoordinator(reader)
 	if err := api.MarkExecutionProjectionAppliedEpoch(context.Background()); err != nil {
 		t.Fatal(err)
 	}

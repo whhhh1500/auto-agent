@@ -57,6 +57,11 @@ type SQLBindingJournal struct {
 	maxBindings int
 }
 
+func (s *SQLBindingJournal) atomicSessionFenceDomain() atomicSessionFenceDomain {
+	domain, _ := newAtomicSessionFenceDomain(s.db, s.dialect)
+	return domain
+}
+
 var _ BindingJournalReplacer = (*SQLBindingJournal)(nil)
 
 func NewSQLBindingJournal(db *sql.DB, dialect SQLDialect) (*SQLBindingJournal, error) {

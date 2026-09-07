@@ -19,6 +19,10 @@ const (
 
 var errExecutionProjectionUnavailable = errors.New("execution projection is unavailable")
 
+var errDurableBindingRequired = errors.New("authorization-epoch admission requires a durable SQL binding journal")
+
+var errBindingProjectionInvalid = errors.New("binding projection is invalid")
+
 // executionProjectionCoordinator admits new execution only while the local
 // projection has no known fault and, when configured, matches the observed
 // durable authorization epoch. admissionMu is deliberately separate from
@@ -104,6 +108,86 @@ func (c *executionProjectionCoordinator) markAppliedEpoch(ctx context.Context) e
 	c.desired, c.desiredSet = epoch, true
 	c.applied, c.appliedSet = epoch, true
 	delete(c.faults, executionProjectionEpochSource)
+	c.stateMu.Unlock()
+	return nil
+}
+
+// beginDurableBindingMutation records the epoch a local durable binding
+// mutation is about to advance. The caller must hold admissionMu's write lock
+// until finishDurableBindingMutation or verifyFailedBindingMutation returns.
+func (c *executionProjectionCoordinator) beginDurableBindingMutation(ctx context.Context) (int64, bool, error) {
+	if c == nil || c.reader == nil {
+		return 0, false, nil
+	}
+	epoch, err := c.reader.AuthorizationEpoch(ctx)
+	if err != nil {
+		c.setFault(executionProjectionEpochSource, fmt.Errorf("read authorization epoch: %w", err))
+		return 0, true, fmt.Errorf("read authorization epoch: %w", err)
+	}
+	c.stateMu.Lock()
+	c.desired, c.desiredSet = epoch, true
+	if !c.appliedSet || c.applied != epoch {
+		c.faults[executionProjectionEpochSource] = fmt.Errorf("authorization epoch %d is not applied to the execution projection", epoch)
+	} else {
+		delete(c.faults, executionProjectionEpochSource)
+	}
+	c.stateMu.Unlock()
+	return epoch, true, nil
+}
+
+// finishDurableBindingMutation marks exactly one durable authorization-epoch
+// advance as locally applied. A different final value means another durable
+// control mutation interleaved with this local publication, so execution stays
+// blocked until a complete reconciler rebuilds the projection.
+func (c *executionProjectionCoordinator) finishDurableBindingMutation(ctx context.Context, before int64) error {
+	if c == nil || c.reader == nil {
+		return nil
+	}
+	after, err := c.reader.AuthorizationEpoch(ctx)
+	if err != nil {
+		c.setFault(executionProjectionEpochSource, fmt.Errorf("read authorization epoch: %w", err))
+		return fmt.Errorf("read authorization epoch: %w", err)
+	}
+	if before == int64(^uint64(0)>>1) || after != before+1 {
+		err := fmt.Errorf("authorization epoch changed from %d to %d during durable binding publication", before, after)
+		c.setFault(executionProjectionEpochSource, err)
+		return err
+	}
+	c.stateMu.Lock()
+	c.desired, c.desiredSet = after, true
+	if c.appliedSet && c.applied == before {
+		c.applied, c.appliedSet = after, true
+		delete(c.faults, executionProjectionEpochSource)
+	} else {
+		c.faults[executionProjectionEpochSource] = fmt.Errorf("authorization epoch %d is not applied to the execution projection", after)
+	}
+	c.stateMu.Unlock()
+	return nil
+}
+
+// verifyFailedBindingMutation permits the old projection to remain admitted
+// only when the failed durable mutation demonstrably left the epoch unchanged.
+// A response-lost or cross-instance interleave is treated as a projection
+// fault rather than guessed at from the journal error.
+func (c *executionProjectionCoordinator) verifyFailedBindingMutation(ctx context.Context, expected int64) error {
+	if c == nil || c.reader == nil {
+		return nil
+	}
+	actual, err := c.reader.AuthorizationEpoch(ctx)
+	if err != nil {
+		c.setFault(executionProjectionEpochSource, fmt.Errorf("read authorization epoch: %w", err))
+		return fmt.Errorf("read authorization epoch: %w", err)
+	}
+	if actual != expected {
+		err := fmt.Errorf("authorization epoch changed from %d to %d after durable binding failure", expected, actual)
+		c.setFault(executionProjectionEpochSource, err)
+		return err
+	}
+	c.stateMu.Lock()
+	c.desired, c.desiredSet = actual, true
+	if c.appliedSet && c.applied == actual {
+		delete(c.faults, executionProjectionEpochSource)
+	}
 	c.stateMu.Unlock()
 	return nil
 }

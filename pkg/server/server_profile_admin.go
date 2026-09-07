@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -157,7 +158,9 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 	// route returns and never governs control-plane route admission itself.
 	releaseProjectionMutation := s.lockExecutionProjectionMutation()
 	defer releaseProjectionMutation()
-	existing, found, err := s.profileLayerRecord(r.Context(), profileID, request.Scope)
+	mutationCtx, cancel := context.WithTimeout(r.Context(), runControlOperationTimeout)
+	defer cancel()
+	existing, found, err := s.profileLayerRecord(mutationCtx, profileID, request.Scope)
 	if err != nil {
 		s.writeProfileJournalError(w, r.Context(), "list", profileBindingID(profileID, request.Scope), err)
 		return
@@ -243,19 +246,32 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 	}
 	durableMatches := found && existing.ID == id && profilePayloadEqual(existing.Payload, payload)
 	durableChanged := false
+	beforeEpoch := int64(0)
+	strictEpoch := false
 	if !durableMatches {
+		beforeEpoch, strictEpoch, err = s.beginDurableBindingMutation(mutationCtx)
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
+			return
+		}
 		if found {
 			replacer, ok := s.journal.(storage.BindingJournalReplacer)
 			if !ok {
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "durable profile replacement requires an atomic binding journal"})
 				return
 			}
-			if err := replacer.Replace(r.Context(), existing.ID, record); err != nil {
+			if err := replacer.Replace(mutationCtx, existing.ID, record); err != nil {
+				if verifyErr := s.verifyFailedDurableBindingMutation(mutationCtx, beforeEpoch, strictEpoch); verifyErr != nil {
+					err = errors.Join(err, verifyErr)
+				}
 				s.writeProfileJournalError(w, r.Context(), "replace", id, err)
 				return
 			}
 			durableChanged = true
-		} else if err := s.journal.Record(r.Context(), record); err != nil {
+		} else if err := s.journal.Record(mutationCtx, record); err != nil {
+			if verifyErr := s.verifyFailedDurableBindingMutation(mutationCtx, beforeEpoch, strictEpoch); verifyErr != nil {
+				err = errors.Join(err, verifyErr)
+			}
 			s.writeProfileJournalError(w, r.Context(), "record", id, err)
 			return
 		} else {
@@ -285,13 +301,15 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.runtime.Profiles.Resolve(principal, request.Scope, profileID); err != nil {
 		s.handleProfileProjectionFailure(w, r.Context(), id, err)
+		if durableChanged {
+			s.markExecutionProjectionEpochStale()
+		}
 		return
 	}
 	if durableChanged {
-		// A strict epoch reader cannot treat this local publication as a
-		// complete control-plane reconciliation. Leave execution unavailable
-		// until a future detached reconciler marks the full projection applied.
-		s.markExecutionProjectionEpochStale()
+		if err := s.finishDurableBindingMutation(mutationCtx, beforeEpoch, strictEpoch); err != nil {
+			s.recordBindingEpochFault(mutationCtx, "profile", id, err)
+		}
 	}
 	s.clearProfileProjectionError(id)
 	s.recordAudit(r, principal, "profile.put", profileID, map[string]any{"scope": request.Scope.String(), "binding_id": id})
@@ -301,6 +319,10 @@ func (s *Server) handleAdminProfilePut(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeProfileJournalError(w http.ResponseWriter, ctx context.Context, operation, id string, err error) {
 	if s.logger != nil {
 		s.logger.ErrorContext(ctx, "durable profile update failed", slogString("operation", operation), slogString("binding", id), slogString("error", err.Error()))
+	}
+	if s.requiresExecutionProjectionEpoch() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
+		return
 	}
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "durable profile update failed"})
 }

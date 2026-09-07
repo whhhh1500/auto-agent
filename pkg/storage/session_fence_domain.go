@@ -116,6 +116,39 @@ func ValidateAuthorizationEpochSQLAuthority(sessions core.SessionStore, queue Ru
 	return nil
 }
 
+// ValidateAuthorizationEpochBindingJournalAuthority verifies that an optional
+// durable BindingJournal and an AuthorizationEpochReader belong to the same
+// sealed SQL authority as Sessions. It is intentionally a data-plane check
+// only: callers must not mistake it for a proof that live Core registries or
+// external authorization sources are materialized at that epoch.
+func ValidateAuthorizationEpochBindingJournalAuthority(sessions core.SessionStore, journal BindingJournal, reader AuthorizationEpochReader) error {
+	if sessions == nil || journal == nil || reader == nil {
+		return fmt.Errorf("authorization epoch binding authority requires sessions, binding journal, and epoch reader")
+	}
+	sessionsProvider, ok := sessions.(atomicSessionFenceDomainProvider)
+	if !ok {
+		return fmt.Errorf("authorization epoch binding authority requires sessions backed by the storage SQL fence domain")
+	}
+	journalProvider, ok := journal.(atomicSessionFenceDomainProvider)
+	if !ok {
+		return fmt.Errorf("authorization epoch binding authority requires a binding journal backed by the storage SQL fence domain")
+	}
+	readerProvider, ok := reader.(atomicSessionFenceDomainProvider)
+	if !ok {
+		return fmt.Errorf("authorization epoch binding authority requires an epoch reader backed by the storage SQL fence domain")
+	}
+	sessionDomain := sessionsProvider.atomicSessionFenceDomain()
+	journalDomain := journalProvider.atomicSessionFenceDomain()
+	readerDomain := readerProvider.atomicSessionFenceDomain()
+	if !sessionDomain.valid() || !journalDomain.valid() || !readerDomain.valid() {
+		return fmt.Errorf("authorization epoch binding authority SQL domain is invalid")
+	}
+	if !sessionDomain.equal(journalDomain) || !sessionDomain.equal(readerDomain) {
+		return fmt.Errorf("authorization epoch binding authority requires sessions, binding journal, and epoch reader to share one SQL database handle and dialect")
+	}
+	return nil
+}
+
 func (s *SQLSessionStore) atomicSessionFenceDomain() atomicSessionFenceDomain {
 	domain, _ := newAtomicSessionFenceDomain(s.db, s.dialect)
 	return domain

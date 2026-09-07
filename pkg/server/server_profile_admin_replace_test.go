@@ -370,6 +370,66 @@ func TestAdminProfilePutReplacementWorksAtRegistryCapacity(t *testing.T) {
 	}
 }
 
+func TestAdminProfilePutSerializesWithProfileBindingUnbind(t *testing.T) {
+	scope := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
+	profiles := core.NewAgentProfileRegistry()
+	release := make(chan struct{})
+	journal := &profileReplaceJournal{replaceEntered: make(chan struct{}), replaceRelease: release}
+	server := newProfileAdminTestServer(scope, journal, profiles)
+	old := profileAdminLayer(scope, "serialized.agent", "old")
+	if response := invokeAdminProfilePut(t, server, scope, old); response.Code != http.StatusOK {
+		t.Fatalf("initial put status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	putDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		putDone <- invokeAdminProfilePut(t, server, scope, profileAdminLayer(scope, old.ProfileID, "new"))
+	}()
+	select {
+	case <-journal.replaceEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for profile replacement")
+	}
+	principal := core.Principal{TenantID: "tenant", SubjectID: "admin", Scope: scope}
+	type unbindResult struct {
+		found bool
+		err   error
+	}
+	unbound := make(chan unbindResult, 1)
+	go func() {
+		found, err := server.unbindBinding(context.Background(), profileBindingID(old.ProfileID, scope), principal)
+		unbound <- unbindResult{found: found, err: err}
+	}()
+	select {
+	case result := <-unbound:
+		t.Fatalf("profile unbind escaped the profile mutation order: found=%t err=%v", result.found, result.err)
+	case <-time.After(40 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case response := <-putDone:
+		if response.Code != http.StatusOK {
+			t.Fatalf("replacement status=%d body=%s", response.Code, response.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("profile replacement did not complete")
+	}
+	select {
+	case result := <-unbound:
+		if !result.found || result.err != nil {
+			t.Fatalf("profile unbind found=%t err=%v", result.found, result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("profile unbind did not complete")
+	}
+	if records, err := journal.List(context.Background()); err != nil || len(records) != 0 {
+		t.Fatalf("durable profile records=%#v err=%v", records, err)
+	}
+	if _, err := profiles.Resolve(principal, scope, old.ProfileID); err == nil {
+		t.Fatal("profile binding remained mounted after serialized unbind")
+	}
+}
+
 func TestAdminProfilePutRejectsInvalidResolvedCandidateBeforeDurableWrite(t *testing.T) {
 	scope := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
 	profiles := core.NewAgentProfileRegistry()

@@ -71,7 +71,7 @@ func TestBindingJournalFailureRollsBackMount(t *testing.T) {
 	server := &Server{journal: &failingBindingJournal{}}
 	unmounted := false
 	scope := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
-	if _, err := server.addBinding(context.Background(), "policy", scope, map[string]any{"scope": "global:global"}, func() { unmounted = true }); err == nil {
+	if _, err := server.addBinding(context.Background(), "policy", scope, map[string]any{"scope": "global:global"}, func() (func(), error) { return func() { unmounted = true }, nil }); err == nil {
 		t.Fatal("journal failure must fail binding")
 	}
 	if !unmounted {
@@ -86,7 +86,7 @@ func TestBindingDeleteFailureKeepsMount(t *testing.T) {
 	server := &Server{journal: &failingBindingJournal{}}
 	unmounted := false
 	scope := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
-	id, err := server.addEphemeralBinding("policy", scope, map[string]any{}, func() { unmounted = true })
+	id, err := server.addEphemeralBinding("policy", scope, map[string]any{}, func() (func(), error) { return func() { unmounted = true }, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,6 +233,42 @@ func TestNewAcceptsQueuedRunWithSharedSQLFenceDomainThroughTransparentWrappers(t
 	}
 }
 
+func TestNewAuthorizationEpochBindingJournalRequiresSharedNativeSQLAuthority(t *testing.T) {
+	db, sessions := openConfigFenceStore(t, "epoch-binding-authority")
+	journal, err := storage.NewSQLBindingJournal(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := Config{
+		Runtime:                  &core.Runtime{},
+		Sessions:                 sessions,
+		Authenticator:            AuthenticatorFunc(func(*http.Request) (core.Principal, error) { return core.Principal{}, nil }),
+		BindingJournal:           journal,
+		AuthorizationEpochReader: sessions,
+	}
+	if _, err := New(config); err != nil {
+		t.Fatalf("native shared SQL binding authority rejected: %v", err)
+	}
+	config.BindingJournal = nil
+	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "requires a durable binding journal") {
+		t.Fatalf("missing binding journal error=%v", err)
+	}
+
+	otherDB, _ := openConfigFenceStore(t, "epoch-binding-other")
+	otherJournal, err := storage.NewSQLBindingJournal(otherDB, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.BindingJournal = otherJournal
+	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "share one SQL database handle") {
+		t.Fatalf("cross-authority binding journal error=%v", err)
+	}
+	config.BindingJournal = &configJournalStub{}
+	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "binding journal backed by the storage SQL fence domain") {
+		t.Fatalf("custom binding journal error=%v", err)
+	}
+}
+
 func TestNewRejectsQueuedRunWithSameHandleButDifferentDialect(t *testing.T) {
 	db, sessions := openConfigFenceStore(t, "dialect-domain")
 	queue, err := storage.NewSQLRunControlStore(db, storage.SQLDialectPostgres)
@@ -370,13 +406,13 @@ func TestAdminStateRejectsBindingOverflow(t *testing.T) {
 	scope := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
 	unmounted := 0
 	unmount := func() { unmounted++ }
-	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 1}, unmount); err != nil {
+	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 1}, func() (func(), error) { return unmount, nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 2}, unmount); err != nil {
+	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 2}, func() (func(), error) { return unmount, nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 3}, unmount); err == nil {
+	if _, err := server.addEphemeralBinding("policy", scope, map[string]any{"n": 3}, func() (func(), error) { return unmount, nil }); err == nil {
 		t.Fatal("in-memory admin binding overflow was accepted")
 	}
 	if unmounted != 1 {

@@ -76,6 +76,7 @@ type dynamicCapabilityJournalPayload struct {
 var (
 	errDynamicCapabilityRunnerUnavailable   = errors.New("runner runtime is not configured")
 	errDynamicCapabilitySubagentUnavailable = errors.New("subagent runtime requires session and delegation link stores")
+	errDynamicCapabilityRuntimeNotEpochSafe = errors.New("authorization-epoch admission permits only built-in dynamic capability runtimes")
 )
 
 const (
@@ -101,24 +102,26 @@ func capabilityRuntimeSelector(raw string) (string, string, error) {
 	return parts[0], version, nil
 }
 
-// mountDynamicCapability validates one normalized dynamic binding, constructs
-// its execution provider, and mounts it. Both the HTTP request handler and
-// journal restore call this method so their runtime rules cannot drift.
-func (s *Server) mountDynamicCapability(ctx context.Context, binding dynamicCapabilityMount) (dynamicCapabilityMount, func(), error) {
+// prepareDynamicCapability validates one normalized dynamic binding and
+// constructs its provider without publishing it into the live registry. HTTP
+// handlers do this potentially expensive work before taking the short
+// execution-projection write guard; restore may mount the prepared value
+// immediately while it already holds that guard.
+func (s *Server) prepareDynamicCapability(ctx context.Context, binding dynamicCapabilityMount) (dynamicCapabilityMount, core.CapabilityBinding, error) {
 	if s.runtime == nil || s.runtime.Capabilities == nil {
-		return dynamicCapabilityMount{}, nil, fmt.Errorf("capability registry is unavailable")
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("capability registry is unavailable")
 	}
 	if binding.Scope.Depth() == 0 {
-		return dynamicCapabilityMount{}, nil, fmt.Errorf("capability scope is required")
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("capability scope is required")
 	}
 	if binding.Manifest.ID == "" || binding.Manifest.Version == "" {
-		return dynamicCapabilityMount{}, nil, fmt.Errorf("manifest requires id and version")
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("manifest requires id and version")
 	}
 	if binding.Manifest.Tool == nil {
 		binding.Manifest.Tool = &core.ToolExposure{Description: binding.Manifest.Description}
 	}
 	if s.capabilityRuntimes == nil {
-		return dynamicCapabilityMount{}, nil, fmt.Errorf("capability runtime registry is unavailable")
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("capability runtime registry is unavailable")
 	}
 	if binding.Runtime == "" {
 		binding.Runtime = "http"
@@ -131,7 +134,7 @@ func (s *Server) mountDynamicCapability(ctx context.Context, binding dynamicCapa
 
 	runtimeID, runtimeVersion, err := capabilityRuntimeSelector(binding.Runtime)
 	if err != nil {
-		return dynamicCapabilityMount{}, nil, err
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, err
 	}
 	if runtimeVersion == "1" {
 		binding.Runtime = runtimeID
@@ -140,34 +143,64 @@ func (s *Server) mountDynamicCapability(ctx context.Context, binding dynamicCapa
 	}
 	if runtimeID != "runner" {
 		if err := validateDynamicHTTPHeaders(binding.Headers); err != nil {
-			return dynamicCapabilityMount{}, nil, err
+			return dynamicCapabilityMount{}, core.CapabilityBinding{}, err
 		}
 	}
-	_, err = s.capabilityRuntimes.Resolve(runtimeID, runtimeVersion)
+	factory, err := s.capabilityRuntimes.Resolve(runtimeID, runtimeVersion)
 	if err != nil {
-		return dynamicCapabilityMount{}, nil, fmt.Errorf("dynamic capability runtime %q is unsupported", binding.Runtime)
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, fmt.Errorf("dynamic capability runtime %q is unsupported", binding.Runtime)
+	}
+	if s.requiresExecutionProjectionEpoch() {
+		if _, ok := factory.(epochSafeDynamicCapabilityFactory); !ok {
+			return dynamicCapabilityMount{}, core.CapabilityBinding{}, errDynamicCapabilityRuntimeNotEpochSafe
+		}
 	}
 	created, err := s.capabilityRuntimes.Create(ctx, runtimeID, runtimeVersion, capabilityruntime.Request{Manifest: binding.Manifest, Entrypoint: binding.Entrypoint, Workdir: binding.Workdir, Sandbox: binding.Sandbox, Writes: binding.Writes, Method: binding.Method, Headers: binding.Headers})
 	if err != nil {
-		return dynamicCapabilityMount{}, nil, err
+		return dynamicCapabilityMount{}, core.CapabilityBinding{}, err
 	}
 	result := created
 	binding.Manifest = result.Manifest
 	binding.RuntimeImplementationRevision = result.ImplementationRevision
-	provider := result.Provider
-	unmount, err := s.runtime.Capabilities.Mount(core.CapabilityBinding{
-		Scope: binding.Scope, Mode: mode, Manifest: binding.Manifest, Provider: provider,
-	})
+	return binding, core.CapabilityBinding{Scope: binding.Scope, Mode: mode, Manifest: binding.Manifest, Provider: result.Provider}, nil
+}
+
+func (s *Server) mountPreparedDynamicCapability(binding core.CapabilityBinding) (func(), error) {
+	if s.runtime == nil || s.runtime.Capabilities == nil {
+		return nil, fmt.Errorf("capability registry is unavailable")
+	}
+	return s.runtime.Capabilities.Mount(binding)
+}
+
+// mountDynamicCapability preserves the shared live-bind/restore behavior.
+func (s *Server) mountDynamicCapability(ctx context.Context, binding dynamicCapabilityMount) (dynamicCapabilityMount, func(), error) {
+	prepared, capabilityBinding, err := s.prepareDynamicCapability(ctx, binding)
 	if err != nil {
 		return dynamicCapabilityMount{}, nil, err
 	}
-	return binding, unmount, nil
+	unmount, err := s.mountPreparedDynamicCapability(capabilityBinding)
+	if err != nil {
+		return dynamicCapabilityMount{}, nil, err
+	}
+	return prepared, unmount, nil
 }
 
 type dynamicRuntimeFactory struct {
 	id     string
 	create func(capabilityruntime.Request) (capabilityruntime.Result, error)
 }
+
+// epochSafeDynamicCapabilityFactory is intentionally package-private. In
+// authorization-epoch admission mode, provider construction occurs before the
+// short publication write gate so only server-owned factories with audited
+// construction semantics may run there. Third-party factories remain supported
+// in legacy mode, but strict mode rejects them rather than assuming their New
+// method is free of external side effects.
+type epochSafeDynamicCapabilityFactory interface {
+	epochSafeDynamicCapabilityFactory()
+}
+
+func (dynamicRuntimeFactory) epochSafeDynamicCapabilityFactory() {}
 
 func (f dynamicRuntimeFactory) ID() string                   { return f.id }
 func (dynamicRuntimeFactory) Version() string                { return "1" }
@@ -277,13 +310,17 @@ func (s *Server) handleBindCapability(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "principal does not own the scope"})
 		return
 	}
-	mounted, unmount, err := s.mountDynamicCapability(r.Context(), dynamicCapabilityMount{
+	mounted, capabilityBinding, err := s.prepareDynamicCapability(r.Context(), dynamicCapabilityMount{
 		Scope: request.Scope, Manifest: request.Manifest, Replace: request.Replace,
 		Runtime: request.Execution.Runtime, Entrypoint: request.Execution.Entrypoint,
 		Workdir: request.Execution.Workdir, Sandbox: request.Execution.Sandbox, Writes: request.Execution.Writes,
 		Method: request.Execution.Method, Headers: request.Execution.Headers,
 	})
 	if err != nil {
+		if errors.Is(err, errDynamicCapabilityRuntimeNotEpochSafe) {
+			s.writeBindingMutationError(w, r.Context(), "prepare", err)
+			return
+		}
 		if errors.Is(err, errDynamicCapabilityRunnerUnavailable) || errors.Is(err, errDynamicCapabilitySubagentUnavailable) {
 			writeJSON(w, http.StatusNotImplemented, map[string]string{"error": err.Error()})
 			return
@@ -292,9 +329,11 @@ func (s *Server) handleBindCapability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := mounted.journalPayload()
-	id, err := s.addBinding(r.Context(), "capability", request.Scope, payload, unmount)
+	id, err := s.addBinding(r.Context(), "capability", request.Scope, payload, func() (func(), error) {
+		return s.mountPreparedDynamicCapability(capabilityBinding)
+	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "record", err)
 		return
 	}
 	s.recordAudit(r, principal, "capability.bind", mounted.Manifest.ID, map[string]any{

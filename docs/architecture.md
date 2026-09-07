@@ -261,7 +261,18 @@ to the adapter configuration, outside the core contract.
 	epoch-gated admission, because it can release the lease at the durable run
 	boundary without holding it across a model call. It is not an authorization
 	transaction fence or a replacement for a future detached control-plane
-	reconciler.
+	reconciler. In this mode, native SQL dynamic binding publication is also
+	serialized under the write lease: policy, disable, environment-credential and
+	built-in dynamic-capability mounts are invisible to new server-owned
+	executions until their binding row and epoch commit succeeds. A definite write
+	failure rolls the local mount back; an ambiguous response, epoch read failure,
+	or non-single-step epoch advance leaves admission faulted rather than guessing
+	a rollback. Admin handles are published only after both durable and local
+	publication succeed. Static/ephemeral credentials and third-party capability
+	runtime factories are rejected because their construction or state cannot be
+	proved epoch-bound. This only closes the local mount-before-commit window; it
+	does not materialize remote instances, arbitrary registry mutation, or a
+	complete binding/release/canary control-plane snapshot.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and
   proxies by default, and requires secret header values to use credential refs.
 - Every model adapter emits a bounded `assistant* -> finish` stream. Missing or

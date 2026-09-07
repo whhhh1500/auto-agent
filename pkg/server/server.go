@@ -376,6 +376,14 @@ func New(config Config) (*Server, error) {
 			return nil, fmt.Errorf("durable run queue requires an atomic queued session fence domain: %w", err)
 		}
 	}
+	if config.AuthorizationEpochReader != nil {
+		if config.BindingJournal == nil {
+			return nil, fmt.Errorf("authorization-epoch admission requires a durable binding journal")
+		}
+		if err := storage.ValidateAuthorizationEpochBindingJournalAuthority(config.Sessions, config.BindingJournal, config.AuthorizationEpochReader); err != nil {
+			return nil, fmt.Errorf("authorization-epoch admission requires a binding journal in the same SQL authority: %w", err)
+		}
+	}
 	if config.RunExecutors == nil {
 		registry, err := runexecutor.NewDefaultRegistry()
 		if err != nil {

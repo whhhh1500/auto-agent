@@ -8,6 +8,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"net/http"
@@ -64,6 +65,23 @@ func (a *adminState) add(kind, preferredID string, summary any, scope core.Scope
 	return id, nil
 }
 
+// reserveID allocates an id before a durable binding write. Server mutation
+// paths hold the execution-projection write guard, so no second projection
+// publisher can consume the reservation before add records its matching local
+// mount. add still performs its own capacity and collision checks defensively.
+func (a *adminState) reserveID() (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.maxBindings <= 0 {
+		a.maxBindings = storage.MaxAdminBindings
+	}
+	if len(a.handles) >= a.maxBindings {
+		return "", fmt.Errorf("admin bindings exceed maximum of %d", a.maxBindings)
+	}
+	a.next++
+	return fmt.Sprintf("adm_%d", a.next), nil
+}
+
 func idTrimNumber(id string) int {
 	digits := ""
 	for i := len(id) - 1; i >= 0 && id[i] >= '0' && id[i] <= '9'; i-- {
@@ -79,21 +97,31 @@ func idTrimNumber(id string) int {
 	return value
 }
 
-func (a *adminState) remove(id string) (*adminBinding, bool) {
+func (a *adminState) remove(id string) (adminBinding, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	binding, ok := a.handles[id]
 	if ok {
 		delete(a.handles, id)
 	}
-	return binding, ok
+	if !ok {
+		return adminBinding{}, false
+	}
+	return *binding, true
 }
 
-func (a *adminState) get(id string) (*adminBinding, bool) {
+// get returns an immutable-by-convention value snapshot. Callers must not
+// retain a pointer into handles after releasing adminState's mutex because a
+// profile replacement may update that logical binding under the same
+// execution-projection publication protocol.
+func (a *adminState) get(id string) (adminBinding, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	binding, ok := a.handles[id]
-	return binding, ok
+	if !ok {
+		return adminBinding{}, false
+	}
+	return *binding, true
 }
 
 func (a *Server) adminStateFor() *adminState {
@@ -217,11 +245,6 @@ func (s *Server) handleAdminBindPolicy(w http.ResponseWriter, r *http.Request) {
 		MaxSteps:         request.MaxSteps,
 		MaxToolCalls:     request.MaxToolCalls,
 	}
-	unmount, err := s.policyRegistry().Mount(layer)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
 	payload := map[string]any{
 		"scope": request.Scope.String(), "allow": toStrings(layer.AllowPermissions), "deny": toStrings(layer.DenyPermissions),
 	}
@@ -231,9 +254,11 @@ func (s *Server) handleAdminBindPolicy(w http.ResponseWriter, r *http.Request) {
 	if layer.MaxToolCalls != nil {
 		payload["max_tool_calls"] = *layer.MaxToolCalls
 	}
-	id, err := s.addBinding(r.Context(), "policy", request.Scope, payload, unmount)
+	id, err := s.addBinding(r.Context(), "policy", request.Scope, payload, func() (func(), error) {
+		return s.policyRegistry().Mount(layer)
+	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "record", err)
 		return
 	}
 	s.recordAudit(r, principal, "policy.bind", request.Scope.String(), map[string]any{"binding_id": id})
@@ -301,25 +326,23 @@ func (s *Server) handleAdminBindCredential(w http.ResponseWriter, r *http.Reques
 		Scope: request.Scope, Ref: core.CredentialRef(request.Ref),
 		Mode: mode, Provider: provider,
 	}
-	unmount, err := s.credentialRegistry().Mount(binding)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
 	// Static credential values are never journaled; env credentials only
 	// persist the variable name, so restarts can re-apply them.
-	var bindingID string
+	var (
+		bindingID string
+		err       error
+	)
 	if request.Kind == "env" {
 		bindingID, err = s.addBinding(r.Context(), "credential", request.Scope, map[string]any{
 			"scope": request.Scope.String(), "ref": request.Ref, "kind": "env", "env_name": request.EnvName,
-		}, unmount)
+		}, func() (func(), error) { return s.credentialRegistry().Mount(binding) })
 	} else {
 		bindingID, err = s.addEphemeralBinding("credential", request.Scope, map[string]any{
 			"scope": request.Scope.String(), "ref": request.Ref, "kind": "static",
-		}, unmount)
+		}, func() (func(), error) { return s.credentialRegistry().Mount(binding) })
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "record", err)
 		return
 	}
 	s.recordAudit(r, principal, "credential.bind", request.Ref, map[string]any{"scope": request.Scope.String(), "kind": request.Kind})
@@ -346,18 +369,15 @@ func (s *Server) handleAdminDisableCapability(w http.ResponseWriter, r *http.Req
 		return
 	}
 	manifest := core.CapabilityManifest{ID: capabilityID, Version: "admin"}
-	unmount, err := s.runtime.Capabilities.Mount(core.CapabilityBinding{
-		Scope: request.Scope, Mode: core.BindingDisable, Manifest: manifest,
-	})
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
 	id, err := s.addBinding(r.Context(), "disable", request.Scope, map[string]any{
 		"scope": request.Scope.String(), "capability": capabilityID,
-	}, unmount)
+	}, func() (func(), error) {
+		return s.runtime.Capabilities.Mount(core.CapabilityBinding{
+			Scope: request.Scope, Mode: core.BindingDisable, Manifest: manifest,
+		})
+	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "record", err)
 		return
 	}
 	s.recordAudit(r, principal, "capability.disable", capabilityID, map[string]any{"scope": request.Scope.String()})
@@ -386,7 +406,7 @@ func (s *Server) handleAdminEnableCapability(w http.ResponseWriter, r *http.Requ
 	}
 	found, err := s.unbindBinding(r.Context(), request.BindingID, principal)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "delete", err)
 		return
 	}
 	if !found {
@@ -421,7 +441,7 @@ func (s *Server) handleAdminUnbind(w http.ResponseWriter, r *http.Request) {
 	}
 	found, err := s.unbindBinding(r.Context(), r.PathValue("id"), principal)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeBindingMutationError(w, r.Context(), "delete", err)
 		return
 	}
 	if !found {
@@ -512,38 +532,85 @@ func toStrings(perms []core.Permission) []string {
 	return out
 }
 
-// addBinding registers a dynamic binding and journals it for restart
-// recovery. Journal failure rolls back the mounted in-memory contribution.
-func (s *Server) addBinding(ctx context.Context, kind string, scope core.ScopePath, payload any, unmount func()) (string, error) {
-	id, err := s.adminStateFor().add(kind, "", payload, scope, unmount)
+type bindingProjectionMount func() (func(), error)
+
+// addBinding publishes a local dynamic binding and its durable record under
+// one execution-projection write guard. Mounting first is intentional: the
+// guard keeps new server-owned executions from observing that temporary local
+// projection. If the SQL write fails, the mount is rolled back before the
+// guard opens. Publishing SQL first would instead expose a durable binding
+// that this process had not yet materialized.
+func (s *Server) addBinding(ctx context.Context, kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	if mount == nil {
+		return "", fmt.Errorf("binding projection mount is required")
+	}
+	release := s.lockExecutionProjectionMutation()
+	defer release()
+	mutationCtx, cancel := context.WithTimeout(ctx, runControlOperationTimeout)
+	defer cancel()
+	before, strict, err := s.beginDurableBindingMutation(mutationCtx)
 	if err != nil {
-		if unmount != nil {
-			unmount()
-		}
 		return "", err
 	}
-	if s.journal != nil {
-		encoded, err := json.Marshal(payload)
-		if err == nil {
-			err = s.journal.Record(ctx, storage.BindingRecord{ID: id, Kind: kind, Payload: encoded})
+	if s.journal == nil {
+		if strict {
+			return "", errDurableBindingRequired
 		}
-		if err != nil {
-			_, _ = s.adminStateFor().remove(id)
-			if unmount != nil {
-				unmount()
-			}
-			return "", fmt.Errorf("persist binding %s: %w", id, err)
+		return s.publishEphemeralBinding(kind, scope, payload, mount)
+	}
+	id, err := s.adminStateFor().reserveID()
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode binding %s: %w", id, err)
+	}
+	unmount, err := mount()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errBindingProjectionInvalid, err)
+	}
+	if err := s.journal.Record(mutationCtx, storage.BindingRecord{ID: id, Kind: kind, Payload: encoded}); err != nil {
+		if verifyErr := s.verifyFailedDurableBindingMutation(mutationCtx, before, strict); verifyErr != nil {
+			// The durable transaction may have committed even though the caller
+			// observed an error. Keep the local publication only behind the
+			// projection fault; rolling it back would turn a response-lost write
+			// into a durable/local split that cannot be safely reconciled here.
+			return "", errors.Join(fmt.Errorf("persist binding %s: %w", id, err), verifyErr)
 		}
+		unmount()
+		return "", fmt.Errorf("persist binding %s: %w", id, err)
+	}
+	if _, err := s.adminStateFor().add(kind, id, payload, scope, unmount); err != nil {
+		s.markExecutionProjectionEpochStale()
+		return "", fmt.Errorf("publish durable binding %s locally: %w", id, err)
+	}
+	if err := s.finishDurableBindingMutation(mutationCtx, before, strict); err != nil {
+		s.recordBindingEpochFault(mutationCtx, "record", id, err)
 	}
 	return id, nil
 }
 
-func (s *Server) addEphemeralBinding(kind string, scope core.ScopePath, payload any, unmount func()) (string, error) {
+func (s *Server) addEphemeralBinding(kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	if mount == nil {
+		return "", fmt.Errorf("binding projection mount is required")
+	}
+	release := s.lockExecutionProjectionMutation()
+	defer release()
+	if s.requiresExecutionProjectionEpoch() {
+		return "", errDurableBindingRequired
+	}
+	return s.publishEphemeralBinding(kind, scope, payload, mount)
+}
+
+func (s *Server) publishEphemeralBinding(kind string, scope core.ScopePath, payload any, mount bindingProjectionMount) (string, error) {
+	unmount, err := mount()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errBindingProjectionInvalid, err)
+	}
 	id, err := s.adminStateFor().add(kind, "", payload, scope, unmount)
 	if err != nil {
-		if unmount != nil {
-			unmount()
-		}
+		unmount()
 		return "", err
 	}
 	return id, nil
@@ -552,6 +619,19 @@ func (s *Server) addEphemeralBinding(kind string, scope core.ScopePath, payload 
 // unbindBinding removes a journaled binding and drops its journal record.
 // Returns true when the binding existed.
 func (s *Server) unbindBinding(ctx context.Context, id string, principal core.Principal) (bool, error) {
+	initial, ok := s.adminStateFor().get(id)
+	if !ok {
+		return false, nil
+	}
+	// Profile PUT uses profileMu before the execution-projection write gate.
+	// Take the same order for a generic DELETE of a profile binding so neither
+	// route can form a profileMu <-> gate inversion.
+	if initial.Kind == profileBindingKind {
+		s.profileMu.Lock()
+		defer s.profileMu.Unlock()
+	}
+	release := s.lockExecutionProjectionMutation()
+	defer release()
 	binding, ok := s.adminStateFor().get(id)
 	if !ok {
 		return false, nil
@@ -559,16 +639,73 @@ func (s *Server) unbindBinding(ctx context.Context, id string, principal core.Pr
 	if !canMutateScope(principal, binding.Scope) {
 		return true, fmt.Errorf("principal does not own binding scope %q", binding.Scope)
 	}
-	if s.journal != nil {
-		if err := s.journal.Delete(ctx, id); err != nil {
-			return true, fmt.Errorf("delete binding journal %s: %w", id, err)
+	mutationCtx, cancel := context.WithTimeout(ctx, runControlOperationTimeout)
+	defer cancel()
+	before, strict, err := s.beginDurableBindingMutation(mutationCtx)
+	if err != nil {
+		return true, err
+	}
+	if s.journal == nil {
+		if strict {
+			return true, errDurableBindingRequired
 		}
+	} else if err := s.journal.Delete(mutationCtx, id); err != nil {
+		if verifyErr := s.verifyFailedDurableBindingMutation(mutationCtx, before, strict); verifyErr != nil {
+			return true, errors.Join(fmt.Errorf("delete binding journal %s: %w", id, err), verifyErr)
+		}
+		return true, fmt.Errorf("delete binding journal %s: %w", id, err)
 	}
-	if _, ok := s.adminStateFor().remove(id); !ok {
-		return false, nil
+	removed, ok := s.adminStateFor().remove(id)
+	if !ok {
+		if strict {
+			s.markExecutionProjectionEpochStale()
+		}
+		return false, fmt.Errorf("binding %s disappeared during local publication", id)
 	}
-	if binding.unmount != nil {
-		binding.unmount()
+	if removed.unmount != nil {
+		removed.unmount()
+	}
+	if err := s.finishDurableBindingMutation(mutationCtx, before, strict); err != nil {
+		s.recordBindingEpochFault(mutationCtx, "delete", id, err)
 	}
 	return true, nil
+}
+
+func (s *Server) beginDurableBindingMutation(ctx context.Context) (int64, bool, error) {
+	return s.executionProjectionCoordinator().beginDurableBindingMutation(ctx)
+}
+
+func (s *Server) finishDurableBindingMutation(ctx context.Context, before int64, strict bool) error {
+	if !strict {
+		return nil
+	}
+	return s.executionProjectionCoordinator().finishDurableBindingMutation(ctx, before)
+}
+
+func (s *Server) verifyFailedDurableBindingMutation(ctx context.Context, before int64, strict bool) error {
+	if !strict {
+		return nil
+	}
+	return s.executionProjectionCoordinator().verifyFailedBindingMutation(ctx, before)
+}
+
+func (s *Server) writeBindingMutationError(w http.ResponseWriter, ctx context.Context, operation string, err error) {
+	if s.logger != nil {
+		s.logger.ErrorContext(ctx, "durable binding update failed", slogString("operation", operation), slogString("error", err.Error()))
+	}
+	if errors.Is(err, errBindingProjectionInvalid) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid binding projection"})
+		return
+	}
+	if s.requiresExecutionProjectionEpoch() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "execution projection is unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "durable binding update failed"})
+}
+
+func (s *Server) recordBindingEpochFault(ctx context.Context, operation, id string, err error) {
+	if s.logger != nil {
+		s.logger.ErrorContext(ctx, "authorization epoch was not applied after durable binding update", slogString("operation", operation), slogString("binding", id), slogString("error", err.Error()))
+	}
 }

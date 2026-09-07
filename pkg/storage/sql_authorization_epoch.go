@@ -26,6 +26,7 @@ var (
 
 var _ AuthorizationEpochReader = (*SQLSessionStore)(nil)
 var _ AuthorizationEpochReader = (*SQLRunControlStore)(nil)
+var _ AuthorizationEpochReader = (*SQLBindingJournal)(nil)
 
 // AuthorizationEpoch reads the shared SQL authorization epoch.
 func (s *SQLSessionStore) AuthorizationEpoch(ctx context.Context) (int64, error) {
@@ -39,6 +40,14 @@ func (s *SQLSessionStore) AuthorizationEpoch(ctx context.Context) (int64, error)
 func (s *SQLRunControlStore) AuthorizationEpoch(ctx context.Context) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, fmt.Errorf("authorization epoch requires an SQL run-control store")
+	}
+	return readAuthorizationEpoch(ctx, s.db, s.dialect)
+}
+
+// AuthorizationEpoch reads the shared SQL authorization epoch.
+func (s *SQLBindingJournal) AuthorizationEpoch(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, fmt.Errorf("authorization epoch requires an SQL binding journal")
 	}
 	return readAuthorizationEpoch(ctx, s.db, s.dialect)
 }
