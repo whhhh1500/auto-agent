@@ -222,6 +222,11 @@ to the adapter configuration, outside the core contract.
   generation and session lease, durable run composition and tool/call tail,
   journal Begin, and immutable witness before a provider may run. This is not
   proof that the provider ran, an active-account read, or a recovery grant.
+- Schema v45 adds one immutable native queued main-model admission per durable
+  `step/start`. It binds the exact non-secret `ModelCallRequest`, current epoch,
+  queue generation, session lease, and durable model contract before Stream.
+  An existing row forbids another provider request. This first slice has no
+  prompt/tool digest, canonical assistant outcome, summary support, or replay.
 - Evidence pagination uses an opaque, query-bound cursor containing per-source
   offsets and a created-at snapshot watermark. Every page re-applies tenant and
   Scope authorization; the cursor is not an authorization token.
@@ -296,8 +301,8 @@ to the adapter configuration, outside the core contract.
   authority must be dedicated to native-static instances, never shared with a
   generic server or dynamic-control writer. The authorization-epoch gate is a
   fail-closed lag detector, not a transaction-level authorization grant held
-  through `run/start` or a queued claim. V43 sidecars and v44 effect-admission
-  witnesses only provide storage evidence; completed-result recovery remains disabled. Detached control
+  through `run/start` or a queued claim. V43 sidecars, v44 effect-admission
+  witnesses, and v45 model attempts only provide storage evidence; completed-result recovery remains disabled. Detached control
   projection, current execution admission, and a model-invocation journal are
   still required before any strict recovery coordinator can exist.
 - Dynamic HTTP execution revalidates DNS at connect time, refuses redirects and

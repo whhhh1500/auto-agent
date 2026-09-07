@@ -27,6 +27,7 @@
         "CompletedToolResultRecoverySidecar",
         "CompletedToolResultRecoverySidecarInput",
         "NativeQueuedToolEffectWitnessInput",
+        "NativeQueuedModelInvocationInput",
         "FencedCompletedToolResultAppender",
         "FencedCompletedToolResultRecoveryAppender",
         "FencedSessionAppender",
@@ -44,6 +45,7 @@
         "SQLSessionStore.AppendEventsFenced",
         "SQLSessionStore.AuthorizationEpoch",
         "SQLSessionStore.BeginNativeQueuedToolEffectFenced",
+        "SQLSessionStore.BeginNativeQueuedModelInvocationFenced",
         "SQLSessionStore.LoadCompletedToolResultRecoverySidecarFenced",
         "SQLQueuedPrincipalResolver.AuthorizationEpoch",
         "SQLQueuedPrincipalResolver.ResolveRunPrincipal",
@@ -68,7 +70,7 @@
         "ErrSessionWriteFenceLost"
       ],
       "constants": null,
-      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery, recovery prefixes, and V3 SQL-local sidecars, plus an authorization epoch read/fence. A V3 sidecar is immutable historical delivery evidence beside one canonical tool/result; a v44 witness records generation-scoped epoch/fence/composition admission atomically with journal Begin. Neither proves provider completion, current account state, continuation authority, or automatic recovery. SQLQueuedPrincipalResolver is a native, same-authority queued-owner resolver; its stable non-disclosure errors let a server distinguish permanent account identity/state failures from retryable storage failures. These are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
+      "note": "Optional SQL recovery seams provide generation-fenced Session appends, explicit interrupted-run repair, read-only Tool Journal lookup, atomic canonical completed-result delivery, recovery prefixes, and V3 SQL-local sidecars, plus an authorization epoch read/fence. A V3 sidecar is immutable historical delivery evidence beside one canonical tool/result; a v44 witness records generation-scoped epoch/fence/composition admission atomically with journal Begin. V45 records one permanent main-model attempt fence per durable step: an existing row forbids provider replay, while prompt/tool digests, canonical outcomes, summary calls, GC, continuation authority, and automatic recovery remain out of scope. SQLQueuedPrincipalResolver is a native, same-authority queued-owner resolver; its stable non-disclosure errors let a server distinguish permanent account identity/state failures from retryable storage failures. These are SQL-authority capabilities, not authorization grants for arbitrary external or in-memory control planes."
     },
     {
       "package": "pkg/runtime",
@@ -3848,6 +3850,7 @@
         "CompletedToolResultRecoverySidecar",
         "CompletedToolResultRecoverySidecarInput",
         "NativeQueuedToolEffectWitnessInput",
+        "NativeQueuedModelInvocationInput",
         "DynamicObjectStore",
         "EvidenceKind",
         "EvidencePage",
@@ -4101,6 +4104,7 @@
         "SQLSessionStore.AppendEventsFenced",
         "SQLSessionStore.AuthorizationEpoch",
         "SQLSessionStore.BeginNativeQueuedToolEffectFenced",
+        "SQLSessionStore.BeginNativeQueuedModelInvocationFenced",
         "SQLSessionStore.ControlRevision",
         "SQLSessionStore.Create",
         "SQLSessionStore.FindReleaseByOperation",
@@ -4423,7 +4427,7 @@
     "control/error"
   ],
   "sql_schema": {
-    "current_version": 44,
+    "current_version": 45,
     "history": [
       {
         "version": 1,
@@ -4729,6 +4733,13 @@
         "tables_added": [
           "native_queued_tool_effect_witnesses"
         ]
+      },
+      {
+        "version": 45,
+        "change": "one-attempt native queued main-model admission rows without canonical model outcomes",
+        "tables_added": [
+          "native_queued_model_invocations"
+        ]
       }
     ],
     "canonical_tables_current": [
@@ -4777,7 +4788,8 @@
       "notification_targets",
       "graph_segment_leases",
       "completed_tool_result_recovery_sidecars",
-      "native_queued_tool_effect_witnesses"
+      "native_queued_tool_effect_witnesses",
+      "native_queued_model_invocations"
     ]
   },
   "core_budget": {

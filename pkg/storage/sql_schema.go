@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place: the schema DDL only adds objects, so
 // opening a v1 database creates the missing tables and advances the
 // recorded version.
-const SQLSchemaVersion = 44
+const SQLSchemaVersion = 45
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -876,4 +876,39 @@ CREATE TABLE IF NOT EXISTS native_queued_tool_effect_witnesses (
 );
 CREATE INDEX IF NOT EXISTS native_queued_tool_effect_witnesses_run_created
 	ON native_queued_tool_effect_witnesses (run_id, created_at);
+`
+
+// sqlSchemaV45NativeQueuedModelInvocations stores one immutable admission for
+// each durable main-model step. This first slice records attempts only; rows
+// are permanent replay fences until a future canonical outcome/GC protocol.
+const sqlSchemaV45NativeQueuedModelInvocations = `
+CREATE TABLE IF NOT EXISTS native_queued_model_invocations (
+	protocol                    TEXT NOT NULL CHECK (protocol = 'native_queued_model_call/v1'),
+	tenant_id                   TEXT NOT NULL CHECK (length(tenant_id) BETWEEN 1 AND 256),
+	subject_id                  TEXT NOT NULL CHECK (length(subject_id) BETWEEN 1 AND 256),
+	session_id                  TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id                      TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	invocation_id               TEXT NOT NULL CHECK (length(invocation_id) BETWEEN 7 AND 128),
+	step_index                  INTEGER NOT NULL CHECK (step_index >= 0),
+	step_start_seq              BIGINT NOT NULL CHECK (step_start_seq >= 0),
+	session_version_at_admission BIGINT NOT NULL CHECK (session_version_at_admission > step_start_seq),
+	request_json                TEXT NOT NULL CHECK (length(request_json) BETWEEN 1 AND 1048576),
+	request_sha256              TEXT NOT NULL CHECK (length(request_sha256) = 64),
+	authorization_epoch         BIGINT NOT NULL CHECK (authorization_epoch >= 0),
+	queue_generation            BIGINT NOT NULL CHECK (queue_generation > 0),
+	lease_holder_sha256         TEXT NOT NULL CHECK (length(lease_holder_sha256) = 64),
+	run_start_seq               BIGINT NOT NULL CHECK (run_start_seq >= 0),
+	profile_snapshot_id         TEXT NOT NULL CHECK (length(profile_snapshot_id) BETWEEN 1 AND 512),
+	capability_snapshot_id      TEXT NOT NULL CHECK (length(capability_snapshot_id) BETWEEN 1 AND 512),
+	composition_revision        TEXT NOT NULL CHECK (length(composition_revision) = 64),
+	assignment_revision         TEXT NOT NULL CHECK (length(assignment_revision) IN (0, 64)),
+	composition_sha256          TEXT NOT NULL CHECK (length(composition_sha256) = 64),
+	bootstrap_revision          TEXT NOT NULL CHECK (length(bootstrap_revision) BETWEEN 1 AND 512),
+	model_contract_sha256       TEXT NOT NULL CHECK (length(model_contract_sha256) = 64),
+	created_at                  BIGINT NOT NULL CHECK (created_at > 0),
+	PRIMARY KEY (session_id, run_id, invocation_id),
+	UNIQUE (session_id, step_start_seq)
+);
+CREATE INDEX IF NOT EXISTS native_queued_model_invocations_run_created
+	ON native_queued_model_invocations (run_id, created_at);
 `

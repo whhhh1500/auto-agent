@@ -95,10 +95,12 @@ authorization-epoch check detects projection lag and fails closed; it is not a
 transaction-level grant held to `run/start` or queue claim. Schema v43
 sidecars provide fenced historical-delivery evidence, and schema v44 witnesses
 record generation-scoped queued effect admission before provider execution.
-Neither proves current account state or enables completed-result continuation; they do not
+Schema v45 records one main-model attempt before Stream and forbids replay of
+an existing attempt, but stores neither prompt/tool digests nor canonical model
+outcomes. None proves current account state or enables completed-result continuation; they do not
 provide consume/ack state or a recovery
 coordinator. Detached control projection, current execution admission, and a
-model-invocation journal are still required. See the
+canonical model-outcome and atomic outcome-delivery protocol are still required. See the
 [runtime invariants](architecture.md#runtime-invariants) for the composition
 boundary.
 

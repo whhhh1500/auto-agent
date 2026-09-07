@@ -237,6 +237,9 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 		if _, err := db.ExecContext(ctx, sqlSchemaV44NativeQueuedToolEffectWitnesses); err != nil {
 			return nil, fmt.Errorf("ensure native queued tool effect witnesses: %w", err)
 		}
+		if _, err := db.ExecContext(ctx, sqlSchemaV45NativeQueuedModelInvocations); err != nil {
+			return nil, fmt.Errorf("ensure native queued model invocations: %w", err)
+		}
 		if stored < SQLSchemaVersion {
 			if _, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 				return nil, fmt.Errorf("upgrade sql schema version: %w", err)
@@ -358,6 +361,9 @@ func initializeSQLSchema(ctx context.Context, db sqlSchemaExecutor, dialect SQLD
 	}
 	if _, err := db.ExecContext(ctx, sqlSchemaV44NativeQueuedToolEffectWitnesses); err != nil {
 		return fmt.Errorf("ensure native queued tool effect witnesses: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, sqlSchemaV45NativeQueuedModelInvocations); err != nil {
+		return fmt.Errorf("ensure native queued model invocations: %w", err)
 	}
 	result, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion))
 	if err != nil {

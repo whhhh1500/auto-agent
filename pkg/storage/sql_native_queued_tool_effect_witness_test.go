@@ -350,7 +350,7 @@ func TestSQLSchemaV43MigratesNativeQueuedToolEffectWitnesses(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version string
-	if err := reopened.db.QueryRowContext(ctx, sqlSelectMetaRow.bind(reopened.dialect)).Scan(&version); err != nil || version != "44" {
+	if err := reopened.db.QueryRowContext(ctx, sqlSelectMetaRow.bind(reopened.dialect)).Scan(&version); err != nil || version != "45" {
 		t.Fatalf("schema version=%q err=%v", version, err)
 	}
 	var witnesses int
