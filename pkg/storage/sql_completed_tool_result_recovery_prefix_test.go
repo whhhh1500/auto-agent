@@ -116,7 +116,7 @@ func assertCompletedToolResultRecoveryPrefix(t *testing.T, fixture *completedToo
 		t.Fatalf("durable recovery prefix authorization epoch=%q want=%d", resumeData.Composition.Metadata[recoveryEpochMetadataKey], fixture.prefix.ExpectedAuthorizationEpoch)
 	}
 	var payload string
-	if err := fixture.store.db.QueryRowContext(context.Background(), `SELECT payload FROM event_chunks WHERE session_id = ? AND start_seq = ?`, fixture.fence.SessionID, fixture.version).Scan(&payload); err != nil {
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{`SELECT payload FROM event_chunks WHERE session_id = ? AND start_seq = ?`}).bind(fixture.store.dialect), fixture.fence.SessionID, fixture.version).Scan(&payload); err != nil {
 		t.Fatal(err)
 	}
 	if lines := strings.Count(strings.TrimSuffix(payload, "\n"), "\n") + 1; lines != 2 {
@@ -128,21 +128,21 @@ func assertCompletedToolResultRecoveryNoWrite(t *testing.T, fixture *completedTo
 	t.Helper()
 	assertFencedSessionVersion(t, fixture.fencedSQLFixture, fixture.version)
 	var chunks int
-	if err := fixture.store.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM event_chunks WHERE session_id = ?`, fixture.fence.SessionID).Scan(&chunks); err != nil {
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{`SELECT COUNT(*) FROM event_chunks WHERE session_id = ?`}).bind(fixture.store.dialect), fixture.fence.SessionID).Scan(&chunks); err != nil {
 		t.Fatal(err)
 	}
 	if chunks != int(fixture.version) {
 		t.Fatalf("event chunks=%d want=%d", chunks, fixture.version)
 	}
 	var evidenceCount int
-	if err := fixture.store.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM run_evidence WHERE session_id = ?`, fixture.fence.SessionID).Scan(&evidenceCount); err != nil {
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{`SELECT COUNT(*) FROM run_evidence WHERE session_id = ?`}).bind(fixture.store.dialect), fixture.fence.SessionID).Scan(&evidenceCount); err != nil {
 		t.Fatal(err)
 	}
 	if evidenceCount != 1 {
 		t.Fatalf("run evidence records=%d want=1", evidenceCount)
 	}
 	var status string
-	if err := fixture.store.db.QueryRowContext(context.Background(), `SELECT status FROM run_evidence WHERE session_id = ? AND run_id = ? AND segment_seq = 0`, fixture.fence.SessionID, fixture.fence.RunID).Scan(&status); err != nil {
+	if err := fixture.store.db.QueryRowContext(context.Background(), (sqlQuery{`SELECT status FROM run_evidence WHERE session_id = ? AND run_id = ? AND segment_seq = 0`}).bind(fixture.store.dialect), fixture.fence.SessionID, fixture.fence.RunID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != RunStatusRunning {
@@ -679,6 +679,6 @@ func TestPostgresSQLSessionStoreAppendCompletedToolResultRecoveryPrefixFenced(t 
 			t.Fatal("authorization binding did not finish after recovery prefix")
 		}
 		assertCompletedToolResultRecoveryPrefix(t, fixture)
-		assertAuthorizationEpoch(t, store, 1)
+		assertAuthorizationEpoch(t, store, fixture.prefix.ExpectedAuthorizationEpoch+1)
 	})
 }
