@@ -38,10 +38,11 @@ type toolDocument struct {
 
 type mcpGateway struct {
 	mu       sync.RWMutex
-	conn     *mcpConnection
+	conn     mcpTransport
 	observer ToolLibraryObserver
 	catalog  *toollib.Catalog
 	library  string
+	version  string
 	tools    []toolDocument
 	byID     map[string]toolDocument
 	byName   map[string][]toolDocument
@@ -51,7 +52,7 @@ func (p *mcpGateway) ArtifactRevision() string {
 	if p == nil || p.conn == nil {
 		return "mcp-library/unconfigured"
 	}
-	return fmt.Sprintf("mcp-library/v1/%s/%s", p.conn.cfg.Namespace, p.conn.cfg.Version)
+	return fmt.Sprintf("mcp-library/v1/%s/%s", p.library, p.version)
 }
 
 func indexMCPTools(tools []mcpToolDescription) []toolDocument {
@@ -74,20 +75,18 @@ func indexMCPTools(tools []mcpToolDescription) []toolDocument {
 	return out
 }
 
-func newMCPGateway(conn *mcpConnection, tools []toolDocument) *mcpGateway {
-	library := ""
-	var observer ToolLibraryObserver
+func newMCPGateway(conn mcpTransport, tools []toolDocument) *mcpGateway {
+	identity := mcpTransportIdentity{}
 	if conn != nil {
-		library = conn.cfg.Namespace
-		observer = conn.cfg.Observer
+		identity = conn.identity()
 	}
 	catalog := toollib.NewCatalog()
 	catalog.SetSearcher(toollib.HybridSearcher{})
 	gateway := &mcpGateway{
-		conn: conn, observer: observer, catalog: catalog, library: library,
+		conn: conn, observer: identity.observer, catalog: catalog, library: identity.namespace, version: identity.version,
 		byID: map[string]toolDocument{}, byName: map[string][]toolDocument{},
 	}
-	qualified := qualifyToolLibrary(library, tools)
+	qualified := qualifyToolLibrary(identity.namespace, tools)
 	if len(qualified) > 0 {
 		_ = gateway.replaceListing(qualified)
 	}

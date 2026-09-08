@@ -1,8 +1,8 @@
 # MCP integration
 
-Harness Core acts as an MCP client over stdio JSON-RPC. It does not expose an
-MCP server endpoint: public integrations use the versioned HTTP/SSE API and
-private workers use the Runner protocol.
+Harness Core acts as an MCP client over stdio JSON-RPC and Streamable HTTP. It
+does not expose an MCP server endpoint: public integrations use the versioned
+HTTP/SSE API and private workers use the Runner protocol.
 
 ## Runtime contract
 
@@ -18,6 +18,15 @@ guess. Empty or duplicate remote names are ignored. A failed or empty refresh
 keeps the last good catalog, and each run keeps the immutable snapshot it
 started with.
 
+`execution.RegisterMCPStreamableHTTP` mounts the same tool-library contract
+from one Streamable HTTP endpoint. It supports MCP protocol revisions
+`2025-06-18` and `2025-11-25`, defaulting to `2025-11-25`. It uses POST
+JSON-RPC, accepts either one JSON response or a bounded SSE response, and sends
+the negotiated protocol and server-issued session headers on later messages.
+Server requests, GET listener streams, Last-Event-ID resumption, and concurrent
+SSE streams are deliberately unsupported and fail instead of becoming tool
+results.
+
 ## Process and payload limits
 
 The stdio command and environment are bounded before a process starts (at most
@@ -25,6 +34,23 @@ The stdio command and environment are bounded before a process starts (at most
 call text is capped at 1 MiB. Tool arguments and results still pass through the
 normal core validation, permission, approval, budget, timeout, and optional
 ToolJournal paths; MCP does not provide a bypass.
+
+The Streamable HTTP default transport permits public HTTP(S) endpoints only and
+checks the resolved destination again when dialing. A private endpoint requires
+explicit opt-in and an injected trusted HTTP client; redirects are not followed.
+The generic HTTP capability executor is not reused because MCP requires
+JSON-RPC, session, and SSE handling. Registration configuration does not store
+literal tokens. A deployer that injects authorization through a trusted client
+owns the audience-bound OAuth resource contract and keeps its tokens out of
+logs.
+
+Calls are serialized per server. Cancellation or timeout sends one bounded
+best-effort `notifications/cancelled` message for a non-initialize request and
+never replays the request. Session expiry, malformed responses, and transport
+failure return an error and require a later caller action to initialize again.
+Unmount cancels an in-flight request and makes one bounded best-effort DELETE
+for a known session; shutdown does not claim delivery of a cancellation message
+during that race.
 
 Do not put credentials in MCP arguments or command lines. Use a capability
 credential reference and let the configured adapter resolve it. Catalog and
@@ -43,4 +69,7 @@ server's read-only observation endpoint is
 The behavior above is covered by `pkg/execution/mcp_test.go` and
 `pkg/extensions/toollib/catalog_test.go`. When
 an MCP server is unavailable, integration tests use a local stdio fixture; no
-external MCP service is required for the normal test suite.
+external MCP service is required for the normal test suite. Streamable HTTP
+tests use a local protocol peer for JSON, SSE, cancellation, expiry, and
+session lifecycle. They are transport-interoperability checks, not hosted MCP
+OAuth acceptance evidence.

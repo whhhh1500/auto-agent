@@ -60,6 +60,37 @@ type mcpConnection struct {
 	initialized bool
 }
 
+// mcpTransport is the private boundary between the MCP tool library and one
+// JSON-RPC transport. The stdio transport remains the existing default; HTTP
+// uses the same catalog and gateway without changing their capability contract.
+type mcpTransport interface {
+	call(context.Context, string, any) (json.RawMessage, error)
+	close()
+	identity() mcpTransportIdentity
+}
+
+type mcpTransportIdentity struct {
+	namespace string
+	version   string
+	observer  ToolLibraryObserver
+}
+
+func (c *mcpConnection) identity() mcpTransportIdentity {
+	if c == nil {
+		return mcpTransportIdentity{}
+	}
+	return mcpTransportIdentity{namespace: c.cfg.Namespace, version: c.cfg.Version, observer: c.cfg.Observer}
+}
+
+func (c *mcpConnection) close() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.killLocked()
+}
+
 type mcpRPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -372,11 +403,11 @@ func RegisterMCPServer(ctx context.Context, registry *core.CapabilityRegistry, s
 	}
 	tools, err := listMCPDocuments(ctx, conn)
 	if err != nil {
-		conn.killLocked()
+		conn.close()
 		return nil, err
 	}
 	if len(tools) == 0 {
-		conn.killLocked()
+		conn.close()
 		return nil, fmt.Errorf("mcp server %s exposed no usable tools", cfg.Namespace)
 	}
 	gateway := newMCPGateway(conn, tools)
@@ -385,18 +416,16 @@ func RegisterMCPServer(ctx context.Context, registry *core.CapabilityRegistry, s
 		Provider: gateway,
 	})
 	if err != nil {
-		conn.killLocked()
+		conn.close()
 		return nil, err
 	}
 	return func() {
 		unmount()
-		conn.mu.Lock()
-		conn.killLocked()
-		conn.mu.Unlock()
+		conn.close()
 	}, nil
 }
 
-func listMCPDocuments(ctx context.Context, conn *mcpConnection) ([]toolDocument, error) {
+func listMCPDocuments(ctx context.Context, conn mcpTransport) ([]toolDocument, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("mcp connection is nil")
 	}
