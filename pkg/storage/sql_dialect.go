@@ -2,7 +2,7 @@ package storage
 
 import (
 	"fmt"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
 )
 
 // SQLDialect is retained as an alias for sqlkit.Dialect so existing storage

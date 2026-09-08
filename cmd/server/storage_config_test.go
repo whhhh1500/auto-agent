@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func lookupTestEnv(values map[string]string) func(string) (string, bool) {

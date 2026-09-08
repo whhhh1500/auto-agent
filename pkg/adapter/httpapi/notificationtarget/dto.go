@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	appnotification "github.com/cc-auto-agent/harness-core/pkg/app/notification"
+	appnotification "github.com/whhhh1500/auto-agent/pkg/app/notification"
 )
 
 var ErrInvalidRequest = errors.New("invalid notification target request")

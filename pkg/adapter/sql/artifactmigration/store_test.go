@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	app "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	app "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

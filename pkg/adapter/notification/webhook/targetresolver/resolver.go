@@ -11,8 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/notification/webhook"
-	"github.com/cc-auto-agent/harness-core/pkg/app/notification"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook"
+	"github.com/whhhh1500/auto-agent/pkg/app/notification"
 )
 
 const maxConfigurationBytes = notification.MaxTargetConfigurationBytes

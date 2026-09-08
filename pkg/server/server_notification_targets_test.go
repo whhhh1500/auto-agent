@@ -11,13 +11,13 @@ import (
 	"sync"
 	"testing"
 
-	webhooktargets "github.com/cc-auto-agent/harness-core/pkg/adapter/notification/webhook/targetresolver"
-	notificationsql "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/notificationtarget"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	appnotification "github.com/cc-auto-agent/harness-core/pkg/app/notification"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	webhooktargets "github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook/targetresolver"
+	notificationsql "github.com/whhhh1500/auto-agent/pkg/adapter/sql/notificationtarget"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	appnotification "github.com/whhhh1500/auto-agent/pkg/app/notification"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

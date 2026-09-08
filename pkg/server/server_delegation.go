@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // cancelDirectDelegations propagates an explicit parent cancellation to the

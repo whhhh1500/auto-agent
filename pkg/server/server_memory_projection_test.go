@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 type memoryProjectionMaintainerStub struct {

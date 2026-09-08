@@ -1,4 +1,4 @@
-# Harness Core 与主流 Agent 框架：实现差异与选型
+# auto-agent 与主流 Agent 框架：实现差异与选型
 
 核验日期：2026-09-06。本地源码基线：`5beed15`。这是[44 个 Agent 模块评估](agent-module-assessment.md)的对照资料。外部能力依据本次访问的官方文档，未安装并运行七套框架；没有统一硬件、模型和任务的横向性能/质量测试。下文“更适合”是基于能力与本项目目标的工程判断，不是官方排名。
 
@@ -6,7 +6,7 @@
 
 | 主要目标 | 优先候选 | 对本项目的判断与理由 |
 | --- | --- | --- |
-| 继续建设自己的 Go 多租户 Agent 服务，保留现有审批、审计、配置和恢复合同 | Harness Core | 现有工程已经围绕这些约束贯通；直接迁移会重做大量服务集成。值得继续，但应聚焦治理与适配，不必自研所有外围生态 |
+| 继续建设自己的 Go 多租户 Agent 服务，保留现有审批、审计、配置和恢复合同 | auto-agent | 现有工程已经围绕这些约束贯通；直接迁移会重做大量服务集成。值得继续，但应聚焦治理与适配，不必自研所有外围生态 |
 | 从零快速做普通 Agent 应用、需要很多现成模型和工具 | LangChain / OpenAI Agents SDK / 对应厂商 ADK | 通常比补齐本项目连接器更省开发工作；具体候选取决于厂商与语言 |
 | 复杂分支、循环、并行和可恢复图流程 | LangGraph；Go 项目重点比较 Eino、ADK 2.x | 本项目 Graph 当前服务适配较窄，不是通用图编辑/运行平台；成熟图 API 是更充分的起点 |
 | Go 组件组合、RAG、流式图与 Agent 开发 | Eino | 同语言下最值得直接做原型对照的候选；当前项目的服务治理可以与它的组件服务协作 |
@@ -17,13 +17,13 @@
 | 文档接入、向量检索和 RAG 是主要工作量 | LlamaIndex；Go 也比较 Eino | 当前关键词 Index 适合小范围起步，完整 RAG 生态应优先复用 |
 | 找出“最快”“最便宜”“最可靠” | 暂不能定胜负 | [已有数据](performance/2026-09-06-module-benchmarks.md)全部是本地基准/验收，缺少同口径对照与长期生产证据 |
 
-这些候选不是必须互斥。可让 Harness Core 管 session、权限、审批和持久调用，以 HTTP 或 Private Runner 调用由 Eino/LlamaIndex 等实现的专业服务；代价是多一层部署、网络和追踪关联，需要保持副作用幂等与权限边界。
+这些候选不是必须互斥。可让 auto-agent 管 session、权限、审批和持久调用，以 HTTP 或 Private Runner 调用由 Eino/LlamaIndex 等实现的专业服务；代价是多一层部署、网络和追踪关联，需要保持副作用幂等与权限边界。
 
 ## 比较对象与版本范围
 
 | 对象 | 本次参考范围 | 比较层次 |
 | --- | --- | --- |
-| Harness Core | `5beed15`，Go 1.25.13，公共 API pre-GA | 内核 + 可选扩展 + 自托管参考服务 + Console |
+| auto-agent | `5beed15`，Go 1.25.13，公共 API pre-GA | 内核 + 可选扩展 + 自托管参考服务 + Console |
 | LangChain / LangGraph | 当前官方 Python OSS 文档；Deep Agents 只作同生态高层补充 | 高层 Agent API 与图执行/持久化分开看；Agent Server/LangSmith 另列服务/平台面 |
 | OpenAI Agents SDK | 当前官方 Python/TypeScript 指南 | SDK、模型 API、沙箱供应商与托管工具分开看 |
 | Microsoft Agent Framework | 当前官方总览，包含 C#、Python 与 Go public preview | Agent、workflow、harness、hosting；不假设语言功能对等 |

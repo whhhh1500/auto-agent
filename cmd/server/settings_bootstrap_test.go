@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestLoadPersistedStorageConfigCompatibilityAndFailures(t *testing.T) {

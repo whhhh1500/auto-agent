@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
 )
 
 func admin() appidentity.AdminActor {

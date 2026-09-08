@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/control"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/control"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
 )
 
 const (

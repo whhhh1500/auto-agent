@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func newCommittedColdSession(t *testing.T) (*FileObjectStore, *S3SessionStore, *core.Session) {

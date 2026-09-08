@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	. "github.com/cc-auto-agent/harness-core/pkg/core"
+	. "github.com/whhhh1500/auto-agent/pkg/core"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
 
 	_ "modernc.org/sqlite" // pure-Go demo driver; the kernel itself stays driver-free
 )

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // SQLToolInvocationJournal durably fences tool side effects on the shared SQL

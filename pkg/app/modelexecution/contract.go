@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
 )
 
 const (

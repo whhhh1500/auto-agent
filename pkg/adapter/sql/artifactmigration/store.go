@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	app "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	app "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
 )
 
 const sqliteBusyMaxAttempts = 5

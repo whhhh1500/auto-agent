@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/app/contextassembly"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/app/contextassembly"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 type serialCatalogTool struct{ id string }

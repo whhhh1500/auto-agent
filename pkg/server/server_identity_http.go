@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	httpauth "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/auth"
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	httpauth "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/auth"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // AccountAuthenticator authenticates requests with bearer tokens issued by

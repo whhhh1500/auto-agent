@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/jsonbody"
-	"github.com/cc-auto-agent/harness-core/pkg/buildinfo"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/jsonbody"
+	"github.com/whhhh1500/auto-agent/pkg/buildinfo"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // statusWriter captures the response status for access logging.

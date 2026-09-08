@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,7 +35,7 @@ type MCPServerConfig struct {
 	Version string
 	// ProtocolVersion defaults to "2025-03-26".
 	ProtocolVersion string
-	// ClientName defaults to "harness-core".
+	// ClientName defaults to "auto-agent".
 	ClientName string
 	// CallTimeout bounds one JSON-RPC round trip; default 30s.
 	CallTimeout time.Duration
@@ -207,7 +207,7 @@ func (c *mcpConnection) callLocked(ctx context.Context, method string, params an
 		}
 		name := c.cfg.ClientName
 		if name == "" {
-			name = "harness-core"
+			name = "auto-agent"
 		}
 		// A recursive call with method "initialize" skips the init block and
 		// performs exactly one request/response round trip.

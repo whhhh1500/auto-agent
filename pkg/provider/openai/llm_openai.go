@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/modelexecution/corebridge"
-	executionopenai "github.com/cc-auto-agent/harness-core/pkg/adapter/modelexecution/openai"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/modelexecution/corebridge"
+	executionopenai "github.com/whhhh1500/auto-agent/pkg/adapter/modelexecution/openai"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // OpenAIAdapterConfig configures one OpenAI-compatible endpoint.

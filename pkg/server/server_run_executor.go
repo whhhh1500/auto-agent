@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
-	"github.com/cc-auto-agent/harness-core/pkg/control"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
+	"github.com/whhhh1500/auto-agent/pkg/control"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const (

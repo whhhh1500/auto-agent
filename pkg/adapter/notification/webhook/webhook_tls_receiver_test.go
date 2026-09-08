@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/notification"
+	"github.com/whhhh1500/auto-agent/pkg/app/notification"
 )
 
 func TestDeliverPostsSignedPayloadToLocalTLSReceiver(t *testing.T) {

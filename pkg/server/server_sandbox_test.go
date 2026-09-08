@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	executionsandbox "github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	executionsandbox "github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
+	"github.com/whhhh1500/auto-agent/pkg/server"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 type sandboxDiscoveryProvider struct {

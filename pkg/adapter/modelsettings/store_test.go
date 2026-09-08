@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	sqlsettings "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/settings"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
+	sqlsettings "github.com/whhhh1500/auto-agent/pkg/adapter/sql/settings"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
 
 	_ "modernc.org/sqlite"
 )

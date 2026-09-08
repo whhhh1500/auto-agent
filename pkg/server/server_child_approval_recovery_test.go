@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 const serialChildApprovalID = "serial.child_approval"

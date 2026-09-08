@@ -7,14 +7,14 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // obsEnabledRules returns the cached enabled rule set.

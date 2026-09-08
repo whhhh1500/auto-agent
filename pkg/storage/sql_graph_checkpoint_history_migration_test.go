@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 func TestSQLiteGraphCheckpointHistorySchemaV41FreshAndV40Upgrade(t *testing.T) {

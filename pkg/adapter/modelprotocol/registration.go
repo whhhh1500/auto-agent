@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
 )
 
 const protocolExtensionPrefix = "model-protocol/"

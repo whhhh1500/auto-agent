@@ -15,7 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 var (

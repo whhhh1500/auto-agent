@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 
-	modelsettingshttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/modelsettings"
-	settingshttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/settings"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	modelsettingshttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/modelsettings"
+	settingshttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/settings"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // --- settings ---

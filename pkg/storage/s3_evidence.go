@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func s3EvidenceKey(id string) string { return s3SessionsPrefix + id + "/evidence.json" }

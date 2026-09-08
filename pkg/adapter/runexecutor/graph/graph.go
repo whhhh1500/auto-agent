@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	runexecutor "github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	runexecutor "github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 const (

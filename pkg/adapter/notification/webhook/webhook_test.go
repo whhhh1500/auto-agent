@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/notification"
+	"github.com/whhhh1500/auto-agent/pkg/app/notification"
 )
 
 type resolverFunc func(context.Context, string, notification.TargetRef) (ResolvedTarget, error)

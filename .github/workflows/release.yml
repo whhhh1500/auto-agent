@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_NAME: harness-core:release-${{ github.sha }}
+  IMAGE_NAME: auto-agent:release-${{ github.sha }}
 
 jobs:
   image:
@@ -50,11 +50,11 @@ jobs:
       - name: secret scan (release image export)
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/harness-release-image"
+          mkdir -p "$RUNNER_TEMP/auto-agent-release-image"
           container_id="$(docker create "${{ env.IMAGE_NAME }}")"
           trap 'docker rm "$container_id" >/dev/null 2>&1 || true' EXIT
-          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/harness-release-image"
-          docker run --rm --volume "$RUNNER_TEMP/harness-release-image:/scan:ro" \
+          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/auto-agent-release-image"
+          docker run --rm --volume "$RUNNER_TEMP/auto-agent-release-image:/scan:ro" \
             zricethezav/gitleaks:v8.28.0 detect --source=/scan --no-git --no-banner --redact --exit-code 1
 
       - name: create output directory
@@ -76,7 +76,7 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
-          outputs: type=oci,dest=dist/harness-core-${{ github.ref_name }}.oci
+          outputs: type=oci,dest=dist/auto-agent-${{ github.ref_name }}.oci
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           printf 'tag=%s\ncommit=%s\nregistry_push=false\n' "$TAG" "$COMMIT" > dist/IMAGE-METADATA
-          (cd dist && sha256sum harness-core-*.oci sbom.spdx.json > SHA256SUMS)
+          (cd dist && sha256sum auto-agent-*.oci sbom.spdx.json > SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
 
       # This is intentionally an integration hook, not a fake signature. A
@@ -116,6 +116,6 @@ jobs:
       - name: upload review artifacts
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: harness-core-container-${{ github.ref_name }}
+          name: auto-agent-container-${{ github.ref_name }}
           path: dist
           if-no-files-found: error

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
 	moderncsqlite "modernc.org/sqlite"
 )
 

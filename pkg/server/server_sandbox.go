@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	httpsandbox "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/sandbox"
+	httpsandbox "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/sandbox"
 )
 
 func (s *Server) registerSandboxRoutes(mux *http.ServeMux) {

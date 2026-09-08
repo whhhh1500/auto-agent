@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 var (

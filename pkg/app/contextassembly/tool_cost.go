@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // EstimateTools includes every exposed name, description and parameter schema.

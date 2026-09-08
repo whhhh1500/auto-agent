@@ -13,11 +13,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	modelsettingsadapter "github.com/cc-auto-agent/harness-core/pkg/adapter/modelsettings"
-	sqlsettings "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/settings"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	modelsettingsadapter "github.com/whhhh1500/auto-agent/pkg/adapter/modelsettings"
+	sqlsettings "github.com/whhhh1500/auto-agent/pkg/adapter/sql/settings"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 
 	_ "modernc.org/sqlite"
 )

@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcatalog"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcatalog"
 )
 
 type modelRuntimeCatalogResponse struct {

@@ -9,9 +9,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcatalog"
-	"github.com/cc-auto-agent/harness-core/pkg/app/secretview"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcatalog"
+	"github.com/whhhh1500/auto-agent/pkg/app/secretview"
 )
 
 const (

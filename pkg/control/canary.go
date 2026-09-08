@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
 )
 
 var ErrCanaryNotFound = errors.New("canary not found")

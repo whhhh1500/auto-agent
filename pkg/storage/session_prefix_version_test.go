@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func TestS3SessionStoreRejectsInvalidCommittedVersion(t *testing.T) {

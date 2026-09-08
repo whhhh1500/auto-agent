@@ -7,8 +7,8 @@ import (
 	"sort"
 	"sync"
 
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const (

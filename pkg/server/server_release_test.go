@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/cc-auto-agent/harness-core/pkg/control"
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/control"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,9 +15,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	cryptoexample "github.com/cc-auto-agent/harness-core/examples/crypto"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	cryptoexample "github.com/whhhh1500/auto-agent/examples/crypto"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 type releaseAuditStore struct {

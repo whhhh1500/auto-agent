@@ -4,7 +4,7 @@
 // configuration.
 package sandbox
 
-import executionsandbox "github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
+import executionsandbox "github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 
 // ProbeStatus is the bounded, sanitized readiness state shown to operators.
 type ProbeStatus string

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestPostgresFenceJournalFreshSchemaAndMonotonicDecisions(t *testing.T) {

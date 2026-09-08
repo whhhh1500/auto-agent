@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
 )
 
 // Store maps the two historical storage settings keys to the typed application

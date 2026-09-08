@@ -16,7 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 var ErrBindingMismatch = errors.New("graph implementation binding mismatch")

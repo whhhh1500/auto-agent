@@ -1,4 +1,4 @@
-# Development-only PostgreSQL and Harness environment. Do not use this file
+# Development-only PostgreSQL and auto-agent environment. Do not use this file
 # for production: replace credentials with a secret manager and use an
 # immutable image digest plus a managed PostgreSQL service.
 services:

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
 )
 
 type SQLEvaluationStore struct {

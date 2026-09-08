@@ -1,6 +1,6 @@
 # Architecture
 
-Harness Core uses a one-way dependency graph. The kernel is deliberately
+auto-agent uses a one-way dependency graph. The kernel is deliberately
 unaware of transport, databases, model vendors and optional product features.
 
 For the detailed implementation and extension audit, see the

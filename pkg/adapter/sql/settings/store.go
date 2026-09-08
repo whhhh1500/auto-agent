@@ -12,8 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
 )
 
 const (

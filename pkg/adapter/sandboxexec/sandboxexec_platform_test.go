@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 )
 
 func TestLocalRegistrationSandboxExecFailsClosedWithoutHostFallback(t *testing.T) {

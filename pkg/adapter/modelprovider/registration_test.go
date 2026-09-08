@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
 )
 
 func TestRegistrationExtension(t *testing.T) {

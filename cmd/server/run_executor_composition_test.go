@@ -6,12 +6,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	graphcheckpoint "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/graphcheckpoint"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	"github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	graphcontract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	graphcheckpoint "github.com/whhhh1500/auto-agent/pkg/adapter/sql/graphcheckpoint"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	graphcontract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 
 	_ "modernc.org/sqlite"
 )

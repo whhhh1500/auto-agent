@@ -11,8 +11,8 @@ import (
 	"sync"
 	"unicode"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/internal/support"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/internal/support"
 )
 
 var errStandardSearch = errors.New("standard rag search failed")

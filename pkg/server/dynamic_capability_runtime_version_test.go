@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	capabilityruntime "github.com/cc-auto-agent/harness-core/pkg/app/capabilityruntime"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	capabilityruntime "github.com/whhhh1500/auto-agent/pkg/app/capabilityruntime"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 type versionedCapabilityFactory struct {

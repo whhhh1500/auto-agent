@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/rag"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/rag"
 )
 
 // TestSQLRagQualityBaseline records the current deterministic lexical baseline

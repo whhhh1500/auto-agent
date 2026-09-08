@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 // The protocol envelope prevents opaque continuation data from becoming tool

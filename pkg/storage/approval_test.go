@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
 )
 
 func approvalTestRequest(runID, callID string) core.ApprovalRequest {

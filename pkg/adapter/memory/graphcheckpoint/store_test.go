@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	graph "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	graph "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 func TestStoreCASReplayAndDefensiveCopies(t *testing.T) {

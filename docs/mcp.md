@@ -1,6 +1,6 @@
 # MCP integration
 
-Harness Core acts as an MCP client over stdio JSON-RPC and Streamable HTTP. It
+auto-agent acts as an MCP client over stdio JSON-RPC and Streamable HTTP. It
 does not expose an MCP server endpoint: public integrations use the versioned
 HTTP/SSE API and private workers use the Runner protocol.
 

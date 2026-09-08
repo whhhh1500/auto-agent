@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // Adapter is a thin compatibility bridge; Registry and Plan are injected and

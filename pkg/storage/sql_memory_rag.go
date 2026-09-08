@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/memory"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/rag"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/memory"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/rag"
 )
 
 // SQLMemoryStore backs the memory contract on the shared SQL schema.

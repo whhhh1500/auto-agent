@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // legacyIdentityAdminRepository is private migration glue for deployments

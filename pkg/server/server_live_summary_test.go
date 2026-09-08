@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/app/contextassembly"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/app/contextassembly"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // The seeded turns are synthetic, not paid model runs. Both arms use the same

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 
-	executionsandbox "github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
+	executionsandbox "github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 )
 
 var errInvalidSandboxDataRoot = errors.New("invalid sandbox data root")

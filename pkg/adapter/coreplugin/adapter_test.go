@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
 )
 
 type testPlugin struct {

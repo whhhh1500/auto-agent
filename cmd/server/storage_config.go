@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	artifactmigrationadapter "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/artifactmigration"
-	artifactstoragemigration "github.com/cc-auto-agent/harness-core/pkg/adapter/storage/artifactmigration"
-	artifactmigration "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	artifactmigrationadapter "github.com/whhhh1500/auto-agent/pkg/adapter/sql/artifactmigration"
+	artifactstoragemigration "github.com/whhhh1500/auto-agent/pkg/adapter/storage/artifactmigration"
+	artifactmigration "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 type storageRuntime struct {

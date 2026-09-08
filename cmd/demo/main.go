@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	cryptoexample "github.com/cc-auto-agent/harness-core/examples/crypto"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	cryptoexample "github.com/whhhh1500/auto-agent/examples/crypto"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func main() {

@@ -1,10 +1,10 @@
-param([string]$Image = 'harness-core:smoke')
+param([string]$Image = 'auto-agent:smoke')
 
 $ErrorActionPreference = 'Stop'
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'docker is required for container smoke' }
 docker image inspect $Image *> $null
 if ($LASTEXITCODE -ne 0) { docker build --tag $Image . }
-$name = "harness-core-smoke-$([guid]::NewGuid().ToString('N'))"
+$name = "auto-agent-smoke-$([guid]::NewGuid().ToString('N'))"
 try {
   docker run --detach --name $name --publish 18080:8080 `
     --env HARNESS_MODE=dev `

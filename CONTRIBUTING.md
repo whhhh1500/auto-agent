@@ -1,6 +1,6 @@
-# Contributing to Harness Core
+# Contributing to auto-agent
 
-Harness Core is an Apache-2.0 open-source Agent foundation. Keep public
+auto-agent is an Apache-2.0 open-source Agent foundation. Keep public
 interfaces small and integration-friendly; product-specific behavior belongs
 in adapters or examples rather than the kernel.
 

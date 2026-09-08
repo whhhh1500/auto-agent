@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const nativeQueuedModelOutcomeProtocol = "native_queued_model_outcome/v1"

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestPostgresFreshMigrationAndAdapter(t *testing.T) {

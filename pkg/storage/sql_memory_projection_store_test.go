@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func TestSQLMemoryStoreV28ProjectsSearchAndTagsOnReplacement(t *testing.T) {

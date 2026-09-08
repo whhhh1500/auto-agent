@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/evaluation"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/evaluation"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 
 	_ "modernc.org/sqlite"
 )

@@ -3,7 +3,7 @@ package core_test
 import (
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func TestExternalPackageCannotForgeAcceptedInvocation(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/cc-auto-agent/harness-core/pkg/buildinfo"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/buildinfo"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 
 	_ "modernc.org/sqlite"
 )

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/modelexecution/corebridge"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcatalog"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/modelexecution/corebridge"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcatalog"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const (

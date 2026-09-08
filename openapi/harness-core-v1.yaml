@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Harness Core HTTP API",
+    "title": "auto-agent HTTP API",
     "version": "v1",
     "description": "Versioned SaaS HTTP/SSE contract for the routes registered by pkg/server. Tenant and subject ownership are resolved from the authenticated Principal; cross-tenant session access is intentionally reported as 404. This pre-GA v1 contract accepts additive fields and routes, while semantic or breaking changes require a new reviewed contract revision. Operations marked x-harness-contract-first are approved control-plane contracts whose server registration is verified before they can be considered implemented. Optional adapters return the documented 501 error when they are not configured."
   },

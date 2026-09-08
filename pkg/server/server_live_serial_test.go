@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/app/contextassembly"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/memory"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/rag"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/workflow"
-	"github.com/cc-auto-agent/harness-core/pkg/provider/openai"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/app/contextassembly"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/memory"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/rag"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/workflow"
+	"github.com/whhhh1500/auto-agent/pkg/provider/openai"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // This suite is deliberately opt-in, serial, and bounded. It never enables

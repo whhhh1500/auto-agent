@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	memory "github.com/cc-auto-agent/harness-core/pkg/adapter/memory/graphcheckpoint"
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	memory "github.com/whhhh1500/auto-agent/pkg/adapter/memory/graphcheckpoint"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 func TestExecutorThreeNodeHappyPath(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/perfp0"
+	"github.com/whhhh1500/auto-agent/internal/perfp0"
 )
 
 func main() {

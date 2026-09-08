@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
 )
 
 // AccountView is the account representation returned by administration

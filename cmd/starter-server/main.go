@@ -12,10 +12,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/cc-auto-agent/harness-core/examples/starter"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	openai "github.com/cc-auto-agent/harness-core/pkg/provider/openai"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/examples/starter"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	openai "github.com/whhhh1500/auto-agent/pkg/provider/openai"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 
 	_ "modernc.org/sqlite"
 )

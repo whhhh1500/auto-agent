@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	cryptoexample "github.com/cc-auto-agent/harness-core/examples/crypto"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	cryptoexample "github.com/whhhh1500/auto-agent/examples/crypto"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestServerPreservesMultiTurnSessionAndOwnership(t *testing.T) {

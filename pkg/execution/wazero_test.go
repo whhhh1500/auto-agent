@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
 	"github.com/tetratelabs/wazero"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func writeWasm(t testing.TB, module []byte) string {

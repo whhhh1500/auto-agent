@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	storagehttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/storage"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	storagehttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/storage"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestSettingsRoutesAuthorizeBeforeAvailabilityAndDecoding(t *testing.T) {

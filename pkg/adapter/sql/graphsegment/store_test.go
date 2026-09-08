@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	sqlkit "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	graph "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
-	storage "github.com/cc-auto-agent/harness-core/pkg/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	sqlkit "github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	graph "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
+	storage "github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

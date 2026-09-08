@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
 )
 
 // Registry immutably binds one catalog snapshot to exact provider and protocol

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/cc-auto-agent/harness-core/pkg/core"
+	. "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // fakeS3 implements the exact S3 REST surface the client uses, including

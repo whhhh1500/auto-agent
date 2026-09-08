@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"strings"
 	"time"
 )

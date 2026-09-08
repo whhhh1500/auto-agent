@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func testToolInvocation(t *testing.T, call core.ToolCall, idempotent bool) core.ToolInvocation {

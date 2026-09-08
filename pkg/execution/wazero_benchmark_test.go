@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/internal/testwasm"
 	"github.com/tetratelabs/wazero"
+	"github.com/whhhh1500/auto-agent/internal/testwasm"
 )
 
 func TestWazeroGoWASI(t *testing.T) {

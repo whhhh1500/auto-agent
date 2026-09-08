@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

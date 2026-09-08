@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	capabilityruntime "github.com/cc-auto-agent/harness-core/pkg/app/capabilityruntime"
-	"github.com/cc-auto-agent/harness-core/pkg/execution"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
+	capabilityruntime "github.com/whhhh1500/auto-agent/pkg/app/capabilityruntime"
+	"github.com/whhhh1500/auto-agent/pkg/execution"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // --- dynamic capability creation ---

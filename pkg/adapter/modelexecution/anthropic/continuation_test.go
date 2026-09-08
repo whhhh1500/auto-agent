@@ -3,7 +3,7 @@ package anthropic
 import (
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 func TestForeignToolContinuationIsRejected(t *testing.T) {

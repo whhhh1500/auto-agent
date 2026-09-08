@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // CaseRequest is the small stdin protocol used by the process-isolated

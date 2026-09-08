@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/toollib"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/toollib"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 const reportVersion = 3

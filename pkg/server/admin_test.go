@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	cryptoexample "github.com/cc-auto-agent/harness-core/examples/crypto"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	cryptoexample "github.com/whhhh1500/auto-agent/examples/crypto"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 func newAdminServer(t *testing.T) *httptest.Server {
@@ -158,7 +158,7 @@ func TestConsoleServesAppAndAssets(t *testing.T) {
 	httpServer := newAdminServer(t)
 	index := doJSON(t, http.MethodGet, httpServer.URL+"/console/", "alice", "")
 	indexBody := readBody(t, index)
-	if index.StatusCode != http.StatusOK || !strings.Contains(indexBody, "Harness Console") {
+	if index.StatusCode != http.StatusOK || !strings.Contains(indexBody, "auto-agent Console") {
 		t.Fatalf("console index wrong: status=%d", index.StatusCode)
 	}
 	match := regexp.MustCompile(`src="(/console/assets/alpine\.min\.js\?v=[0-9a-f]{64})"`).FindStringSubmatch(indexBody)

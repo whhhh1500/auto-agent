@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	runtime "github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	runtime "github.com/whhhh1500/auto-agent/pkg/extensions/runner"
 )
 
 // ClaimRequest selects the capabilities a private runner is willing to

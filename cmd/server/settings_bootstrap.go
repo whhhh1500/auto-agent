@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	sqlsettings "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/settings"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	sqlsettings "github.com/whhhh1500/auto-agent/pkg/adapter/sql/settings"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 type persistedStorageConfig struct {

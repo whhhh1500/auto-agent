@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 // HTTPProviderConfig names one opaque endpoint identity and supplies an HTTP

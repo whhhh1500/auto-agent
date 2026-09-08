@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"log/slog"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 type jsonRawMessage = json.RawMessage

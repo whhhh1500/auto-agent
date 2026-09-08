@@ -1,6 +1,6 @@
 # Container release checklist
 
-Harness Core is released as an immutable container image, not as a set of
+auto-agent is released as an immutable container image, not as a set of
 platform binaries. The tag workflow builds Linux `amd64` and `arm64` OCI
 artifacts with `v0.1.0-alpha.1`-style version metadata, emits an image archive
 checksum and an SPDX SBOM, and uploads them for review. It deliberately does
@@ -35,7 +35,7 @@ container smoke script. On Unix-like systems:
 version=v0.1.0-alpha.1
 commit=local
 build_date=local
-image="harness-core:release-smoke-${version}"
+image="auto-agent:release-smoke-${version}"
 docker build --tag "$image" \
   --build-arg VERSION="$version" \
   --build-arg COMMIT="$commit" \
@@ -49,7 +49,7 @@ PowerShell equivalent:
 $version = 'v0.1.0-alpha.1'
 $commit = 'local'
 $buildDate = 'local'
-$image = "harness-core:release-smoke-$version"
+$image = "auto-agent:release-smoke-$version"
 docker build --tag $image --build-arg "VERSION=$version" --build-arg "COMMIT=$commit" --build-arg "BUILD_DATE=$buildDate" .
 & ./scripts/container-smoke.ps1 -Image $image
 ```

@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/cc-auto-agent/harness-core"
+const modulePath = "github.com/whhhh1500/auto-agent"
 
 const legacyModulePath = "harness" + "-core"
 
@@ -98,7 +98,7 @@ func TestLegacyModuleImportDetectionExaminesImportsOnly(t *testing.T) {
 			want:   true,
 		},
 		"current module import is allowed": {
-			source: "package test\nimport \"github.com/cc-auto-agent/harness-core/pkg/core\"\n",
+			source: "package test\nimport \"github.com/whhhh1500/auto-agent/pkg/core\"\n",
 		},
 	}
 	for name, test := range tests {

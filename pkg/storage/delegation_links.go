@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/subagent"
 )
 
 // SQLDelegationLinkStore is the durable metadata-only delegation catalog.

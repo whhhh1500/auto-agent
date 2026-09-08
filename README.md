@@ -1,6 +1,6 @@
-# Harness Core
+# auto-agent
 
-Harness Core is an open-source Go foundation for building composable Agents and digital humans. It keeps the runtime small and deterministic while allowing deployers, products, tenants, users, sessions, and runs to contribute their own capabilities and Agent configuration.
+auto-agent is an open-source Go foundation for building composable Agents and digital humans. It keeps the runtime small and deterministic while allowing deployers, products, tenants, users, sessions, and runs to contribute their own capabilities and Agent configuration.
 
 The project is a runtime foundation with one built-in, provider-neutral `general`
 profile, so a fresh server and Console need no profile setup. A conversation still
@@ -401,7 +401,7 @@ connections are not configured separately, the idle limit is reduced to one as
 well. A single connection is safe for startup but severely limits runtime
 throughput and concurrency.
 
-Harness PostgreSQL startup and schema migration use session-level advisory
+auto-agent PostgreSQL startup and schema migration use session-level advisory
 locks. Connect directly or use session pooling. PgBouncer transaction pooling
 is unsupported for the control database because it does not preserve one
 backend session from lock through unlock; configure `pool_mode=session` or
@@ -456,7 +456,7 @@ authenticator is for local development only. After this module has been
 published, external consumers install it with:
 
 ```sh
-go get github.com/cc-auto-agent/harness-core/pkg/core
+go get github.com/whhhh1500/auto-agent/pkg/core
 ```
 
 Before publication, run the local external-module smoke with
@@ -709,7 +709,7 @@ panics are contained and never change Run semantics.
 
 Set `HARNESS_OTEL_ENABLED=true` (or any standard OTLP endpoint variable) to
 enable OTLP/HTTP export in `cmd/server`. `HARNESS_OTEL_SERVICE_NAME` defaults to
-`harness-core`, and `HARNESS_OTEL_METRIC_INTERVAL` defaults to 30 seconds. The
+`auto-agent`, and `HARNESS_OTEL_METRIC_INTERVAL` defaults to 30 seconds. The
 adapter honors standard `OTEL_EXPORTER_OTLP_*` variables and installs W3C
 TraceContext plus Baggage propagation. HTTP requests are wrapped with standard
 server instrumentation.

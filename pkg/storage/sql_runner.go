@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
 )
 
 // SQLRunnerStore is the durable SQL implementation of runner.Store. The

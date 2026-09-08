@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestStorageConfigUseCasesDriveTypedHTTPWithoutSecretLeakage(t *testing.T) {

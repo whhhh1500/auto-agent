@@ -1,13 +1,13 @@
 # Container deployment and recovery
 
-This guide describes the production boundary for the Harness Core server. The
+This guide describes the production boundary for the auto-agent server. The
 repository's `docker-compose.yml` is a development-only PostgreSQL fixture; it
 is not a production topology.
 
 ## Production container
 
 Deploy one immutable image reference (prefer a registry digest such as
-`registry.example/harness-core@sha256:...`) for both Linux `amd64` and `arm64`.
+`registry.example/auto-agent@sha256:...`) for both Linux `amd64` and `arm64`.
 Run the image as its built-in non-root `harness` user with a writable data
 volume mounted at `/data`. The container listens on port `8080` by default.
 

@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/modelruntime"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcatalog"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	openai "github.com/cc-auto-agent/harness-core/pkg/provider/openai"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/modelruntime"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcatalog"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	openai "github.com/whhhh1500/auto-agent/pkg/provider/openai"
 )
 
 type modelRuntimeBundle struct {

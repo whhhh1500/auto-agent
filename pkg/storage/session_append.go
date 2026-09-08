@@ -3,7 +3,7 @@ package storage
 import (
 	"fmt"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func validateAppendEvents(expectedVersion int64, events []core.SessionEvent) error {

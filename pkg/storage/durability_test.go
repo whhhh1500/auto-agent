@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	. "github.com/cc-auto-agent/harness-core/pkg/core"
+	. "github.com/whhhh1500/auto-agent/pkg/core"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	appcontextassembly "github.com/cc-auto-agent/harness-core/pkg/app/contextassembly"
+	appcontextassembly "github.com/whhhh1500/auto-agent/pkg/app/contextassembly"
 )
 
 type repairConflictStore struct {

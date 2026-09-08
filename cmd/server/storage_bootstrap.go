@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
-	storageconfigadapter "github.com/cc-auto-agent/harness-core/pkg/adapter/storageconfig"
-	artifactmigration "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	storageconfigadapter "github.com/whhhh1500/auto-agent/pkg/adapter/storageconfig"
+	artifactmigration "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // configuredStorage is the startup-selected storage surface. It deliberately

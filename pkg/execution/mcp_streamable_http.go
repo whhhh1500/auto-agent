@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const (
@@ -142,7 +142,7 @@ func (c *mcpHTTPConnection) initializeLocked(ctx context.Context) error {
 	protocol := c.protocolVersion
 	name := c.cfg.ClientName
 	if name == "" {
-		name = "harness-core"
+		name = "auto-agent"
 	}
 	result, sessionID, err := c.requestWithSessionLocked(ctx, "initialize", map[string]any{
 		"protocolVersion": protocol,

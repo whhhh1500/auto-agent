@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 // The three integration shapes an existing auth system can take.

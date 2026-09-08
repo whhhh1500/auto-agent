@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image="${1:-harness-core:smoke}"
+image="${1:-auto-agent:smoke}"
 if ! command -v docker >/dev/null 2>&1; then
   echo 'docker is required for container smoke' >&2
   exit 2
@@ -10,7 +10,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   docker build --tag "$image" .
 fi
 
-container="harness-core-smoke-$$"
+container="auto-agent-smoke-$$"
 cleanup() { docker rm --force "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker run --detach --name "$container" --publish 18080:8080 \

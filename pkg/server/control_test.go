@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,8 +14,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 // controlFixture is a full first-boot deployment: embedded SQL store, built-in

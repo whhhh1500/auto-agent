@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/jsonbody"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/jsonbody"
 )
 
 func TestGetResponseOmitsUnfoundValueAndKeepsFoundEmptyValue(t *testing.T) {

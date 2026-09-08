@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/workflow"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/workflow"
 )
 
 type workflowLLM struct {

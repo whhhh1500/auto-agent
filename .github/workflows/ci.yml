@@ -127,7 +127,7 @@ jobs:
           context: .
           load: true
           push: false
-          tags: harness-core:ci
+          tags: auto-agent:ci
           build-args: |
             VERSION=ci
             COMMIT=${{ github.sha }}
@@ -137,13 +137,13 @@ jobs:
       - name: verify production default
         run: bash scripts/verify-container-default.sh
       - name: HTTP and SSE smoke
-        run: bash scripts/container-smoke.sh harness-core:ci
+        run: bash scripts/container-smoke.sh auto-agent:ci
       - name: secret scan (image export)
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/harness-image"
-          container_id="$(docker create harness-core:ci)"
+          mkdir -p "$RUNNER_TEMP/auto-agent-image"
+          container_id="$(docker create auto-agent:ci)"
           trap 'docker rm "$container_id" >/dev/null 2>&1 || true' EXIT
-          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/harness-image"
-          docker run --rm --volume "$RUNNER_TEMP/harness-image:/scan:ro" \
+          docker export "$container_id" | tar -x -C "$RUNNER_TEMP/auto-agent-image"
+          docker run --rm --volume "$RUNNER_TEMP/auto-agent-image:/scan:ro" \
             zricethezav/gitleaks:v8.28.0 detect --source=/scan --no-git --no-banner --redact --exit-code 1

@@ -10,11 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"sync"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // adminState tracks dynamically mounted bindings so the console can undo

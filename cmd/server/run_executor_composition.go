@@ -4,15 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 
-	graphapproval "github.com/cc-auto-agent/harness-core/pkg/adapter/graphapproval"
-	graphtelemetry "github.com/cc-auto-agent/harness-core/pkg/adapter/graphtelemetry"
-	graphadapter "github.com/cc-auto-agent/harness-core/pkg/adapter/runexecutor/graph"
-	graphcheckpoint "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/graphcheckpoint"
-	graphsegment "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/graphsegment"
-	sqlkit "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	runexecutor "github.com/cc-auto-agent/harness-core/pkg/app/runexecutor"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	graphapproval "github.com/whhhh1500/auto-agent/pkg/adapter/graphapproval"
+	graphtelemetry "github.com/whhhh1500/auto-agent/pkg/adapter/graphtelemetry"
+	graphadapter "github.com/whhhh1500/auto-agent/pkg/adapter/runexecutor/graph"
+	graphcheckpoint "github.com/whhhh1500/auto-agent/pkg/adapter/sql/graphcheckpoint"
+	graphsegment "github.com/whhhh1500/auto-agent/pkg/adapter/sql/graphsegment"
+	sqlkit "github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	runexecutor "github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func newRunExecutorRegistry(db *sql.DB, dialect storage.SQLDialect, approvals graphapproval.ApprovalReader, telemetry core.Telemetry) (*runexecutor.Registry, error) {

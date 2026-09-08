@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/runliveness"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/app/runliveness"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // manualRunLivenessClock makes server lifecycle tests drive the shared

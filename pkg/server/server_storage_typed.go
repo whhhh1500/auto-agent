@@ -6,9 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	storagehttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/storage"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	storagehttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/storage"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func (h storageSettingsHandler) getTyped(w http.ResponseWriter, r *http.Request, principal core.Principal) {

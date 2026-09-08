@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	graph "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	graph "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 const (

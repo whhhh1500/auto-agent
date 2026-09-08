@@ -3,8 +3,8 @@ package graphtelemetry
 import (
 	"context"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
 )
 
 // Observer bridges bounded Graph events into core telemetry. Identity fields

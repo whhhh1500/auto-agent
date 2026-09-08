@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	oteltelemetry "github.com/cc-auto-agent/harness-core/pkg/telemetry/otel"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	oteltelemetry "github.com/whhhh1500/auto-agent/pkg/telemetry/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

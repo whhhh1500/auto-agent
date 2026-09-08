@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
 )
 
 const settingKey = "llm"

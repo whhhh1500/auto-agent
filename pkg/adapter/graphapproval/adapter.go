@@ -9,11 +9,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	rungraph "github.com/cc-auto-agent/harness-core/pkg/adapter/runexecutor/graph"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
-	storage "github.com/cc-auto-agent/harness-core/pkg/storage"
+	rungraph "github.com/whhhh1500/auto-agent/pkg/adapter/runexecutor/graph"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
+	storage "github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 var (

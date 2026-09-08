@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/sandboxacceptance"
+	"github.com/whhhh1500/auto-agent/internal/sandboxacceptance"
 )
 
 // TestAcceptanceCurrentUserLaunchFromMedium starts only this test binary with

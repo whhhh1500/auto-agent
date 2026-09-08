@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
 )
 
 func TestRunnerHTTPNamedDTOsAcceptForwardCompatibleFields(t *testing.T) {

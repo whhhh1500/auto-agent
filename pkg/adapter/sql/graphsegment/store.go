@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	rungraph "github.com/cc-auto-agent/harness-core/pkg/adapter/runexecutor/graph"
-	sqlkit "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	graph "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
+	rungraph "github.com/whhhh1500/auto-agent/pkg/adapter/runexecutor/graph"
+	sqlkit "github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	graph "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
 )
 
 var (

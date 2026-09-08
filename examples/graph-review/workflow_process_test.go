@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/graphcheckpoint"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	execgraph "github.com/cc-auto-agent/harness-core/pkg/execution/graph"
-	contract "github.com/cc-auto-agent/harness-core/pkg/extensions/graph"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/graphcheckpoint"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	execgraph "github.com/whhhh1500/auto-agent/pkg/execution/graph"
+	contract "github.com/whhhh1500/auto-agent/pkg/extensions/graph"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

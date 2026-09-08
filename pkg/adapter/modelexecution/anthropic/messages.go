@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 // MessagesProtocol maps only text and local function tools. It deliberately

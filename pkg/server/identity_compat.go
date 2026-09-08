@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // legacyIdentityCredentials is temporary migration glue owned by the legacy

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	"github.com/cc-auto-agent/harness-core/pkg/runtime"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	"github.com/whhhh1500/auto-agent/pkg/runtime"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

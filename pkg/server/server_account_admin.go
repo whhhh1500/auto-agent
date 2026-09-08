@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	accountadmin "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/accountadmin"
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	accountadmin "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/accountadmin"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // --- accounts and tenants ---

@@ -24,7 +24,7 @@ func Calc(t testing.TB) string {
 	path := filepath.Join(t.TempDir(), "calc.wasm")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	command := exec.CommandContext(ctx, "go", "build", "-p", "1", "-trimpath", "-o", path, "github.com/cc-auto-agent/harness-core/internal/calc")
+	command := exec.CommandContext(ctx, "go", "build", "-p", "1", "-trimpath", "-o", path, "github.com/whhhh1500/auto-agent/internal/calc")
 	command.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("compile repository WASI calc: %v\n%s", err, output)

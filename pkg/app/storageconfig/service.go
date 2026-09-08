@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	"github.com/cc-auto-agent/harness-core/pkg/app/secretview"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	"github.com/whhhh1500/auto-agent/pkg/app/secretview"
 )
 
 // Service serializes operations per storage kind within this process. The

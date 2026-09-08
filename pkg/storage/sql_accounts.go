@@ -8,8 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	sqlsettings "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/settings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	sqlsettings "github.com/whhhh1500/auto-agent/pkg/adapter/sql/settings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"math/big"
 	"strings"
 	"sync"
@@ -799,7 +799,7 @@ func BootstrapAdminWithPassword(ctx context.Context, store AccountStore, passwor
 		return "", false, err
 	}
 	if logf != nil {
-		logf("Harness Core initial administrator created: %s", accountID)
+		logf("auto-agent initial administrator created: %s", accountID)
 		logf("The compatibility bootstrap password is returned to its caller and is never logged.")
 	}
 	return accountID, true, nil

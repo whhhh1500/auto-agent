@@ -1,4 +1,4 @@
-module github.com/cc-auto-agent/harness-core
+module github.com/whhhh1500/auto-agent
 
 go 1.25.13
 

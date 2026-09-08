@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
-	appmodelsettings "github.com/cc-auto-agent/harness-core/pkg/app/modelsettings"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/memory"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/rag"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
+	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/memory"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/rag"
 )
 
 func TestGeneralProfileControllerPrefersPersistedModelAndHasNoTools(t *testing.T) {

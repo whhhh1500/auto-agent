@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	appsettings "github.com/cc-auto-agent/harness-core/pkg/app/settings"
-	appstorageconfig "github.com/cc-auto-agent/harness-core/pkg/app/storageconfig"
+	appsettings "github.com/whhhh1500/auto-agent/pkg/app/settings"
+	appstorageconfig "github.com/whhhh1500/auto-agent/pkg/app/storageconfig"
 )
 
 func TestStoreLoadsLegacyConfigurationAndPreservesPresence(t *testing.T) {

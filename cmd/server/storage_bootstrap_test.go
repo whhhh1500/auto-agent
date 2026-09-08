@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	sqlsettings "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/settings"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	sqlsettings "github.com/whhhh1500/auto-agent/pkg/adapter/sql/settings"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func TestConfigureStorageDefaultsToEmbeddedBackends(t *testing.T) {

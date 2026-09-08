@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/execution"
+	"github.com/whhhh1500/auto-agent/pkg/execution"
 )
 
 func TestSQLLibraryObserverPersistsSearchThenChoose(t *testing.T) {

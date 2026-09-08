@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	runnerhttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/runner"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/extensions/runner"
+	runnerhttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/runner"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
 )
 
 // handleRunnerClaim hands the next queued task to a private runner.

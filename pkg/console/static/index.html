@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Harness Console</title>
+<title>auto-agent Console</title>
 <script defer src="/console/assets/alpine.min.js"></script>
 <style>
 :root{--bg:#0e1116;--panel:#161b23;--line:#232a35;--text:#dbe2ec;--dim:#8b96a5;--acc:#4f8ef7;--ok:#3ecf8e;--err:#f0705a;--warn:#e8b64c}
@@ -60,7 +60,7 @@ form.card,div.card{background:var(--panel);border:1px solid var(--line);border-r
 <!-- 登录 -->
 <template x-if="!token">
   <div class="login">
-    <h2 style="color:var(--acc)">⬡ Harness Console</h2>
+    <h2 style="color:var(--acc)">⬡ auto-agent Console</h2>
     <p class="sub">使用平台账号登录；首次部署的管理员账号见服务启动日志。</p>
     <div class="f" style="margin-bottom:8px"><label>账号</label><input x-model="login.account" @keydown.enter="doLogin()"></div>
     <div class="f" style="margin-bottom:12px"><label>密码</label><input type="password" x-model="login.password" @keydown.enter="doLogin()"></div>
@@ -86,7 +86,7 @@ form.card,div.card{background:var(--panel);border:1px solid var(--line);border-r
 <template x-if="token && !mustChangePassword">
 <div style="display:flex;flex:1">
 <aside>
-  <div class="brand">⬡ Harness</div>
+  <div class="brand">⬡ auto-agent</div>
   <template x-for="item in visibleNav.filter(item => !item.advancedOnly)" :key="item.id">
     <div class="nav" :class="{on: view===item.id}" @click="go(item.id)">
       <span x-text="item.icon"></span><span x-text="item.label"></span>

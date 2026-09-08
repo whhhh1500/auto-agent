@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	sqlmigration "github.com/cc-auto-agent/harness-core/pkg/adapter/sql/artifactmigration"
-	"github.com/cc-auto-agent/harness-core/pkg/adapter/sql/sqlkit"
-	storagemigration "github.com/cc-auto-agent/harness-core/pkg/adapter/storage/artifactmigration"
-	app "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	sqlmigration "github.com/whhhh1500/auto-agent/pkg/adapter/sql/artifactmigration"
+	"github.com/whhhh1500/auto-agent/pkg/adapter/sql/sqlkit"
+	storagemigration "github.com/whhhh1500/auto-agent/pkg/adapter/storage/artifactmigration"
+	app "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	_ "modernc.org/sqlite"
 )
 

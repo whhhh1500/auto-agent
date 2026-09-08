@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/pkg/core"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // WazeroExecutor runs a pure-computation capability as an EMBEDDED WASM module.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/cc-auto-agent/harness-core/pkg/core"
+	. "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func TestSanitizeLikePrefixEscapesWildcardsAndEscape(t *testing.T) {

@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/testdb"
-	"github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/provider/openai"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/whhhh1500/auto-agent/internal/testdb"
+	"github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/provider/openai"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"go.opentelemetry.io/otel/trace"
 )
 

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	httpnotification "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/notificationtarget"
-	appnotification "github.com/cc-auto-agent/harness-core/pkg/app/notification"
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	httpnotification "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/notificationtarget"
+	appnotification "github.com/whhhh1500/auto-agent/pkg/app/notification"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 func (s *Server) registerNotificationTargetRoutes(mux *http.ServeMux) {

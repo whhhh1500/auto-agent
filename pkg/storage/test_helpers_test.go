@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	. "github.com/cc-auto-agent/harness-core/pkg/core"
+	. "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 func testScopes() (ScopePath, ScopePath, ScopePath, ScopePath) {

@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	storagehttp "github.com/cc-auto-agent/harness-core/pkg/adapter/httpapi/storage"
-	"github.com/cc-auto-agent/harness-core/pkg/app/secretview"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	storagehttp "github.com/whhhh1500/auto-agent/pkg/adapter/httpapi/storage"
+	"github.com/whhhh1500/auto-agent/pkg/app/secretview"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // StorageConfig preserves the legacy persisted S3 configuration shape and

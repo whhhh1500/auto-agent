@@ -2,7 +2,7 @@
 
 package execution
 
-import core "github.com/cc-auto-agent/harness-core/pkg/core"
+import core "github.com/whhhh1500/auto-agent/pkg/core"
 
 // confineCommand FAILS CLOSED on non-Linux: OS-level confinement needs a Linux
 // host (bwrap + namespaces). Untrusted capability code should run in a

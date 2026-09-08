@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cc-auto-agent/harness-core/internal/sandboxacceptance"
-	"github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
+	"github.com/whhhh1500/auto-agent/internal/sandboxacceptance"
+	"github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 	"golang.org/x/sys/windows"
 )
 

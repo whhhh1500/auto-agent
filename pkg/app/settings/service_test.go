@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	appidentity "github.com/cc-auto-agent/harness-core/pkg/app/identity"
+	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
 )
 
 func TestServiceRequiresPlatformAdmin(t *testing.T) {

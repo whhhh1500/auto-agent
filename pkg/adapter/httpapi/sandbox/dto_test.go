@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	executionsandbox "github.com/cc-auto-agent/harness-core/pkg/execution/sandbox"
+	executionsandbox "github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 )
 
 func TestViewKeepsOnlySanitizedDiscoveryFacts(t *testing.T) {

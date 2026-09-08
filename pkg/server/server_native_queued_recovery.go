@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"reflect"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 var errNativeQueuedCompletedToolRecoveryUnavailable = errors.New("native queued completed-tool recovery is unavailable")

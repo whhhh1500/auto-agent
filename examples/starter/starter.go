@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
-	"github.com/cc-auto-agent/harness-core/pkg/execution"
-	"github.com/cc-auto-agent/harness-core/pkg/server"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
+	"github.com/whhhh1500/auto-agent/pkg/execution"
+	"github.com/whhhh1500/auto-agent/pkg/server"
 )
 
 const (

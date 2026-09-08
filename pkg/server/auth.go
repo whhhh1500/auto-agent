@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"strings"
 
-	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 // Identity is the external system's view of the caller, expressed in this

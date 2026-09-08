@@ -3,12 +3,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$modulePath = 'github.com/cc-auto-agent/harness-core'
-$work = Join-Path ([System.IO.Path]::GetTempPath()) ("harness-module-smoke-" + [guid]::NewGuid())
+$modulePath = 'github.com/whhhh1500/auto-agent'
+$work = Join-Path ([System.IO.Path]::GetTempPath()) ("auto-agent-module-smoke-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
     Push-Location $work
-    go mod init example.com/harness-smoke
+    go mod init example.com/auto-agent-smoke
     if ($LASTEXITCODE -ne 0) { throw 'go mod init failed' }
     go mod edit "-replace=$modulePath=$RepositoryRoot"
     if ($LASTEXITCODE -ne 0) { throw 'go mod edit failed' }

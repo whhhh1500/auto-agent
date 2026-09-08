@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	app "github.com/cc-auto-agent/harness-core/pkg/app/artifactmigration"
-	"github.com/cc-auto-agent/harness-core/pkg/storage"
+	app "github.com/whhhh1500/auto-agent/pkg/app/artifactmigration"
+	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
 
 // Binding owns one concrete migration target. It is intentionally composed at

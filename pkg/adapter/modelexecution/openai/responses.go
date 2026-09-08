@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 // ResponsesProtocol implements the OpenAI /responses wire protocol. It only

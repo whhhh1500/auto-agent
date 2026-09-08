@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelcontrol"
-	"github.com/cc-auto-agent/harness-core/pkg/app/modelexecution"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelcontrol"
+	"github.com/whhhh1500/auto-agent/pkg/app/modelexecution"
 )
 
 func TestResponsesSSETextSuffixUsageAndFinish(t *testing.T) {
