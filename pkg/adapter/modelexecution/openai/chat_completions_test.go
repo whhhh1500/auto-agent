@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -60,6 +61,39 @@ func TestHTTPProviderRedactsStatusBodyAndHonorsCanceledContext(t *testing.T) {
 	_, err = provider.Send(canceled, plan, modelexecution.OutboundRequest{Method: http.MethodPost, Path: "/x", MaxResponseBytes: 1024})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel=%v", err)
+	}
+}
+
+func TestHTTPProviderOnlyMarksActualTransportErrorsRetryable(t *testing.T) {
+	endpoint := modelcontrol.EndpointRef{ID: "endpoint", Revision: "1"}
+	plan := modelcontrol.ProviderPlan{Endpoint: endpoint}
+	request := modelexecution.OutboundRequest{Method: http.MethodPost, Path: "/x", MaxResponseBytes: 1024}
+	cases := []struct {
+		name      string
+		roundTrip error
+		marked    bool
+	}{
+		{name: "wrapped policy error", roundTrip: &url.Error{Op: "Get", URL: "https://provider.invalid/?token=secret", Err: errors.New("redirect policy denied")}},
+		{name: "wrapped EOF", roundTrip: &url.Error{Op: "Get", URL: "https://provider.invalid/?token=secret", Err: io.EOF}, marked: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, err := NewHTTPProvider(HTTPProviderConfig{Endpoint: endpoint, BaseURL: "https://provider.invalid", Client: &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) { return nil, tc.roundTrip })}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.Send(context.Background(), plan, request)
+			if err == nil {
+				t.Fatal("Send unexpectedly succeeded")
+			}
+			var retryable interface{ Retryable() bool }
+			if got := errors.As(err, &retryable) && retryable.Retryable(); got != tc.marked {
+				t.Fatalf("retryable=%t, want %t: %v", got, tc.marked, err)
+			}
+			if tc.marked && (strings.Contains(err.Error(), "provider.invalid") || strings.Contains(err.Error(), "secret")) {
+				t.Fatalf("transport error leaked endpoint details: %q", err)
+			}
+		})
 	}
 }
 
@@ -131,6 +165,10 @@ type recordingProvider struct {
 	path    string
 	body    io.ReadCloser
 }
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 type partialErrorResolver struct {
 	material modelexecution.CredentialMaterial

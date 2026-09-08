@@ -106,7 +106,7 @@ func NewOpenAICompatibleAdapter(cfg OpenAIAdapterConfig) *OpenAICompatibleAdapte
 func (a *OpenAICompatibleAdapter) Provider() string { return "openai-compatible" }
 
 func (a *OpenAICompatibleAdapter) ArtifactRevision() string {
-	return "openai-compatible/chat-completions/v1"
+	return "openai-compatible/chat-completions/v2-terminal-sentinel"
 }
 
 func (a *OpenAICompatibleAdapter) Stream(ctx context.Context, opts core.GenerateOptions, emit func(core.StreamChunk)) error {
@@ -138,7 +138,7 @@ func (a *OpenAICompatibleAdapter) buildM2Bridge() (*corebridge.Adapter, error) {
 	protocolRef := modelcontrol.Ref{ID: "openai-chat-completions", Version: "1"}
 	endpoint := modelcontrol.EndpointRef{ID: "legacy-openai-endpoint", Revision: "1"}
 	credential := modelcontrol.CredentialRef{ID: "legacy-openai-credential", Revision: "1"}
-	catalog, err := modelcontrol.NewRegistry([]modelcontrol.CatalogModel{{Ref: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, WireModel: a.cfg.Model, Provider: providerRef, Protocol: protocolRef, Credential: credential, Capabilities: modelcontrol.ModelCapabilities{ContextWindowTokens: 128000, MaxOutputTokens: 16384, ToolCalls: true, Modalities: []modelcontrol.Modality{modelcontrol.ModalityText}}}}, []modelcontrol.ProviderSpec{{Ref: providerRef, Endpoint: endpoint, ImplementationRevision: "openai-compatible-http-v1"}}, []modelcontrol.ProtocolSpec{{Ref: protocolRef, ImplementationRevision: "openai-chat-completions-v1"}}, []modelcontrol.Compatibility{{Provider: providerRef, Protocol: protocolRef}})
+	catalog, err := modelcontrol.NewRegistry([]modelcontrol.CatalogModel{{Ref: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, WireModel: a.cfg.Model, Provider: providerRef, Protocol: protocolRef, Credential: credential, Capabilities: modelcontrol.ModelCapabilities{ContextWindowTokens: 128000, MaxOutputTokens: 16384, ToolCalls: true, Modalities: []modelcontrol.Modality{modelcontrol.ModalityText}}}}, []modelcontrol.ProviderSpec{{Ref: providerRef, Endpoint: endpoint, ImplementationRevision: "openai-compatible-http-v1"}}, []modelcontrol.ProtocolSpec{{Ref: protocolRef, ImplementationRevision: "openai-chat-completions-v2-terminal-sentinel"}}, []modelcontrol.Compatibility{{Provider: providerRef, Protocol: protocolRef}})
 	if err != nil {
 		return nil, err
 	}

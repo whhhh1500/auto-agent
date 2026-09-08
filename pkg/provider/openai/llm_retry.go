@@ -9,10 +9,11 @@ import (
 )
 
 // RetryLlmAdapter wraps another adapter with bounded retries for transient
-// failures: transport errors and retryable HTTP statuses (429, 5xx). Cancellations,
-// deadlines, and non-retryable statuses surface immediately. It mirrors the
-// loop-external retry layer pattern: metering and the session log stay honest
-// because only successful or finally-failed calls reach the run.
+// failures: HTTP-send transport candidates and retryable HTTP statuses (429,
+// 5xx). Cancellations, deadlines, protocol failures, and non-retryable statuses
+// surface immediately. A retry can repeat a provider request, so it neither
+// proves non-execution nor makes failed-attempt billing observable; it only
+// prevents duplicate delivery after the consumer has received a chunk.
 type RetryLlmAdapter struct {
 	Next       core.LlmAdapter
 	MaxRetries int
@@ -35,16 +36,16 @@ func (a *RetryLlmAdapter) Provider() string {
 func (a *RetryLlmAdapter) ArtifactRevision() (revision string) {
 	defer func() {
 		if recover() != nil {
-			revision = "retry/v1/revision-unavailable"
+			revision = "retry/v2/revision-unavailable"
 		}
 	}()
 	if a == nil || a.Next == nil {
 		return "retry/unconfigured"
 	}
 	if revisioner, ok := a.Next.(core.ArtifactRevisioner); ok {
-		return fmt.Sprintf("retry/v1/%s", revisioner.ArtifactRevision())
+		return fmt.Sprintf("retry/v2/%s", revisioner.ArtifactRevision())
 	}
-	return "retry/v1/" + a.Next.Provider()
+	return "retry/v2/" + a.Next.Provider()
 }
 
 func (a *RetryLlmAdapter) Stream(ctx context.Context, opts core.GenerateOptions, emit func(core.StreamChunk)) error {
@@ -104,6 +105,6 @@ func retryableLlmError(err error) bool {
 	if errors.As(err, &status) {
 		return status.Retryable()
 	}
-	// Transport-level failures (connection reset, EOF, timeouts) are retryable.
-	return true
+	var retryable interface{ Retryable() bool }
+	return errors.As(err, &retryable) && retryable.Retryable()
 }

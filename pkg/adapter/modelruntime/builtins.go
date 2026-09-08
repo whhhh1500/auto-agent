@@ -16,7 +16,7 @@ const (
 	builtinVersion                  = "1"
 	openAIProviderImplementation    = "openai-http-v1"
 	anthropicProviderImplementation = "anthropic-http-v1"
-	openAIChatImplementation        = "openai-chat-completions-v1"
+	openAIChatImplementation        = "openai-chat-completions-v2-terminal-sentinel"
 	openAIResponsesImplementation   = "openai-responses-v1"
 	anthropicMessagesImplementation = "anthropic-messages-v1"
 )

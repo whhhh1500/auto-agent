@@ -5,8 +5,10 @@ package openai
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -81,6 +83,12 @@ func (p *HTTPProvider) Send(ctx context.Context, plan modelcontrol.ProviderPlan,
 	}
 	response, err := p.client.Do(request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return modelexecution.InboundResponse{}, ctx.Err()
+		}
+		if isRetryableTransportError(err) {
+			return modelexecution.InboundResponse{}, &transportError{err: err}
+		}
 		return modelexecution.InboundResponse{}, err
 	}
 	if response == nil || response.Body == nil {
@@ -92,6 +100,34 @@ func (p *HTTPProvider) Send(ctx context.Context, plan modelcontrol.ProviderPlan,
 		return modelexecution.InboundResponse{}, &HTTPStatusError{Status: response.StatusCode, Body: "upstream response redacted"}
 	}
 	return modelexecution.InboundResponse{Status: response.StatusCode, Body: response.Body}, nil
+}
+
+// transportError marks an error returned directly by http.Client.Do as a
+// transport retry candidate. Protocol decoders must not create this marker:
+// EOF and UnexpectedEOF from a response body can mean a truncated provider
+// payload after the provider has already begun processing the request.
+//
+// It is intentionally package-private. Callers use the Retryable method
+// structurally rather than importing this adapter implementation detail.
+type transportError struct{ err error }
+
+func (e *transportError) Error() string {
+	return "openai HTTP transport failed"
+}
+
+func (e *transportError) Unwrap() error   { return e.err }
+func (e *transportError) Retryable() bool { return e != nil && e.err != nil }
+
+func isRetryableTransportError(err error) bool {
+	for {
+		urlError, ok := err.(*url.Error)
+		if !ok || urlError.Err == nil {
+			break
+		}
+		err = urlError.Err
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed)
 }
 
 // HTTPStatusError reports only status and a fixed redacted bounded body label.

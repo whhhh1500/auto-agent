@@ -135,6 +135,7 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 	var pendingFinish *modelexecution.FinishReason
 	hasTools := false
+	done := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -142,6 +143,7 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			done = true
 			break
 		}
 		var chunk struct {
@@ -205,6 +207,9 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 	}
 	if err := scanner.Err(); err != nil {
 		return err
+	}
+	if !done {
+		return fmt.Errorf("openai SSE stream ended without [DONE]")
 	}
 	if pendingFinish == nil {
 		inferred := modelexecution.FinishStop
