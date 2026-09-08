@@ -637,6 +637,8 @@ flowchart TD
 
 checkpoint 持久化失败时，内部取消只用于立即停止工具路径和后续模型调用；同步 SSE 不暴露内部 `tool_cancelled` / cancelled `run/end`，而发送带原始持久化错误的 `store/error`（`code=store_error`、`status=failed`）。该响应事件不是 durable Session 历史；同步与 queued 的持久 RunControl 都以 `failed/store_error` 收束。
 
+同步 SSE 的每次网络写入现在使用 **5 秒** deadline；慢 `net.Pipe` reader 的回归验证 handler 退出且 durable terminal 仍落库。没有 deadline 支持的自定义 `ResponseWriter` 会得到 `http.ErrNotSupported` 兼容路径：可继续写，但不承诺有界 transport write。断线后的合法恢复仍是按 cursor 查询 durable events，不是 `Last-Event-ID` replay。
+
 **扩展：** E1：新增类型化 HTTP adapter 并同步 OpenAPI/授权；E2：任何语言调用现有 HTTP API。当前没有正式多语言客户端 SDK、gRPC、入站 MCP 或 A2A 的完整内置服务面。
 
 **性能：** 编码、事件扇出、慢客户端与查询分页都有成本；既有并发基线覆盖部分 HTTP 链路，未覆盖大量 SSE 长连接与背压恢复。健康检查吞吐不能当作 Agent 会话吞吐。
@@ -679,9 +681,11 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 
 **实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium，各记录注明执行范围。这里“34 个生产文件、8,721 非空物理行、公共表面计数 905（不是 905 个接口）”是 2026-09-06 的历史快照。当前状态见[研究台账 M44](research/2026-09-08-module-optimization-ledger.md)：34 个生产文件、8,819 非空行、910 个公共 API 项；硬限仍是 8,821 行和 910 个公共 API 项。当时新增一个复用协议校验器的 usage 消费函数，门禁阈值未放宽，摘要策略/计量扩展位于 app。生成文件识别已从文件名猜测改为 Go AST 的 generated marker；perfp0 现把吞吐明确为 attempt ops/s，比较成功路径时必须同时检查 `Errors==0`。
 
+**本轮门禁：** 代码基线 `1f78ef0` 上，Go **1.25.13** 的 `go build ./...`、`go vet ./pkg/server`、固定 `staticcheck@v0.7.0 ./pkg/server`、以及未设置 `HARNESS_TEST_PG_DSN` 的 `go test -count=1 -timeout 600s ./...` 均通过；后者是常规非 PG 路径。独立 55441 PostgreSQL 17.6 runner 的 `go run ./scripts/test-postgres` 另行通过：1,577 JSONL event 全部可解析、109 顶层和 105 子测试、10 个包、214 named run/pass，skip/fail 均为 0。格式、OpenAPI 102 operations、固定 `govulncheck@v1.7.0` 与覆盖率阈值也通过；这些本机结果不替代 CI 的 Linux container 或 Windows hosted runner。
+
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 
-**性能：** 初版 6 个包、9 个微基准及历史条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)。后续真实调用与全仓检查分别记在上下文预算、WASM、工具披露、连续摘要和 LLM 摘要记录中；最新进程硬杀补验包含两个显式串行 Gemini 样本，但没有测 pre-tool checkpoint 成本。不能把早期源码评估、离线脚本、被跳过的测试或单次 live 样本合并成全部真实通过或性能分布。
+**性能：** 初版 6 个包、9 个微基准及历史条件跳过见[验收记录](verification/2026-09-06-assessment-closure.md)。pre-tool checkpoint 已有 500 samples × 32 operations 的 batch-normalized 本机 PostgreSQL 17.6 measurement：direct p50 **750.006 µs**、durable p50 **1.406268 ms**，单 worker measured-path throughput **1,350.13→727.75 ops/s**；总测试时间 **109.079 秒**不是性能指标。后续真实调用与全仓检查分别记在上下文预算、WASM、工具披露、连续摘要和 LLM 摘要记录中。不能把早期源码评估、离线脚本、被跳过的测试或单次 live 样本合并成全部真实通过或性能分布。
 
 **对比 / 取舍：** 现有测试证据支持继续开发，但未提供外部采用规模、长期事故率或跨框架性能优胜证据。应保持小接口和明确合同，优先补真实部署验证，而不是仅增加更多抽象或追求测试数量。
 
