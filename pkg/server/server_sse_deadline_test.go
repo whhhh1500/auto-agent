@@ -121,6 +121,7 @@ func TestSSEDeadlineCancelsSlowPipeReaderAndPersistsTerminal(t *testing.T) {
 		api.Handler().ServeHTTP(w, r)
 		close(handlerDone)
 	})}
+	t.Cleanup(func() { _ = httpServer.Close() })
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()
 
