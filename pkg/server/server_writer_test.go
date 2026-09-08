@@ -3,11 +3,14 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type flushRecorder struct {
@@ -25,9 +28,72 @@ func (r *flushRecorder) Flush()                            { r.flushes++ }
 func TestStatusWriterPreservesFlush(t *testing.T) {
 	recorder := &flushRecorder{header: make(http.Header)}
 	writer := &statusWriter{ResponseWriter: recorder, status: http.StatusOK}
-	writeSSE(writer, writer, "run/start", map[string]string{"status": "ok"})
+	if err := writeSSE(writer, "run/start", map[string]string{"status": "ok"}); err != nil {
+		t.Fatalf("write SSE through no-deadline wrapper: %v", err)
+	}
 	if recorder.flushes != 1 || !strings.Contains(recorder.body.String(), "event: run/start") {
 		t.Fatalf("stream was not flushed through wrapper: flushes=%d body=%q", recorder.flushes, recorder.body.String())
+	}
+}
+
+type deadlineFailWriter struct {
+	header    http.Header
+	writes    int
+	deadlines []time.Time
+	writeErr  error
+	flushErr  error
+}
+
+func (w *deadlineFailWriter) Header() http.Header { return w.header }
+func (w *deadlineFailWriter) Write(payload []byte) (int, error) {
+	w.writes++
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	return len(payload), nil
+}
+func (*deadlineFailWriter) WriteHeader(int) {}
+func (w *deadlineFailWriter) SetWriteDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+func (w *deadlineFailWriter) FlushError() error { return w.flushErr }
+
+func TestSSEStreamStopsAfterFirstTransportFailure(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		writeErr error
+		flushErr error
+	}{
+		{name: "write", writeErr: context.DeadlineExceeded},
+		{name: "flush", flushErr: context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &deadlineFailWriter{header: make(http.Header), writeErr: test.writeErr, flushErr: test.flushErr}
+			stream := newSSEStream(&statusWriter{ResponseWriter: recorder, status: http.StatusOK}, 25*time.Millisecond)
+			if err := stream.Write("run/start", map[string]string{"status": "ok"}); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("first write error=%v, want deadline exceeded", err)
+			}
+			if err := stream.Write("run/end", map[string]string{"status": "failed"}); err != nil {
+				t.Fatalf("suppressed write error=%v", err)
+			}
+			if recorder.writes != 1 {
+				t.Fatalf("writes=%d, want one failed transport attempt", recorder.writes)
+			}
+			if len(recorder.deadlines) != 1 || recorder.deadlines[0].IsZero() {
+				t.Fatalf("deadline lifecycle=%v, want one retained failure deadline", recorder.deadlines)
+			}
+		})
+	}
+}
+
+func TestSSEStreamClearsDeadlineAfterSuccessfulWrite(t *testing.T) {
+	recorder := &deadlineFailWriter{header: make(http.Header)}
+	if err := newSSEStream(recorder, 25*time.Millisecond).Write("run/end", map[string]string{"status": "ok"}); err != nil {
+		t.Fatalf("write SSE: %v", err)
+	}
+	if len(recorder.deadlines) != 2 || recorder.deadlines[0].IsZero() || !recorder.deadlines[1].IsZero() {
+		t.Fatalf("deadline lifecycle=%v, want set then clear", recorder.deadlines)
 	}
 }
 

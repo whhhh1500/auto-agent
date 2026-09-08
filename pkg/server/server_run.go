@@ -151,7 +151,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, _ := w.(http.Flusher)
+	stream := newSSEStream(w, s.sseWriteTimeout)
 
 	// Write-behind: persist a stable ordered prefix at most maxWriteDelay
 	// behind the producer, then flush everything synchronously before the
@@ -159,14 +159,19 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	seenObsHits := map[string]bool{}
 	emit := func(event core.SessionEvent) {
 		projectionLease.releaseOnEvent(event)
+		// Mark the event before transport. A slow or disconnected reader cannot
+		// defer the write-behind durability window for an event already appended
+		// to the in-memory session.
+		writer.MarkDirty()
 		// The core guard maps the cancellation used to stop after a checkpoint
 		// failure to tool_cancelled. That is an execution detail, not the
 		// authoritative terminal cause. Do not expose a contradictory terminal
 		// before the final Flush reports store_error below.
 		if !checkpointFailure.Failed() || (event.Type != core.EvRunError && event.Type != core.EvRunEnd) {
-			writeSSE(w, flusher, string(event.Type), event)
+			if err := stream.Write(string(event.Type), event); err != nil {
+				cancel()
+			}
 		}
-		writer.MarkDirty()
 		s.observeEvent(r, seenObsHits, session, event)
 	}
 
@@ -187,7 +192,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 				s.logger.ErrorContext(flushCtx, "finish durable run failed", slogString("run", runID), slogString("error", err.Error()))
 			}
 		}
-		writeSSE(w, flusher, "store/error", map[string]string{
+		_ = stream.Write("store/error", map[string]string{
 			"error": flushErr.Error(), "code": "store_error", "status": string(core.RunFailed),
 		})
 		return
@@ -204,7 +209,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 				pauseErr = fmt.Errorf("run could not enter waiting approval")
 			}
 			_ = s.finishRunControl(runID, core.RunFailed, "approval_pause_failed")
-			writeSSE(w, flusher, "control/error", map[string]string{"error": pauseErr.Error()})
+			_ = stream.Write("control/error", map[string]string{"error": pauseErr.Error()})
 		}
 		return
 	}
@@ -215,7 +220,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			if s.logger != nil {
 				s.logger.ErrorContext(context.WithoutCancel(runCtx), "finish durable run failed", slogString("run", runID), slogString("error", err.Error()))
 			}
-			writeSSE(w, flusher, "control/error", map[string]string{"error": err.Error()})
+			_ = stream.Write("control/error", map[string]string{"error": err.Error()})
 		}
 	}
 	if s.runStats != nil {

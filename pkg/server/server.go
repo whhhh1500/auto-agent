@@ -259,6 +259,7 @@ type Server struct {
 	defaultProfileID            string
 	maxBody                     int64
 	maxWriteDelay               time.Duration
+	sseWriteTimeout             time.Duration
 	runExecutors                *runexecutor.Registry
 	capabilityRuntimes          *capabilityruntime.Registry
 	// Releases is the optional publish/rollback surface for profiles. When
@@ -601,7 +602,7 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		runtime: config.Runtime, sessions: config.Sessions, authenticator: config.Authenticator,
 		nativeStrict:     nativeStrict,
 		defaultProfileID: config.DefaultProfileID,
-		maxBody:          config.MaxRequestBody, maxWriteDelay: writeDelay,
+		maxBody:          config.MaxRequestBody, maxWriteDelay: writeDelay, sseWriteTimeout: defaultSSEWriteTimeout,
 		runExecutors: config.RunExecutors,
 		Releases:     config.Releases, canaries: config.Canaries,
 		leaser: config.Leaser, leaseTTL: leaseTTL,

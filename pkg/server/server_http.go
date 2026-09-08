@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,12 +42,20 @@ func (w *statusWriter) Write(payload []byte) (int, error) {
 
 // Flush preserves streaming behavior through the access-log wrapper.
 func (w *statusWriter) Flush() {
+	_ = w.FlushError()
+}
+
+// FlushError preserves a transport failure through the access-log wrapper so
+// ResponseController does not stop at this wrapper and discard it.
+func (w *statusWriter) FlushError() error {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
-	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
+	err := http.NewResponseController(w.ResponseWriter).Flush()
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
 	}
+	return err
 }
 
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -161,15 +170,72 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func writeSSE(w http.ResponseWriter, flusher http.Flusher, event string, value any) {
+const defaultSSEWriteTimeout = 5 * time.Second
+
+// sseStream stops attempting delivery after the first transport failure. The
+// run continues to append and persist events, but a blocked or closed client
+// must not keep extending its write deadline through later terminal events.
+type sseStream struct {
+	writer  http.ResponseWriter
+	timeout time.Duration
+	failed  bool
+}
+
+func newSSEStream(writer http.ResponseWriter, timeout time.Duration) *sseStream {
+	if timeout <= 0 {
+		timeout = defaultSSEWriteTimeout
+	}
+	return &sseStream{writer: writer, timeout: timeout}
+}
+
+func (stream *sseStream) Write(event string, value any) error {
+	if stream.failed {
+		return nil
+	}
+	if err := writeSSEWithTimeout(stream.writer, event, value, stream.timeout); err != nil {
+		stream.failed = true
+		return err
+	}
+	return nil
+}
+
+func writeSSE(w http.ResponseWriter, event string, value any) error {
+	return writeSSEWithTimeout(w, event, value, defaultSSEWriteTimeout)
+}
+
+func writeSSEWithTimeout(w http.ResponseWriter, event string, value any, timeout time.Duration) error {
+	controller := http.NewResponseController(w)
+	deadlineSet := false
+	if timeout > 0 {
+		if err := controller.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			// Custom ResponseWriters used by integrations and tests need not own a
+			// network connection. They retain compatibility, but cannot promise a
+			// bounded transport write.
+			if !errors.Is(err, http.ErrNotSupported) {
+				return fmt.Errorf("set SSE write deadline: %w", err)
+			}
+		} else {
+			deadlineSet = true
+		}
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		encoded = []byte(`{"error":"failed to encode event"}`)
 	}
-	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, encoded)
-	if flusher != nil {
-		flusher.Flush()
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, encoded); err != nil {
+		return fmt.Errorf("write SSE event: %w", err)
 	}
+	if err := controller.Flush(); err != nil {
+		return fmt.Errorf("flush SSE event: %w", err)
+	}
+	if deadlineSet {
+		// Keep an expired deadline after a transport failure. net/http may do a
+		// final response flush while unwinding the handler; clearing it there
+		// would reintroduce an unbounded blocked write. Successful SSE writes
+		// must clear it so a keep-alive connection remains usable.
+		_ = controller.SetWriteDeadline(time.Time{})
+	}
+	return nil
 }
 
 func recoverMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
