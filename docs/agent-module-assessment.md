@@ -1,12 +1,22 @@
 # Agent 模块实现、性能与扩展评估
 
-评估日期：2026-09-06。原始源码评估基线：本地 Git `5beed15`，初版文档提交 `af3a99f`；随后补做真实模型验收并修复上下文集成问题，修复与结果随本次文档一同提交。对象仅为 `harness-core`，不包含父目录中的其他 Agent 仓库。
+评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-08、本地 Git `9b478ab`；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
 
-本文按 **44 个逻辑模块**解释实现与取舍，附录映射当前 **74 个 `pkg/...` Go 包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
+本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **74 个包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
 
-## 本轮真实验证覆盖：逐模块回答“跑过什么”
+### 当前基线与证据类型
 
-2026-09-06 补做了真实串行验收。**当前端点和 Key 可用，指定模型为 `gemini-3.8-flash`。首轮八类场景最终均取得通过结果，过程中发现并修复两处上下文集成问题。** 首轮累计 29 次真实模型请求，包含失败场景与新增 trace 验收；最多 1 个请求在途，未启用自动重试。精确时间、token、Run ID、失败过程和可复跑命令见[串行真实验收记录](verification/2026-09-06-serial-live-agent-acceptance.md)。后续[上下文工具预算与资源优化](performance/2026-09-06-context-budget-optimization.md)另做 8 次顺序请求，固定 A/B 任务输入 token 从 3,910 降到 2,501，工具历史局部耗时降低 12.87%；这不是所有任务或跨框架的平均收益。
+下文混合了不同日期的来源；它们可以同时支持同一项结论，不能互相替代：
+
+- **源码盘点（2026-09-08）**：`9b478ab` 中可见的实现、接口和扩展点，说明能力位置，不证明部署、负载或端到端行为。
+- **已执行回归与环境验收（2026-09-06 至 2026-09-08）**：记录命令、环境或原始样本的自动化回归、真实 PostgreSQL、浏览器和本机 OS 验收；只覆盖所写场景。
+- **性能与 live 样本（主要为 2026-09-06）**：链接记录中的真实模型请求、计量或微基准；它们保留原始机器、数据和范围，不能外推为当前总体性能。
+
+“当前”指当前源码盘点或随后执行的回归状态；历史性能数字始终保留其原始日期和适用范围。
+
+## 已有验收记录覆盖：按场景与日期理解
+
+2026-09-06 补做了真实串行验收。**当时配置的端点和 Key 验证可用，指定模型为 `gemini-3.8-flash`。首轮八类场景最终均取得通过结果，过程中发现并修复两处上下文集成问题。** 首轮累计 29 次真实模型请求，包含失败场景与新增 trace 验收；最多 1 个请求在途，未启用自动重试。精确时间、token、Run ID、失败过程和可复跑命令见[串行真实验收记录](verification/2026-09-06-serial-live-agent-acceptance.md)。后续[上下文工具预算与资源优化](performance/2026-09-06-context-budget-optimization.md)另做 8 次顺序请求，固定 A/B 任务输入 token 从 3,910 降到 2,501，工具历史局部耗时降低 12.87%；这不是所有任务或跨框架的平均收益。
 
 下表的“已验证路径”只承诺右侧具体路径，不表示整个模块的全部功能均已验收。没有执行的模块直接写明没有执行。源码实现、单元测试通过和真实模型验收是三种不同证据。
 
@@ -18,9 +28,9 @@
 
 后续 [LLM 摘要完整计量验收](performance/2026-09-06-llm-summary-accounting.md)再做 9 次串行请求，补齐摘要的工具元数据、有效 usage、Run 身份、trace 和 SQL 统计；普通模型失败后的用量也保留。三个工具来源事实在本地提取/LLM 摘要下均答对，但计入三次摘要调用后，LLM 组总 token 从 4,423 增至 12,990、耗时从 10.05 秒增至 34.18 秒。本地仍为默认；不把普通回答请求变小误写成整段成本降低。
 
-[queued worker 进程硬终止验收](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)随后以确定性离线模型、真实 PostgreSQL 和两组真实 OS 子进程补测 `effect_committed` / `journal_completed`。修复前两点都把业务效果从 1 次重放为 2 次；修复后 durable prefix 为 5 条，业务效果和 journal 各保持 1，替换进程模型调用为 0，最终均以 `run_interrupted` 失败收束。另以 Gemini 串行各跑一次，共 2 次模型请求、恢复进程 0 次、无自动重试；单样本总测试耗时 8.29 秒，不是性能基准。
+[queued worker 进程硬终止验收](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)随后以确定性离线模型、真实 PostgreSQL 和两组真实 OS 子进程补测 `effect_committed` / `journal_completed`。修复前两点都把业务效果从 1 次重放为 2 次；**该历史样本**修复后 durable prefix 为 5 条，业务效果和 journal 各保持 1，替换进程模型调用为 0，最终均以 `run_interrupted` 失败收束。当前通用模型 hard-kill 的 6 条 durable prefix/恢复后 10 条事件、FastRouter 的 3/6 记录见 M34。另以 Gemini 串行各跑一次，共 2 次模型请求、恢复进程 0 次、无自动重试；单样本总测试耗时 8.29 秒，不是性能基准。
 
-| 模块 | 职责 | 本轮真实验收状态 | 已跑通的边界 / 未覆盖内容 |
+| 模块 | 职责 | 已有验收状态 | 已跑通的边界 / 未覆盖内容 |
 | --- | --- | --- | --- |
 | [M01](#m01) | Agent 循环 | 已验证路径 | 真实模型→工具→模型→终态；含文本与工具循环。 |
 | [M02](#m02) | Scope / Principal | 部分验证 | RAG 排除另一租户文档；测试身份固定注入，未验证真实登录和完整授权矩阵。 |
@@ -62,12 +72,14 @@
 | [M38](#m38) | 通知 | 本地 TLS 已验证 | Webhook adapter 对 loopback TLS receiver 完成单次 POST、独立 HMAC、body 与 idempotency key 验证；未调用外部通知渠道。 |
 | [M39](#m39) | 评估引擎 | 本轮未验 | 本次为 Go 验收测试，未通过产品 Evaluation API 运行真实模型评估。 |
 | [M40](#m40) | 发布 / Canary | 本地 SQL 控制面已验证 | SQL 两 manager 已覆盖 stage/pause/resume/promote/rollback/refresh；独立 Console smoke 覆盖发布 v1/v2/回滚 v1。未测真实模型流量、跨进程灰度或生产运维。 |
-| [M41](#m41) | HTTP / SSE | 部分验证 | 真实 HTTP 创建 Session、async Run、历史分页和重建后读取；流式 chunk 已入库，未使用真实 SSE 断线客户端。 |
+| [M41](#m41) | HTTP / SSE | 部分验收；已执行慢客户端回归 | 真实 HTTP 创建 Session、async Run、历史分页和重建后读取；流式 chunk 已入库，未使用真实 SSE 断线客户端。2026-09-08 已执行回归覆盖 5 秒写 deadline 与 `net.Pipe` 慢读端：handler 退出且 durable terminal 落库；它不是真实客户端或负载验收。 |
 | [M42](#m42) | Console | 浏览器本地已验证 | 两套隔离的 loopback smoke 分别验证登录/会话/确定性 `local.calc.add` 的 call/result/answer，以及 Profile 保存和发布 v1/v2/回滚；无真实 provider 或外部身份。 |
 | [M43](#m43) | Trace / 遥测 | 已验证路径 | 真实 OTel SDK 本地导出 Run/Model/Tool span，核对父子 trace 和历史；另有真实 HTTP 授权路由测试，platform admin 可选租户、tenant admin 不能越权。未连接远端 OTLP / Grafana 或验证 SQL 聚合性能。 |
 | [M44](#m44) | 质量与验证 | 已有可执行标准 | 串行真实模型与离线 HTTP/SQL/进程硬杀分层；checkpoint 失败另核对 inner Begin 0、tool 0、model 1、无部分历史及 `failed/store_error`，并有本地 Memory/SQLite 与 PostgreSQL 17.6 batch-normalized checkpoint 测量。FastRouter 的两处 hard-kill 回归补齐无模型调用的同一非重放边界。 |
 
 **统一审核标准已加入测试：** 同时核对业务结果、HTTP 聊天历史与 SQL 事件、工具调用/结果配对、OTel Run/Model/Tool 关联和唯一终态；子 Agent 还核对 SQL 父子关联与 span 父子关系。新增标准的真实样本为子 Agent 和 Workflow 历史恢复，不能追溯声称早先未采集的场景也有完整 OTel 证据。审计原始样本与边界见验收记录。
+
+表中的“本轮未验”指 2026-09-06 原始 live 夹具没有覆盖该模块；它不等价于当前源码没有单元测试、回归测试或其他环境验收。具体证据类型和日期以上文口径及各模块说明为准。
 
 ## 结论与阅读口径
 
@@ -637,7 +649,7 @@ flowchart TD
 
 checkpoint 持久化失败时，内部取消只用于立即停止工具路径和后续模型调用；同步 SSE 不暴露内部 `tool_cancelled` / cancelled `run/end`，而发送带原始持久化错误的 `store/error`（`code=store_error`、`status=failed`）。该响应事件不是 durable Session 历史；同步与 queued 的持久 RunControl 都以 `failed/store_error` 收束。
 
-同步 SSE 的每次网络写入现在使用 **5 秒** deadline；慢 `net.Pipe` reader 的回归验证 handler 退出且 durable terminal 仍落库。没有 deadline 支持的自定义 `ResponseWriter` 会得到 `http.ErrNotSupported` 兼容路径：可继续写，但不承诺有界 transport write。断线后的合法恢复仍是按 cursor 查询 durable events，不是 `Last-Event-ID` replay。
+**已执行回归（2026-09-08，见 M44；非 2026-09-06 live 验收）：** 同步 SSE 的每次网络写入使用 **5 秒** deadline；[`TestSSEDeadlineCancelsSlowPipeReaderAndPersistsTerminal`](../pkg/server/server_sse_deadline_test.go) 用真实 `net/http` server 与 `net.Pipe` 慢读端断言 handler 在测试时限内退出，并从 SQL Session 重载出 `cancelled` terminal。没有 deadline 支持的自定义 `ResponseWriter` 会得到 `http.ErrNotSupported` 兼容路径：可继续写，但不承诺有界 transport write。断线后的合法恢复仍是按 cursor 查询 durable events，不是 `Last-Event-ID` replay。
 
 **扩展：** E1：新增类型化 HTTP adapter 并同步 OpenAPI/授权；E2：任何语言调用现有 HTTP API。当前没有正式多语言客户端 SDK、gRPC、入站 MCP 或 A2A 的完整内置服务面。
 
@@ -715,9 +727,15 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 4. **图能力先做选型试验。** 用一个包含分支、人工审批、重启恢复和外部副作用的真实业务，同时评估现有 Graph 与 LangGraph/Eino/ADK。没有需求驱动时不必把 ModuleHost、Workflow、Graph 再合并成更大的总抽象。
 5. **补决定性性能证据。** 首先测独立服务进程、跨机器 PG、长稳态、多租户、慢工具/慢 SSE、kill-and-recover；再看模型 TTFT、总 tokens、工具次数和任务成功率。只有同口径数据才能回答“哪个更快、更便宜、更可靠”。
 
+### 下一轮证据补全的验收标准
+
+1. **M41 真实 TCP 断线与恢复。** 用独立 SSE 客户端在 `run/start` 后主动断开，再用 durable-events cursor 拉取；验收为 cursor 序列无缺口/重复、最终事件只出现一次，且服务端没有因已断开的客户端阻塞。报告连接数、持续时间、存储后端和失败样本，不能用 `net.Pipe` 替代。
+2. **PostgreSQL 长稳态与恢复分布。** 在固定机器、请求集、并发、数据库版本和预热规则下，覆盖正常、并发慢 reader、断线和 worker 恢复；报告成功率、TTFT、端到端 p50/p95、运行时长、资源峰值和恢复延迟分布。
+3. **模型计量或任务质量。** 以固定厂商和任务集核对 ContextEstimator 与厂商报告 token 的误差，或记录任务成功率、工具次数和人工判定规则；分别报告未报告 usage、失败样本和成本，不能用单次 live 请求外推。
+
 ## 全部包与模块的覆盖索引
 
-下表对应评估基线的 `go list ./pkg/...`；多个模块共享一个包时全部列出主要职责。HTTP/SQL adapter 独立列行，避免把“有应用接口”误认作“没有落地实现”，也避免把 adapter 元数据误认成默认已启用能力。
+下表对应当前源码盘点的 `go list ./pkg/...`；多个模块共享一个包时全部列出主要职责。HTTP/SQL adapter 独立列行，避免把“有应用接口”误认作“没有落地实现”，也避免把 adapter 元数据误认成默认已启用能力。
 
 
 | Go 包 | 模块 | 具体职责 |

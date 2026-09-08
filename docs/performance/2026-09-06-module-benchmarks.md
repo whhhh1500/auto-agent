@@ -2,6 +2,20 @@
 
 日期：2026-09-06。源码：本地 Git `5beed15`。本次为[模块评估](../agent-module-assessment.md)补测已有微基准，不修改运行代码。[框架对比](../agent-framework-comparison.md)未运行其他框架，因此本文没有跨框架性能排名。
 
+## 当前阅读入口与后续进展
+
+维护核对日期：2026-09-08，当前源码 `9b478ab`（项目已改名为 `auto-agent`）。下文的 27 条原始样本、环境和比例仍属于 `5beed15`，本次文档维护没有重跑基准，也没有将后续修复的收益计入旧样本。要判断当前能否使用某项能力，应结合[模块评估](../agent-module-assessment.md)；要引用数值，应使用对应测量记录自己的源码和条件。
+
+| 本页初版之后的变化 | 可追溯入口 | 当前可以得出的结论 / 仍缺的证据 |
+| --- | --- | --- |
+| 工具 Schema 纳入上下文预算 | [上下文工具预算](2026-09-06-context-budget-optimization.md)、[当前 Assembler](../../pkg/app/contextassembly/assembler.go) | 默认组装先估算工具声明；厂商精确 tokenizer 与多种请求分布仍需对照。本页旧 Assembler 样本不能代表修复后成本 |
+| WASM 内存限制、取消与编译缓存 | [WASM 专项](2026-09-06-wasm-resource-and-cache.md)、[执行器](../../pkg/execution/wazero.go) | 已有 guest 限制与热缓存测量；宿主整体 RSS、冷启动及长期缓存治理不由该测量证明 |
+| 披露与摘要的整段成本对照 | [工具披露](2026-09-06-tool-disclosure.md)、[连续摘要](2026-09-06-rolling-summary.md)、[LLM 摘要计量](2026-09-06-llm-summary-accounting.md) | 已记录收益和代价，包括小目录 token 增加、摘要额外请求；不能只用首轮输入下降评价任务总成本 |
+| 工具前持久化与恢复故障验收 | [checkpoint 测量](2026-09-06-pre-tool-durable-checkpoint.md)、[当前 PG 与硬杀范围](../agent-module-assessment.md#m34)、[最终门禁](../agent-module-assessment.md#m44) | 已有 SQLite/PG 局部成本与独立进程故障路径；不能代替多租户长期负载、恢复时间分布或跨机器 PG |
+| SSE 慢读者写入有界 | [SSE 实现](../../pkg/server/server_http.go)、[受控连接回归](../../pkg/server/server_sse_deadline_test.go) | 支持 deadline 的 writer 每次写入限时 5 秒；net.Pipe 回归证明取消终态落库，不是 TCP 长连接容量或 p99 基准 |
+
+这些记录分别测量本机开销、功能正确性或真实模型任务成本，不能将它们合并为一个框架总分。
+
 ## 本次测量方法
 
 - Windows amd64，Go 1.25.13，12th Gen Intel Core i7-12700K。
@@ -32,7 +46,7 @@
 
 Session 夹具交替追加 user/assistant 事件，并在部分 assistant 事件携带工具调用。压缩配置为 `MaxMessages=128`、`MaxToolResultChars=512`，不代表真实客户的所有历史分布。Assembler 的长文本为重复字符串，也不是语义任务集。工具目录夹具使用高度相关的共同词项，不能据此推断长尾工具召回或 ANN 能力。
 
-Assembler 夹具不含最终独立工具 Schema 的 token 成本；当前 `ModelContext` 也不接收该集合，实际模型调用在后续附加工具声明。完整请求预算缺口见 [M14](../agent-module-assessment.md#m14)，不能用本基准证明任意工具目录都满足模型上下文窗口。
+在本次测量的 `5beed15` 基线中，Assembler 夹具不含最终独立工具 Schema 的 token 成本，当时 `ModelContext` 也不接收该集合。该实现缺口已在后续修复，当前组装入口会接收并估算 `request.Tools`，见 [M14](../agent-module-assessment.md#m14)。旧样本仍不能证明修复后的完整请求成本、厂商精确 token 数或任意工具目录都满足上下文窗口。
 
 ## 能支持的结论
 
@@ -125,17 +139,19 @@ BenchmarkAssemblerDefaultHistory-20                     1610     152970 ns/op   
 
 本项目可以说“已有局部优化和有界集成基线”，目前不能说“500 并发生产稳定”“整个框架只占 20 MB”或“比 Python Agent 框架快若干倍”。
 
-## 待补的性能维度
+## 当前待补的性能维度
+
+以下是截至 2026-09-08 仍未由现有证据充分回答的问题；已有的功能修复和定向验收不再列为“未实现”。
 
 | 优先级 | 试验 | 主要输出 |
 | --- | --- | --- |
 | 高 | 独立服务进程 + 真实 PG，多租户、长稳态、进程强杀与租约丢失 | 成功/重复/未知副作用，恢复时间，p99，数据库负载 |
 | 高 | 实际模型任务集，固定版本与输入 | 任务成功率、TTFT、完成时间、总 tokens、工具次数、成本 |
-| 高 | 完整 System/历史/工具 Schema 的请求预算 | 与目标模型 token 计数对照、超窗拒绝与裁剪行为 |
-| 高（启用 WASM 前） | 显式内存与执行终止配置的有界隔离验收 | 内存增长上限、计算循环取消、重复执行资源回收；当前实现缺口见 M27 |
-| 高 | 长历史、大工具结果、大 Artifact、慢 SSE 消费者 | 分配、RSS、GC、背压、断连后的观察恢复 |
+| 高 | 已含 System/历史/工具 Schema 的预算与目标模型精确计数对照 | 分请求类型报告估算误差、超窗率和裁剪后的任务成功率；现有拒绝回归不等于厂商计数一致 |
+| 按隔离需求 | WASM 整体进程与长期资源治理 | cold/warm 分开记录、宿主 RSS、缓存增长与重复执行回收；保留已通过的 guest 内存/取消回归，不再将它们列为缺失实现 |
+| 高 | 长历史、大工具结果、大 Artifact、真实 TCP 慢 SSE 消费者 | 分配、RSS、GC、连接规模及取消到终态的延迟分布；5 秒写 deadline 与 net.Pipe 回归不是容量基准 |
 | 按需求 | 原生 Linux / E2B / Windows 高频会话 | 冷/热启动、并发限制、取消/清理、文件吞吐和实际 assurance |
 | 按需求 | RAG 数据规模与多语言任务 | Recall@K、MRR/nDCG、答案忠实度、授权过滤、检索延迟 |
 | 选型前 | 相同持久化与保障条件下的 Eino/LangGraph/厂商 SDK 对照 | 端到端质量、速度、资源和总开发运维成本 |
 
-这些是下一轮验证建议，本次未执行；后续结果应另记环境、源码版本与实际测量范围。
+这些是下一轮验证建议，本次未执行。每项新结果至少记录 commit、环境、输入/工具规模、并发与持续时间、冷/热阶段、成功和失败数、计时边界以及原始样本。对照实验还应固定模型、任务、持久化与恢复保障，报告完整任务的请求/token/工具次数；短时试验未发现错误只代表该次观察，不能据此宣布长期可靠性达标。

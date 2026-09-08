@@ -1,6 +1,8 @@
 # auto-agent 与主流 Agent 框架：实现差异与选型
 
-核验日期：2026-09-06。本地源码基线：`5beed15`。这是[44 个 Agent 模块评估](agent-module-assessment.md)的对照资料。外部能力依据本次访问的官方文档，未安装并运行七套框架；没有统一硬件、模型和任务的横向性能/质量测试。下文“更适合”是基于能力与本项目目标的工程判断，不是官方排名。
+本地代码核验：2026-09-08，提交 `9b478ab`（Go 1.25.13，公共 API pre-GA）。这是[44 个 Agent 模块评估](agent-module-assessment.md)的对照资料。
+
+外部框架的能力结论来自官方页面的历史资料，访问日期为 2026-09-06；本次只重新打开 LangGraph persistence 和 OpenAI Agents 指南以检查链接可用性（2026-09-08），没有把可变页面内容当作已锁定 release。未安装或运行七套框架，也没有统一硬件、模型、任务、持久后端的横向性能/质量测试。下文“更适合”是场景化工程判断，不是排名。
 
 ## 先给出选型判断
 
@@ -10,7 +12,7 @@
 | 从零快速做普通 Agent 应用、需要很多现成模型和工具 | LangChain / OpenAI Agents SDK / 对应厂商 ADK | 通常比补齐本项目连接器更省开发工作；具体候选取决于厂商与语言 |
 | 复杂分支、循环、并行和可恢复图流程 | LangGraph；Go 项目重点比较 Eino、ADK 2.x | 本项目 Graph 当前服务适配较窄，不是通用图编辑/运行平台；成熟图 API 是更充分的起点 |
 | Go 组件组合、RAG、流式图与 Agent 开发 | Eino | 同语言下最值得直接做原型对照的候选；当前项目的服务治理可以与它的组件服务协作 |
-| OpenAI 原生能力、MCP 多传输、快速使用已有 E2B 客户端集成 | OpenAI Agents SDK | 本项目需要额外适配；官方 SDK 的现成功能更贴近这个目标，沙箱供应商仍需单独配置 |
+| OpenAI 原生能力、hosted MCP 或快速使用已有 E2B 客户端集成 | OpenAI Agents SDK | auto-agent 已有 stdio 与 Streamable HTTP 出站 MCP；SDK 对其原生/托管能力及已有沙箱客户端更直接，供应商配置与保障仍要单独核验 |
 | Gemini/Google 生态和相应模型能力 | Google ADK | 本项目只验证了兼容连接，未内置原生 Gemini 协议；原生生态候选更直接 |
 | .NET / Microsoft 企业应用与对应托管栈 | Microsoft Agent Framework | 语言、身份和平台整合通常更契合；其 Go 支持仍须按预览范围审查 |
 | Python 中按角色、任务和流程快速组织协作 | CrewAI | 高层角色/任务表达更直接；不能据此推导复杂任务成功率更高 |
@@ -23,16 +25,16 @@
 
 | 对象 | 本次参考范围 | 比较层次 |
 | --- | --- | --- |
-| auto-agent | `5beed15`，Go 1.25.13，公共 API pre-GA | 内核 + 可选扩展 + 自托管参考服务 + Console |
-| LangChain / LangGraph | 当前官方 Python OSS 文档；Deep Agents 只作同生态高层补充 | 高层 Agent API 与图执行/持久化分开看；Agent Server/LangSmith 另列服务/平台面 |
-| OpenAI Agents SDK | 当前官方 Python/TypeScript 指南 | SDK、模型 API、沙箱供应商与托管工具分开看 |
-| Microsoft Agent Framework | 当前官方总览，包含 C#、Python 与 Go public preview | Agent、workflow、harness、hosting；不假设语言功能对等 |
-| Google ADK | 当前 ADK 2.0 与 graph 文档；graph 标注 Python/TypeScript/Go v2.0.0 | 当前 graph/dynamic 与传统 workflow 模板分开看 |
-| CrewAI | 官方页面重定向到 `v1.15.20` 文档 | Agents/Crew 与 Flows 的状态持久化分开看 |
-| Eino | 当前 CloudWeGo 官方 overview、ADK HITL 与 checkpoint 文档 | Go 组件/compose 与高层 ADK 分开看 |
-| LlamaIndex | 当前 Python framework Agent 与 VectorStoreIndex 文档 | AgentWorkflow 与数据/RAG 工具链分开看 |
+| auto-agent | `9b478ab`，Go 1.25.13，公共 API pre-GA | 内核 + 可选扩展 + 自托管参考服务 + Console |
+| LangChain / LangGraph | 官方 Python OSS 文档，2026-09-06 访问；Deep Agents 只作同生态高层补充 | 高层 Agent API 与图执行/持久化分开看；Agent Server/LangSmith 另列服务/平台面 |
+| OpenAI Agents SDK | 官方 Python/TypeScript 指南，2026-09-06 访问（关键入口 2026-09-08 重开） | SDK、模型 API、沙箱供应商与托管工具分开看 |
+| Microsoft Agent Framework | 官方总览，2026-09-06 访问，含 C#、Python 与 Go public preview | Agent、workflow、harness、hosting；不假设语言功能对等 |
+| Google ADK | 官方 ADK 2.0 与 graph 文档，2026-09-06 访问 | graph/dynamic 与传统 workflow 模板分开看 |
+| CrewAI | 官方 `v1.15.20` 文档，2026-09-06 访问 | Agents/Crew 与 Flows 的状态持久化分开看 |
+| Eino | CloudWeGo 官方 overview、ADK HITL 与 checkpoint 文档，2026-09-06 访问 | Go 组件/compose 与高层 ADK 分开看 |
+| LlamaIndex | 官方 Python framework Agent 与 VectorStoreIndex 文档，2026-09-06 访问 | AgentWorkflow 与数据/RAG 工具链分开看 |
 
-除明确写出的文档版本外，不将页面内容冒充已锁定的库 release。采用前应锁定版本并跑实际功能验收。此处没有依据 GitHub star 数、营销材料或未经复现的厂商速度图做排名。
+除明确写出的文档版本外，不将页面内容冒充已锁定的库 release。选型前要锁定版本并针对目标语言、持久后端、身份/授权、恢复语义和沙箱保障跑验收；这份资料不以 GitHub star、营销材料或未经复现的速度图排名。
 
 <a id="c1"></a>
 
@@ -40,9 +42,9 @@
 
 LangChain 的高层 Agent API 建在 LangGraph 上，提供模型、工具和 middleware 组合；同生态 Deep Agents 进一步组织压缩、文件系统与子 Agent 等能力。这意味着“有工具循环和摘要”不是本项目独有的方向。[官方 overview](https://docs.langchain.com/oss/python/langchain/overview)
 
-LangGraph 将状态恢复作为核心能力：线程状态可通过 checkpointer 保存，跨线程数据可通过 Store 管理；checkpoint 的 superstep、任务写入和不同 durability 模式涉及不同的延迟/恢复取舍。当前文档也包含增量 channel 路径，不能把它概括成“总是全量复制状态”。[Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)、[Checkpointers](https://docs.langchain.com/oss/python/langgraph/checkpointers)
+LangGraph 将状态恢复作为核心能力：线程状态可通过 checkpointer 保存，跨线程数据可通过 Store 管理；checkpoint 的 superstep、任务写入和不同 durability 模式涉及不同的延迟/恢复取舍。所查文档也包含增量 channel 路径，不能把它概括成“总是全量复制状态”。[Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)、[Checkpointers](https://docs.langchain.com/oss/python/langgraph/checkpointers)
 
-人工介入使用 interrupt / resume。恢复时包含 interrupt 的节点会重新进入，所以节点前置副作用仍需幂等设计；这与 Harness 的稳定工具调用日志侧重点不同。[Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
+人工介入使用 interrupt / resume。恢复时包含 interrupt 的节点会重新进入，所以节点前置副作用仍需幂等设计；这与 auto-agent 的稳定工具调用日志侧重点不同。[Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
@@ -52,7 +54,7 @@ LangGraph 将状态恢复作为核心能力：线程状态可通过 checkpointer
 | 生态 | 开发者现成组件选择通常更有利于 LangChain；本项目更强调自己的合同与组合证据 |
 | 性能 | LangGraph 的并行与持久模式可影响吞吐，本项目的顺序/SQL 路径也有成本；缺同任务实测，不排名 |
 
-**工程判断：** 一般复杂图应用优先试 LangGraph；已有 Go 服务治理需求且图很窄，继续用 Harness 有合理性。LangSmith 的观察/评估与 Agent Server 的托管/服务功能应计入相应产品比较，不能把 OSS SDK 当作整个生态上限。相关平台入口见[官方 overview](https://docs.langchain.com/oss/python/langchain/overview)与[checkpointer 部署说明](https://docs.langchain.com/oss/python/langgraph/checkpointers)。
+**工程判断：** 一般复杂图应用先试 LangGraph；已有 Go 服务治理需求且图很窄，继续用 auto-agent 有合理性。LangSmith 的观察/评估与 Agent Server 的托管/服务功能应计入相应产品比较，不能把 OSS SDK 当作整个生态上限。相关平台入口见[官方 overview](https://docs.langchain.com/oss/python/langchain/overview)与[checkpointer 部署说明](https://docs.langchain.com/oss/python/langgraph/checkpointers)。
 
 <a id="c2"></a>
 
@@ -60,27 +62,28 @@ LangGraph 将状态恢复作为核心能力：线程状态可通过 checkpointer
 
 官方 SDK 使用 Agent、运行循环、工具与 handoff 等对象组织应用，提供 Python/TypeScript 路径和模型 provider 扩展。其角色是应用 SDK；模型 API、托管工具和部署环境是另外的层。[Agents SDK 指南](https://developers.openai.com/api/docs/guides/agents)
 
-当前审批机制可将运行中断状态序列化后再恢复，并非只支持进程内回调。开发者仍需要保管运行状态、决策和外部授权。[Guardrails and approvals](https://developers.openai.com/api/docs/guides/agents/guardrails-approvals)
+2026-09-06 访问的审批指南说明可将运行中断状态序列化后再恢复，并非只支持进程内回调。开发者仍需要保管运行状态、决策和外部授权。[Guardrails and approvals](https://developers.openai.com/api/docs/guides/agents/guardrails-approvals)
 
-MCP 指南覆盖 stdio、Streamable HTTP 和 hosted MCP 路径，并包含 tracing / observability 集成。本项目当前 MCP 主要是 stdio 客户端，其差距应明确写出。[Integrations and observability](https://developers.openai.com/api/docs/guides/agents/integrations-observability)
+历史资料中的 SDK MCP 指南覆盖 stdio、Streamable HTTP 和 hosted MCP，并包含 tracing / observability 集成。[Integrations and observability](https://developers.openai.com/api/docs/guides/agents/integrations-observability) auto-agent 在 `9b478ab` 已是出站 MCP client：stdio JSON-RPC 和 Streamable HTTP 都经过同一工具库合同、权限、审批、预算、超时与 journal 路径；后者支持 POST JSON-RPC 和有界 SSE 响应。它不提供入站 MCP server、hosted MCP 管理面，也不支持 GET listener streams、Last-Event-ID 恢复或并发 SSE；本地测试是协议互操作测试，不是 hosted MCP OAuth 验收。[本地 MCP 边界](mcp.md)
 
-**E2B 结论：** 当前 Sandbox Agents 官方 provider 表明确列出 `E2BSandboxClient`，也列出 Docker 等不同运行环境。它说明已有客户端接入路径，不表示用户无需创建供应商配置，也不意味着这些 provider 提供完全一样的隔离和生命周期保证。[Sandbox Agents](https://developers.openai.com/api/docs/guides/agents/sandboxes)
+**E2B 结论：** 2026-09-06 访问的 Sandbox Agents 官方 provider 表列出 `E2BSandboxClient`，也列出 Docker 等不同运行环境。它说明已有客户端接入路径，不表示用户无需创建供应商配置，也不意味着这些 provider 提供完全一样的隔离和生命周期保证。[Sandbox Agents](https://developers.openai.com/api/docs/guides/agents/sandboxes)
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
-| 厂商功能 | SDK 更直接跟随 OpenAI Agent/工具接口；Harness 通过 Provider/Protocol 维持统一运行合同，适配范围较少 |
-| 审批与状态 | 都支持暂停/恢复；Harness 已组合 SQL 审批、租户授权、队列与工具 journal，SDK 应结合其宿主持久化设计 |
-| 沙箱 | 当前 SDK 已有 E2B client 路径；Harness 只有自有 Provider/Session 接口与本机实现，必须另写 E2B adapter |
-| 多 Agent | SDK 的 handoff/Agent 工具与 Harness 父子持久委派含义不完全相同；不能只按 Agent 数量比较 |
+| 厂商功能 | SDK 更直接跟随 OpenAI Agent/工具接口；auto-agent 通过 Provider/Protocol 维持统一运行合同，适配范围较少 |
+| MCP | 两者都有 stdio 与 Streamable HTTP 客户端路径；若要求 hosted MCP、入站 MCP server 或完整 OAuth 互操作，必须分别验收 |
+| 审批与状态 | 都支持暂停/恢复；auto-agent 已组合 SQL 审批、租户授权、队列与工具 journal，SDK 应结合其宿主持久化设计 |
+| 沙箱 | 历史 SDK 文档列有 E2B client 路径；auto-agent 没有 bundled E2B provider，必须另写 adapter |
+| 多 Agent | SDK 的 handoff/Agent 工具与 auto-agent 父子持久委派含义不完全相同；不能只按 Agent 数量比较 |
 | 性能 | 没有相同模型、流模式、工具、持久后端与并发对照；不能宣称 Go 框架必然更快 |
 
-**工程判断：** 快速使用 OpenAI 原生工具或已有云沙箱集成，SDK 更直接；需要延续自有 Go 租户、审批和调用证据时，Harness 更贴近现有工程。不能把 OpenAI SDK 与 ChatGPT、Codex 或供应商云服务的完整产品能力混为一谈。
+**工程判断：** 快速使用 OpenAI 原生工具、hosted MCP 或已有云沙箱集成，SDK 更直接；需要延续自有 Go 租户、审批和调用证据时，auto-agent 更贴近现有工程。不能把 OpenAI SDK 与 ChatGPT、Codex 或供应商云服务的完整产品能力混为一谈。
 
 <a id="c3"></a>
 
 ## C3 — Microsoft Agent Framework
 
-官方将其定位为 AutoGen 和 Semantic Kernel 的直接后继，组织 Agent、Harness Agent、workflow 与 hosting 等能力。当前文档包含 C#、Python 和 **Go public preview**；Go 尚未覆盖 declarative agents、RAG、CodeAct、functional workflows 等列明项目。因此“Microsoft 只有 .NET/Python”“Go 功能已全部对齐”都不准确。[官方 overview](https://learn.microsoft.com/en-us/agent-framework/overview/)
+官方将其定位为 AutoGen 和 Semantic Kernel 的直接后继，组织 Agent、Harness Agent、workflow 与 hosting 等能力。所查文档包含 C#、Python 和 **Go public preview**；Go 尚未覆盖 declarative agents、RAG、CodeAct、functional workflows 等列明项目。因此“Microsoft 只有 .NET/Python”“Go 功能已全部对齐”都不准确。[官方 overview](https://learn.microsoft.com/en-us/agent-framework/overview/)
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
@@ -90,22 +93,22 @@ MCP 指南覆盖 stdio、Streamable HTTP 和 hosted MCP 路径，并包含 traci
 | 可扩展性 | 两者都可通过模型/工具/执行边界扩展；本项目已有控制面也带来更多自维护责任 |
 | 性能与成熟度 | 本次未运行其 Go 预览实现；不能从 C# 或 Python 的文档/案例外推 Go 的功能和可靠性 |
 
-**工程判断：** Microsoft 企业栈优先评估该框架；纯 Go 项目可纳入候选，但要逐项验证预览缺口。现有 Harness 服务如果没有相应生态需求，没有仅因“大厂框架”而整体重写的技术依据。
+**工程判断：** Microsoft 企业栈优先评估该框架；纯 Go 项目可纳入候选，但要逐项验证预览缺口。现有 auto-agent 服务如果没有相应生态需求，没有仅因“大厂框架”而整体重写的技术依据。
 
 <a id="c4"></a>
 
 ## C4 — Google ADK
 
-当前 ADK 文档已经包含图式工作流：代码、工具、LLM、人类输入等节点可以用显式边组织，支持分支和状态管理；页面标注 Python、TypeScript、Go v2.0.0。不能仍把它概括为只有 Sequential/Parallel/Loop 三种固定模板。[Graph workflows](https://adk.dev/graphs/)
+所查 ADK 文档已经包含图式工作流：代码、工具、LLM、人类输入等节点可以用显式边组织，支持分支和状态管理；页面标注 Python、TypeScript、Go v2.0.0。不能仍把它概括为只有 Sequential/Parallel/Loop 三种固定模板。[Graph workflows](https://adk.dev/graphs/)
 
-传统 workflow 模板仍有参考价值，但文档对 ADK 2 的 graph/dynamic 路径另有说明，采用时应按目标语言和版本选择 API。[Workflow agents](https://adk.dev/agents/workflow-agents/)、[ADK 2.0](https://adk.dev/2.0/)
+传统 workflow 模板仍有参考价值，但所查文档对 ADK 2 的 graph/dynamic 路径另有说明，采用时应按目标语言和版本选择 API。[Workflow agents](https://adk.dev/agents/workflow-agents/)、[ADK 2.0](https://adk.dev/2.0/)
 
 ADK 也有独立 ArtifactService 与上下文保存/载入接口，因此“产物管理”并非本项目独有；本项目自己的 S3 配置与迁移日志是另一层服务治理。[Artifacts](https://adk.dev/artifacts/)
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
-| Gemini | ADK 属于原生生态候选；Harness 当前真实模型证据来自兼容连接，未内置原生 Gemini Protocol |
-| 编排 | ADK 当前 graph API 比 Harness 服务中的单节点包装表达范围更广；具体所需节点、恢复和授权仍要做原型 |
+| Gemini | ADK 属于原生生态候选；auto-agent 当前真实模型证据来自兼容连接，未内置原生 Gemini Protocol |
+| 编排 | ADK 当前 graph API 比 auto-agent 服务中的单节点包装表达范围更广；具体所需节点、恢复和授权仍要做原型 |
 | 语言 | ADK 已有 Go 图路径；不能把 Go 语言当成本项目相对它的独占优势 |
 | 产物 | 都可管理产物，但具体后端、保留、迁移、租户权限与恢复合同要分别核验 |
 | 质量/性能 | 原生生态更省适配不等于任务必然更准或更快，本次无横向实测 |
@@ -122,13 +125,13 @@ Flows 通过 start/listen/router 等结构组织状态，支持 `@persist`，默
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
-| 抽象重心 | CrewAI 更便于表达角色与任务协作；Harness 强调 Capability 合同、层级权限和持久调用证据 |
-| 编排 | Crew/Agent 与 Flow 是不同层；应拿具体流程对照 Harness Workflow/Graph，而不是只比较角色 Prompt |
-| 安全边界 | Docker 代码执行与 Harness Windows Basic 是不同执行环境；角色和审批都不能替代沙箱保障核验 |
+| 抽象重心 | CrewAI 更便于表达角色与任务协作；auto-agent 强调 Capability 合同、层级权限和持久调用证据 |
+| 编排 | Crew/Agent 与 Flow 是不同层；应拿具体流程对照 auto-agent Workflow/Graph，而不是只比较角色 Prompt |
+| 安全边界 | Docker 代码执行与 auto-agent Windows Basic 是不同执行环境；角色和审批都不能替代沙箱保障核验 |
 | 成本 | 委派、规划和更多迭代可能放大 token 与工具次数，需以任务完成成本评估 |
-| 运维 | Harness 已有自己的多租户服务管理；采用 CrewAI 后可由宿主/对应平台补足，不是不可实现 |
+| 运维 | auto-agent 已有自己的多租户服务管理；采用 CrewAI 后可由宿主/对应平台补足，不是不可实现 |
 
-**工程判断：** Python 团队快速验证角色协作时 CrewAI 更直接；固定受审批业务链路可继续使用 Harness。高层抽象越方便，越需要用真实轨迹证明工具调用次数、恢复和质量符合要求。
+**工程判断：** Python 团队快速验证角色协作时 CrewAI 更直接；固定受审批业务链路可继续使用 auto-agent。高层抽象越方便，越需要用真实轨迹证明工具调用次数、恢复和质量符合要求。
 
 <a id="c6"></a>
 
@@ -140,13 +143,13 @@ Eino 是最值得与本项目直接比较的 Go 候选之一：提供 ChatModel�
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
-| 通用组件 | Eino 面向模型/检索/工具与编排组件开发；Harness 目前提供的模型协议和检索后端较少 |
-| 核心设计 | Eino 的 typed compose 与 Harness 的版本化 Capability/Scope 是不同重心，两者都可以保持 Go 接口扩展 |
-| 图与恢复 | Eino 的通用图和中断 API 是成熟度评估重点；Harness 更强调自己 SQL 段租约、审批和调用 journal 的组合 |
-| 服务治理 | Harness 当前仓库包含账号、配置、队列、发布和 Console；Eino 组件库不应单独承担整个 SaaS 比较口径 |
-| 性能 | 同为 Go 不能默认性能相同，也不能默认 Harness 更快；组件流、状态复制、持久模式和具体任务才是关键 |
+| 通用组件 | Eino 面向模型/检索/工具与编排组件开发；auto-agent 目前提供的模型协议和检索后端较少 |
+| 核心设计 | Eino 的 typed compose 与 auto-agent 的版本化 Capability/Scope 是不同重心，两者都可以保持 Go 接口扩展 |
+| 图与恢复 | Eino 的通用图和中断 API 是成熟度评估重点；auto-agent 更强调自己 SQL 段租约、审批和调用 journal 的组合 |
+| 服务治理 | auto-agent 当前仓库包含账号、配置、队列、发布和 Console；Eino 组件库不应单独承担整个 SaaS 比较口径 |
+| 性能 | 同为 Go 不能默认性能相同，也不能默认 auto-agent 更快；组件流、状态复制、持久模式和具体任务才是关键 |
 
-**工程判断：** 从零写 Go Agent/RAG/复杂流程，优先用 Eino 做原型；保留 Harness 的已有治理投资也合理。可以把专业编排作为远程能力接入，或在明确合同后做本地 adapter；不建议为了统一名字直接合并双方运行状态机。
+**工程判断：** 从零写 Go Agent/RAG/复杂流程，优先用 Eino 做原型；保留 auto-agent 的已有治理投资也合理。可以把专业编排作为远程能力接入，或在明确合同后做本地 adapter；不建议为了统一名字直接合并双方运行状态机。
 
 <a id="c7"></a>
 
@@ -158,25 +161,25 @@ VectorStoreIndex 文档涵盖文档/节点索引、ingestion pipeline 与向量�
 
 | 维度 | 与本项目的实质区别 |
 | --- | --- |
-| 知识链路 | LlamaIndex 的数据/索引组合比当前 Harness RAG 更完整；Harness 的 Index 主要提供受 scope 约束的注入边界 |
+| 知识链路 | LlamaIndex 的数据/索引组合比当前 auto-agent RAG 更完整；auto-agent 的 Index 主要提供受 scope 约束的注入边界 |
 | Agent | 双方都有 Agent/工具执行，但 LlamaIndex 的数据工具与 AgentWorkflow 面向不同开发入口 |
-| 治理 | Harness 的租户、审批、任务恢复可继续作为外部服务面；调用外部 RAG 服务时必须传递并核验授权范围 |
+| 治理 | auto-agent 的租户、审批、任务恢复可继续作为外部服务面；调用外部 RAG 服务时必须传递并核验授权范围 |
 | 性能/质量 | ANN 延迟、召回与答案质量由索引、embedding、重排和数据分布共同决定，不能用框架名代替评测 |
 
-**工程判断：** 如果主要开发工作是接文档、切块、索引和检索，优先复用它或相应 Go 生态；当前 Harness 不值得为了保持“全自研”而重复实现所有连接器。
+**工程判断：** 如果主要开发工作是接文档、切块、索引和检索，优先复用它或相应 Go 生态；当前 auto-agent 不值得为了保持“全自研”而重复实现所有连接器。
 
 ## 按模块族归纳差异
 
 这里的“优先候选”指减少特定场景的实现工作，不是每项性能分数。详细本地实现、扩展接口和证据见对应 M 模块。
 
-| 模块族 | Harness 当前定位 | 外部候选更值得比较的部分 | 判断 |
+| 模块族 | auto-agent 当前定位 | 外部候选更值得比较的部分 | 判断 |
 | --- | --- | --- | --- |
 | 循环、Profile、工具合同（M01–M06） | 受 scope 管理的组合与顺序循环 | LangChain、OpenAI、Eino 的开发入口 | 多租户治理选现有主线；快速接生态选成熟组件 |
 | ModuleHost（M07） | 可选生命周期与效果日志 | 不直接等价于 handoff/工作流插件 | 有受治理动态部署需求才启用 |
 | 模型/上下文（M08–M15） | 控制/执行分层，显式预算，有限协议 | 厂商 SDK 原生功能、Deep Agents 等上下文策略 | 兼容会话可沿用，专属功能先看原生生态 |
 | 准入/审批/journal（M16–M18） | SQL 审批与调用证据组合 | LangGraph、OpenAI、Eino 暂停恢复 | 都有能力；精确比较副作用和授权合同 |
 | 队列/多 Agent/图（M19–M23） | 服务队列、受控子委派、窄图适配 | 通用图、并行、HITL 与托管执行 | 复杂编排优先对照 LangGraph/Eino/ADK |
-| 发现/远程工具（M24–M26） | 索引、stdio MCP、受约束 HTTP | 现成工具库与 MCP 多传输 | 当前边界够用则沿用，否则补 adapter |
+| 发现/远程工具（M24–M26） | 索引、出站 stdio / Streamable HTTP MCP、受约束 HTTP | 现成工具库、hosted MCP 与完整 OAuth 互操作 | 当前边界够用则沿用，否则补 adapter |
 | 代码/沙箱/Runner（M27–M31） | WASM、本机 provider、私有协议 | OpenAI Sandbox Agents 等现成云接入 | E2B 接入速度外部 SDK 有优势；保障另核验 |
 | Memory/RAG（M32–M33） | 可扩展合同、关键词与 SQL | 向量、ingestion、数据连接器 | 知识链路优先复用成熟生态 |
 | 存储/身份/设置（M34–M37） | 自托管服务管理 | SDK 宿主或托管平台的对应服务 | 比较完整部署方案，不能只比 SDK |
@@ -186,7 +189,7 @@ VectorStoreIndex 文档涵盖文档/节点索引、ingestion pipeline 与向量�
 
 ## 如果要真正回答“哪个性能更好”
 
-建议先选 Harness、一个同语言候选 Eino、一个图候选 LangGraph，按实际业务再加厂商 SDK。以下是后续评测设计，**本次未执行**：
+建议先选 auto-agent、一个同语言候选 Eino、一个图候选 LangGraph，按实际业务再加厂商 SDK。以下是后续评测设计，**本次未执行**：
 
 1. 固定模型版本、endpoint、参数、Prompt、工具 Schema、检索内容和终止条件；模型存在随机性时重复任务并保留全部失败。
 2. 同时测纯编排（确定性本地模型）和真实模型；前者看框架成本，后者看任务完成时间、成功率、tokens、费用及工具次数。
