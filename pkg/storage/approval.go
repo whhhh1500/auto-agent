@@ -93,8 +93,14 @@ var (
 	sqlPendingRunApprovals   = sqlQuery{`SELECT id FROM approval_requests WHERE run_id = ? AND status = 'pending'`}
 	sqlCountPendingApprovals = sqlQuery{`SELECT COUNT(*) FROM approval_requests WHERE status = 'pending'`}
 	sqlResumeApprovedRun     = sqlQuery{`UPDATE run_control SET status = 'queued', error_code = '', updated_at = ?
-		WHERE run_id = ? AND status = 'waiting_approval' AND cancel_requested = 0`}
-	sqlWakeRunQueue    = sqlQuery{`UPDATE run_queue SET available_at = ?, worker_id = '', lease_expires_at = 0 WHERE run_id = ?`}
+		WHERE run_id = ? AND session_id = ? AND tenant_id = ? AND subject_id = ?
+			AND status = 'waiting_approval' AND cancel_requested = 0`}
+	sqlWakeRunQueue = sqlQuery{`UPDATE run_queue SET available_at = ?, worker_id = '', lease_expires_at = 0
+		WHERE run_id = ? AND EXISTS (
+			SELECT 1 FROM run_control
+			WHERE run_control.run_id = run_queue.run_id AND session_id = ? AND tenant_id = ? AND subject_id = ?
+				AND status = 'queued' AND cancel_requested = 0
+		)`}
 	sqlApprovalMetrics = sqlQuery{`SELECT COUNT(*), MIN(requested_at)
 		FROM approval_requests WHERE status = 'pending'`}
 )
@@ -375,7 +381,11 @@ func (s *SQLApprovalStore) decideAndResume(ctx context.Context, id string, decis
 	if err != nil || affected == 0 {
 		return ApprovalRecord{}, false, err
 	}
-	resumed, err := tx.ExecContext(ctx, sqlResumeApprovedRun.bind(s.dialect), now.UnixMilli(), record.RunID)
+	resumeSessionID, resumeRunID, err := delegatedApprovalResumeTarget(ctx, tx, s.dialect, record)
+	if err != nil {
+		return ApprovalRecord{}, false, err
+	}
+	resumed, err := tx.ExecContext(ctx, sqlResumeApprovedRun.bind(s.dialect), now.UnixMilli(), resumeRunID, resumeSessionID, record.TenantID, record.SubjectID)
 	if err != nil {
 		return ApprovalRecord{}, false, err
 	}
@@ -386,7 +396,7 @@ func (s *SQLApprovalStore) decideAndResume(ctx context.Context, id string, decis
 	if resumedRows == 0 {
 		return ApprovalRecord{}, false, fmt.Errorf("approval run is not waiting for a decision")
 	}
-	queueResult, err := tx.ExecContext(ctx, sqlWakeRunQueue.bind(s.dialect), now.UnixMilli(), record.RunID)
+	queueResult, err := tx.ExecContext(ctx, sqlWakeRunQueue.bind(s.dialect), now.UnixMilli(), resumeRunID, resumeSessionID, record.TenantID, record.SubjectID)
 	if err != nil {
 		return ApprovalRecord{}, false, err
 	}
@@ -402,6 +412,46 @@ func (s *SQLApprovalStore) decideAndResume(ctx context.Context, id string, decis
 	}
 	record.Status, record.DecidedAt, record.DecidedBy = decision, now, actor
 	return record, true, nil
+}
+
+// delegatedApprovalResumeTarget maps a child approval to its one queued
+// parent. A nested link cannot be resumed from this transaction because only
+// the server-owned parent has a durable queue continuation.
+func delegatedApprovalResumeTarget(ctx context.Context, tx *sql.Tx, dialect SQLDialect, record ApprovalRecord) (string, string, error) {
+	var sessionID, tenantID, subjectID string
+	directQuery := `SELECT session_id, tenant_id, subject_id FROM run_control WHERE run_id = ?`
+	err := tx.QueryRowContext(ctx, (sqlQuery{directQuery}).bind(dialect), record.RunID).Scan(&sessionID, &tenantID, &subjectID)
+	if err == nil {
+		if sessionID != record.SessionID || tenantID != record.TenantID || subjectID != record.SubjectID {
+			return "", "", fmt.Errorf("approval run identity does not match its durable control record")
+		}
+		return record.SessionID, record.RunID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", "", err
+	}
+	query := `SELECT ` + delegationLinkColumns + ` FROM delegation_links WHERE child_session_id = ?`
+	link, err := scanDelegationLink(tx.QueryRowContext(ctx, (sqlQuery{query}).bind(dialect), record.SessionID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return record.SessionID, record.RunID, nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if link.ChildSessionID != record.SessionID || link.ChildRunID != record.RunID ||
+		link.TenantID != record.TenantID || link.SubjectID != record.SubjectID {
+		return "", "", fmt.Errorf("delegated approval identity does not match its durable link")
+	}
+	if link.Depth != 1 {
+		return "", "", fmt.Errorf("delegated approval parent depth is not directly queue-resumable")
+	}
+	if err := core.ValidateSessionID(link.ParentSessionID); err != nil {
+		return "", "", fmt.Errorf("delegated approval parent session is invalid: %w", err)
+	}
+	if err := core.ValidateRunID(link.ParentRunID); err != nil {
+		return "", "", fmt.Errorf("delegated approval parent run is invalid: %w", err)
+	}
+	return link.ParentSessionID, link.ParentRunID, nil
 }
 
 func approvalInvocation(request core.ApprovalRequest) (core.ToolInvocation, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	core "github.com/cc-auto-agent/harness-core/pkg/core"
+	"github.com/cc-auto-agent/harness-core/pkg/extensions/subagent"
 )
 
 func approvalTestRequest(runID, callID string) core.ApprovalRequest {
@@ -72,6 +73,48 @@ func TestSQLApprovalDecisionAtomicallyResumesPausedRun(t *testing.T) {
 	}
 	if _, changed, err := approvals.DecideApproval(ctx, resolution.ApprovalID, core.ApprovalApproved, "admin@acme"); err != nil || changed {
 		t.Fatalf("duplicate decision was not idempotent: changed=%t err=%v", changed, err)
+	}
+}
+
+func TestSQLChildApprovalDecisionResumesLinkedParentRun(t *testing.T) {
+	sessions := newTestSQLStore(t)
+	queue, _ := NewSQLRunControlStore(sessions.db, SQLDialectSQLite)
+	approvals, _ := NewSQLApprovalStore(sessions.db, SQLDialectSQLite)
+	links, _ := NewSQLDelegationLinkStore(sessions.db, SQLDialectSQLite)
+	ctx := context.Background()
+	parentRunID := "run-linked-parent-approval"
+	if err := queue.EnqueueRun(ctx, QueuedRun{
+		RunRecord: RunRecord{RunID: parentRunID, SessionID: "session-approval-store", TenantID: "acme", SubjectID: "alice"},
+		Message:   "delegate child approval", MaxAttempts: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimedRun, claimed, err := queue.ClaimRun(ctx, "worker-linked-before", time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("parent claim=%t err=%v", claimed, err)
+	}
+	if paused, err := queue.PauseRunClaim(ctx, parentRunID, "worker-linked-before", claimedRun.Generation); err != nil || !paused {
+		t.Fatalf("parent pause=%t err=%v", paused, err)
+	}
+	childRequest := approvalTestRequest("run-linked-child-approval", "call-linked-child-approval")
+	childRequest.SessionID = "session-linked-child-approval"
+	resolution, err := approvals.RequestApproval(ctx, childRequest)
+	if err != nil || resolution.Decision != core.ApprovalPending {
+		t.Fatalf("child approval=%#v err=%v", resolution, err)
+	}
+	if _, created, err := links.PutIfAbsent(ctx, subagent.Link{
+		ParentSessionID: "session-approval-store", ParentRunID: parentRunID, ParentCallID: "call-linked-parent",
+		ChildSessionID: childRequest.SessionID, ChildRunID: childRequest.RunID,
+		TenantID: "acme", SubjectID: "alice", Depth: 1,
+	}); err != nil || !created {
+		t.Fatalf("delegation link created=%t err=%v", created, err)
+	}
+	if _, changed, err := approvals.DecideApproval(ctx, resolution.ApprovalID, core.ApprovalApproved, "admin@acme"); err != nil || !changed {
+		t.Fatalf("child approval decision changed=%t err=%v", changed, err)
+	}
+	resumed, claimed, err := queue.ClaimRun(ctx, "worker-linked-after", time.Minute)
+	if err != nil || !claimed || resumed.RunID != parentRunID || resumed.SessionID != "session-approval-store" {
+		t.Fatalf("linked parent was not resumed: %#v claimed=%t err=%v", resumed, claimed, err)
 	}
 }
 
