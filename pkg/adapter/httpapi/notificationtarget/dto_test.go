@@ -1,10 +1,13 @@
 package notificationtarget
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	appnotification "github.com/whhhh1500/auto-agent/pkg/app/notification"
 )
 
 func TestDecodeRequestStrictJSONAndLegalMultiFieldMutation(t *testing.T) {
@@ -77,5 +80,22 @@ func TestUpdateRequestConfigPresenceSemantics(t *testing.T) {
 				t.Fatalf("config nil=%v, want %v", decoded.Config == nil, tc.wantNil)
 			}
 		})
+	}
+}
+
+func TestListResponseChannelsAreMetadataOnly(t *testing.T) {
+	response := ListResponse{Targets: []TargetView{}, Channels: ChannelViews([]appnotification.ChannelRef{{ID: "webhook", Version: "1"}})}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"targets":[],"channels":[{"id":"webhook","version":"1"}]}`
+	if string(encoded) != want {
+		t.Fatalf("response=%s, want %s", encoded, want)
+	}
+	for _, forbidden := range []string{"secret", "config", "url", "capabilities"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("channel discovery exposed %q: %s", forbidden, encoded)
+		}
 	}
 }

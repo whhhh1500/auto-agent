@@ -1,6 +1,6 @@
 # Public API and Compatibility Inventory
 
-Snapshot date: 2026-09-07  
+Snapshot date: 2026-09-08  
 Status: current observed surface; this is an inventory, not a target-package
 claim.
 
@@ -36,6 +36,8 @@ pkg/adapter/modelprovider
 pkg/adapter/modelruntime
 pkg/adapter/modelsettings
 pkg/adapter/notification/coretool
+pkg/adapter/notification/notifybridge
+pkg/adapter/notification/runtime
 pkg/adapter/notification/webhook
 pkg/adapter/notification/webhook/targetresolver
 pkg/adapter/runexecutor/graph
@@ -125,6 +127,8 @@ JSON file; representative constructors and extension seams are:
 | `pkg/app/modelexecution` | **experimental M2-B** protocol-neutral bounded request/event/credential and exact-binding contract. Provider owns endpoint/auth/transport; Protocol owns wire body/parser; Registry requires exact snapshot/provider/protocol implementation evidence. It has no HTTP, core bridge, server, DB, global registry, or fallback. | `NewRegistry`, `NewStreamValidator`, `NewCredentialMaterial` |
 | `pkg/adapter/modelexecution/corebridge` | adapter that projects normalized M2-B events into the existing `core.LlmAdapter` vocabulary, collapsing tool deltas only at that legacy boundary. | none; construct `Adapter` with an immutable Registry and Plan |
 | `pkg/adapter/notification/coretool` | core capability adapter exposing `notify.channels` and approval-required/idempotent `notify.send`; it requires core's accepted-invocation proof and derives identity from guarded context, so models receive only channel/opaque-target refs and content. | `New` |
+| `pkg/adapter/notification/notifybridge` | channel adapter for one host-configured `nikoksr/notify` notifier factory. It resolves and clears private target configuration per delivery, has no global service or platform registry, and reports accepted delivery only after one provider send attempt succeeds. | `New` |
+| `pkg/adapter/notification/runtime` | host-startup assembly for explicit provider registrations. One registration yields the exact SQL/service channel refs, optional provider configuration validator, and immutable notification registry; it does not discover providers or load Go code through HTTP. | `New`, `Assembly.Refs`, `Assembly.Validators`, `Assembly.BuildRegistry` |
 | `pkg/execution/sandbox` | bounded exact-version sandbox provider registry and value contracts. The local registration is composition-only and may be unavailable on a platform; an ordinary process is never represented as a sandbox. On Windows, the current-user Basic provider uses the restricted-child implementation and reports its Host-only, non-isolated network contract; elevated callers are rejected and the provider never falls back to host execution. Historical private control-plane packages are not part of the current public runtime inventory. | `NewRegistry`, `NewLocalRegistration` |
 | `pkg/adapter/sandboxexec` | provider-neutral `sandbox.exec` capability with accepted-invocation gating, bounded argv/output, exact configured sandbox-provider reference, server-owned mounts, and verified tenant-prefixed artifact publication. It never falls back to a host process. | `New` |
 | `pkg/adapter/modelexecution/openai` | OpenAI-compatible HTTP Provider shared by distinct Chat Completions and Responses Protocol adapters, with bounded response parsing and lossless tool-delta fragments. | `NewHTTPProvider`, `NewStaticCredentialResolver` |

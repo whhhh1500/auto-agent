@@ -725,22 +725,41 @@ form.card,div.card{background:var(--panel);border:1px solid var(--line);border-r
   <template x-if="view==='notification-targets'">
     <section>
       <h2>通知目标</h2>
-      <div class="sub">目标配置仅可写入，读取列表绝不返回 URL、密钥或配置内容。创建或切换频道时必须重新输入完整配置；编辑同一频道时留空将保留已有配置。</div>
+      <div class="sub">目标配置仅可写入，读取列表绝不返回 URL、密钥或配置内容。下方建议来自当前已注册渠道，仅含 ID 与版本；仍可输入自定义值，服务端会校验是否已注册。创建或切换渠道时必须重新输入该渠道的完整配置；编辑同一渠道时留空将保留已有配置。</div>
       <div class="card">
         <div class="f"><label>租户（平台管理员必填；租户管理员可留空）</label><input x-model="notificationTargets.tenantID" size="18" placeholder="tenant-a"></div>
         <button class="mini" :disabled="notificationTargets.loading" @click="loadNotificationTargets()">刷新</button>
       </div>
       <div class="card">
         <div class="f"><label>Target Ref</label><input x-model="notificationTargets.targetRef" :readonly="notificationTargets.editing" size="20" placeholder="ops-webhook"></div>
-        <div class="f"><label>频道 ID</label><input x-model="notificationTargets.channelID" size="16" placeholder="webhook"></div>
-        <div class="f"><label>频道版本</label><input x-model="notificationTargets.channelVersion" size="6" placeholder="1"></div>
+        <div class="f"><label>渠道 ID</label><input x-model="notificationTargets.channelID" list="notification-channel-ids" size="16" placeholder="webhook"></div>
+        <div class="f"><label>渠道版本</label><input x-model="notificationTargets.channelVersion" list="notification-channel-versions" size="6" placeholder="1"></div>
         <div class="f"><label>标签</label><input x-model="notificationTargets.label" size="18" placeholder="Operations"></div>
         <div class="f"><label>格式（逗号分隔）</label><input x-model="notificationTargets.formatsText" size="20" placeholder="text, markdown"></div>
         <div class="f"><label>启用</label><input type="checkbox" x-model="notificationTargets.enabled"></div>
-        <div class="f" style="flex-basis:100%"><label x-text="notificationTargetConfigRequired()?'完整配置（必填）':'新配置（留空保留）'"></label><textarea x-model="notificationTargets.configText" autocomplete="off" rows="4" style="width:100%;font-family:var(--mono,monospace)" placeholder='{"url":"https://example.test/hook","secret":"write-only"}'></textarea></div>
+        <div class="f" style="flex-basis:100%"><label x-text="notificationTargetConfigRequired()?'完整配置（必填）':'新配置（留空保留）'"></label><textarea x-model="notificationTargets.configText" autocomplete="off" rows="4" style="width:100%;font-family:var(--mono,monospace)" placeholder="输入所选渠道定义的 JSON 配置"></textarea></div>
         <button class="pri" @click="saveNotificationTarget()" x-text="notificationTargets.editing?'保存更新':'创建目标'"></button>
         <button class="mini" x-show="notificationTargets.editing" @click="resetNotificationTargetForm()">取消编辑</button>
       </div>
+      <details class="card" open>
+        <summary>支持的平台目录（<span x-text="notificationTargets.platforms.length"></span>）</summary>
+        <p class="sub">目录来源 notify <span x-text="notificationTargets.platformSourceVersion||'-'"></span>。目录只提供建议渠道 ID/版本；“同名渠道已注册”仅表示当前宿主注册了相同 ID/版本，尚未验证实际发送。</p>
+        <table>
+          <thead><tr><th>平台</th><th>建议渠道</th><th>上游状态</th><th>注册状态</th><th>说明</th><th></th></tr></thead>
+          <tbody><template x-for="platform in notificationTargets.platforms" :key="platform.id + '@' + platform.version">
+            <tr>
+              <td x-text="platform.name"></td>
+              <td class="mono" x-text="platform.id + '@' + platform.version"></td>
+              <td><span class="pill" :class="platform.status==='available'?'ok':'err'" x-text="notificationTargetPlatformStatus(platform)"></span></td>
+              <td><span class="pill" :class="notificationTargets.channelsLoaded?(notificationTargetPlatformRegistered(platform)?'ok':'err'):''" x-text="notificationTargets.channelsLoaded?(notificationTargetPlatformRegistered(platform)?'同名渠道已注册':'尚未注册'):'注册状态未加载'"></span></td>
+              <td x-text="platform.description||'-'"></td>
+              <td><button class="mini" :disabled="platform.status!=='available'" @click="useNotificationPlatform(platform)" x-text="platform.status==='available'?'填入渠道':notificationTargetPlatformStatus(platform)"></button></td>
+            </tr>
+          </template></tbody>
+        </table>
+      </details>
+      <datalist id="notification-channel-ids"><template x-for="channel in notificationTargets.channels" :key="channel.id + '@' + channel.version"><option :value="channel.id" :label="channel.id + '@' + channel.version"></option></template></datalist>
+      <datalist id="notification-channel-versions"><template x-for="channel in notificationTargetChannelVersions()" :key="channel.id + '@' + channel.version"><option :value="channel.version" :label="channel.id + '@' + channel.version"></option></template></datalist>
       <p class="sub" x-text="notificationTargets.status"></p>
       <table>
         <thead><tr><th>Target Ref</th><th>频道</th><th>标签</th><th>格式</th><th>状态</th><th>Revision</th><th></th></tr></thead>
@@ -1035,6 +1054,7 @@ form.card,div.card{background:var(--panel);border:1px solid var(--line);border-r
 <script src="/console/js/bindings.js"></script>
 <script src="/console/js/storage-settings.js"></script>
 <script src="/console/js/model-settings.js"></script>
+<script src="/console/js/notification-platforms.js"></script>
 <script src="/console/js/notification-targets.js"></script>
 <script src="/console/js/sandbox.js"></script>
 <script src="/console/js/shell.js"></script>

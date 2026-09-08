@@ -65,6 +65,21 @@ func TestTelemetryEnabledGate(t *testing.T) {
 	}
 }
 
+func TestDefaultNotificationAssemblyDeclaresWebhookOnly(t *testing.T) {
+	assembly, err := defaultNotificationAssembly()
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := assembly.Refs()
+	if len(refs) != 1 || refs[0].ID != "webhook" || refs[0].Version != "1" {
+		t.Fatalf("notification refs=%#v", refs)
+	}
+	validators := assembly.Validators()
+	if len(validators) != 1 || validators[0].Channel() != refs[0] {
+		t.Fatalf("notification validators=%#v", validators)
+	}
+}
+
 func TestSecurityModeRejectsUnsafeProductionFallbacks(t *testing.T) {
 	for _, test := range []struct {
 		name       string

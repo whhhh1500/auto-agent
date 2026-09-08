@@ -25,6 +25,7 @@ import (
 
 	modelsettingsadapter "github.com/whhhh1500/auto-agent/pkg/adapter/modelsettings"
 	notificationcoretool "github.com/whhhh1500/auto-agent/pkg/adapter/notification/coretool"
+	notificationruntime "github.com/whhhh1500/auto-agent/pkg/adapter/notification/runtime"
 	webhook "github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook"
 	webhooktargets "github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook/targetresolver"
 	sandboxexec "github.com/whhhh1500/auto-agent/pkg/adapter/sandboxexec"
@@ -177,22 +178,19 @@ func main() {
 	if embeddedMasterKey {
 		log.Printf("warning: HARNESS_MASTER_KEY is unset; using the embedded database key in %s mode only", mode)
 	}
-	notificationChannelRef := appnotification.ChannelRef{ID: webhook.ChannelID, Version: webhook.ChannelVersion}
-	notificationValidator := webhooktargets.NewConfigurationValidator()
+	notificationAssembly, err := defaultNotificationAssembly()
+	must(err)
+	notificationRefs := notificationAssembly.Refs()
 	notificationTargetStore, err := notificationsql.New(notificationsql.Options{
 		DB: db, Dialect: dialect, Cipher: settingsRepository.Cipher(),
-		Channels: []appnotification.ChannelRef{notificationChannelRef},
+		Channels: notificationRefs,
 	})
 	must(err)
-	notificationTargets, err := appnotification.NewService(notificationTargetStore, []appnotification.ChannelRef{notificationChannelRef}, notificationValidator)
+	notificationTargets, err := appnotification.NewService(notificationTargetStore, notificationRefs, notificationAssembly.Validators()...)
 	must(err)
-	notificationResolver, err := webhooktargets.New(notificationTargets)
+	notificationRegistry, err := notificationAssembly.BuildRegistry(notificationTargets)
 	must(err)
-	notificationChannel, err := webhook.New(notificationResolver)
-	must(err)
-	notificationRegistry, err := appnotification.NewRegistry([]appnotification.Channel{notificationChannel})
-	must(err)
-	notificationCapabilities, err := notificationcoretool.NewWithDirectory(notificationRegistry, notificationResolver)
+	notificationCapabilities, err := notificationcoretool.NewWithDirectory(notificationRegistry, notificationTargets)
 	must(err)
 	for _, capability := range notificationCapabilities {
 		must(capabilities.Register(global, capability))
@@ -533,6 +531,24 @@ func main() {
 		}
 		cancelTelemetryShutdown()
 	}
+}
+
+// defaultNotificationAssembly supplies the host's only built-in notification
+// provider. Other executables extend this explicit startup registration list;
+// target CRUD only configures targets for these already linked providers.
+func defaultNotificationAssembly() (*notificationruntime.Assembly, error) {
+	ref := appnotification.ChannelRef{ID: webhook.ChannelID, Version: webhook.ChannelVersion}
+	return notificationruntime.New([]notificationruntime.Registration{{
+		Ref:       ref,
+		Validator: webhooktargets.NewConfigurationValidator(),
+		Build: func(targets *appnotification.Service) (appnotification.Channel, error) {
+			resolver, err := webhooktargets.New(targets)
+			if err != nil {
+				return nil, err
+			}
+			return webhook.New(resolver)
+		},
+	}})
 }
 
 func must(err error) {

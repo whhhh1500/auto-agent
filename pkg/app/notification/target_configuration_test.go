@@ -93,6 +93,19 @@ func TestTargetServiceListOnlyDescriptorsAndDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestTargetServiceChannelsReturnsRegisteredReferencesAndCopy(t *testing.T) {
+	service, _, _ := targetServiceFixture(t)
+	first := service.Channels()
+	if len(first) != 1 || first[0] != (ChannelRef{ID: "webhook", Version: "1"}) {
+		t.Fatalf("channels=%#v", first)
+	}
+	first[0] = ChannelRef{ID: "changed", Version: "2"}
+	second := service.Channels()
+	if len(second) != 1 || second[0] != (ChannelRef{ID: "webhook", Version: "1"}) {
+		t.Fatalf("channels leaked mutable slice: %#v", second)
+	}
+}
+
 func TestTargetServiceListRecordsIncludesDisabledRevisionWithoutConfig(t *testing.T) {
 	service, descriptor, repository := targetServiceFixture(t)
 	repository.records = []TargetRecord{{Descriptor: descriptor, Enabled: false, Revision: "7"}}

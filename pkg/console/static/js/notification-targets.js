@@ -8,6 +8,23 @@
   const defaultChannelID = 'webhook'
   const defaultChannelVersion = '1'
 
+  function platformCatalog() {
+    const catalog = window.HarnessConsoleNotificationPlatforms || {}
+    if (!Array.isArray(catalog.platforms)) return { sourceVersion: '', platforms: [] }
+    return {
+      sourceVersion: typeof catalog.sourceVersion === 'string' ? catalog.sourceVersion : '',
+      platforms: catalog.platforms
+        .filter(platform => platform && typeof platform.id === 'string' && typeof platform.version === 'string' && typeof platform.name === 'string')
+        .map(platform => ({
+          id: platform.id,
+          version: platform.version,
+          name: platform.name,
+          status: platform.status === 'available' || platform.status === 'discontinued' || platform.status === 'unsupported' ? platform.status : 'unsupported',
+          description: typeof platform.description === 'string' ? platform.description : '',
+        })),
+    }
+  }
+
   function splitFormats(value) {
     const seen = new Set()
     return String(value || '').split(',').map(item => item.trim()).filter(item => {
@@ -19,12 +36,14 @@
 
   window.HarnessConsoleNotificationTargets = {
     state() {
+      const catalog = platformCatalog()
       return {
         notificationTargets: {
           targets: [], tenantID: '', targetRef: '', channelID: defaultChannelID,
           channelVersion: defaultChannelVersion, label: '', formatsText: '', enabled: true,
           expectedRevision: '', originalChannelID: '', originalChannelVersion: '',
-          editing: false, configText: '', status: '', loading: false,
+          editing: false, configText: '', status: '', loading: false, channels: [], channelsLoaded: false,
+          platforms: catalog.platforms, platformSourceVersion: catalog.sourceVersion,
         },
       }
     },
@@ -46,6 +65,44 @@
       notificationTargetConfigRequired() {
         const target = this.notificationTargets
         return !target.editing || target.channelID !== target.originalChannelID || target.channelVersion !== target.originalChannelVersion
+      },
+      notificationTargetChannelVersions() {
+        const id = this.notificationTargets.channelID.trim()
+        const versions = new Set()
+        return this.notificationTargets.channels.filter(channel => {
+          if (!channel || !channel.id || !channel.version || (id && channel.id !== id) || versions.has(channel.version)) return false
+          versions.add(channel.version)
+          return true
+        })
+      },
+      notificationTargetPlatformRegistered(platform) {
+        if (!platform || !platform.id || !platform.version) return false
+        return this.notificationTargets.channels.some(channel => channel.id === platform.id && channel.version === platform.version)
+      },
+      notificationTargetPlatformStatus(platform) {
+        if (!platform || platform.status === 'unsupported') return '上游不支持'
+        if (platform.status === 'discontinued') return '已停服'
+        return '上游提供'
+      },
+      useNotificationPlatform(platform) {
+        if (!platform || !platform.id || !platform.version) return
+        const target = this.notificationTargets
+        if (platform.status !== 'available') {
+          target.status = platform.name + ' 当前' + this.notificationTargetPlatformStatus(platform) + '，不能用于填入渠道。'
+          return
+        }
+        const changed = target.channelID !== platform.id || target.channelVersion !== platform.version
+        target.channelID = platform.id
+        target.channelVersion = platform.version
+        if (changed) target.configText = ''
+        const prefix = '已填入 ' + platform.id + '@' + platform.version + (changed ? '；已清空先前渠道配置。' : '；')
+        if (!target.channelsLoaded) {
+          target.status = prefix + '注册状态尚未加载，保存前请刷新确认已由宿主注册。'
+        } else if (this.notificationTargetPlatformRegistered(platform)) {
+          target.status = prefix + '同名渠道已注册（尚未验证实际发送）。'
+        } else {
+          target.status = prefix + '该目录项尚未由宿主注册，保存前需先由宿主注册。'
+        }
       },
       notificationTargetConfig() {
         const text = this.notificationTargets.configText.trim()
@@ -117,9 +174,15 @@
         try {
           const data = await this.api('GET', '/v1/admin/notification-targets' + this.notificationTargetTenantQuery())
           target.targets = Array.isArray(data.targets) ? data.targets : []
-          target.status = '已加载 ' + target.targets.length + ' 个通知目标。'
+          target.channels = Array.isArray(data.channels) ? data.channels
+            .filter(channel => channel && typeof channel.id === 'string' && typeof channel.version === 'string')
+            .map(channel => ({ id: channel.id, version: channel.version })) : []
+          target.channelsLoaded = true
+          target.status = '已加载 ' + target.targets.length + ' 个通知目标；已发现 ' + target.channels.length + ' 个已注册渠道。'
         } catch (error) {
           target.targets = []
+          target.channels = []
+          target.channelsLoaded = false
           target.status = '无法加载通知目标。'
           throw error
         } finally {

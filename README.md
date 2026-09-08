@@ -11,7 +11,7 @@ in plugins, providers, profiles, and examples.
 > compatibility facade until the first stable release.
 
 详细技术评估：[Agent 模块实现、性能与扩展点](docs/agent-module-assessment.md)
-（44 个逻辑模块、74 个 Go 包）、[与主流框架的差异及选型](docs/agent-framework-comparison.md)、
+（44 个逻辑模块、76 个 Go 包）、[与主流框架的差异及选型](docs/agent-framework-comparison.md)、
 [本地性能实测与证据边界](docs/performance/2026-09-06-module-benchmarks.md)。
 
 ## Zero-configuration local start
@@ -117,6 +117,14 @@ For a SQL-backed multi-node workflow, see the separate
 and experimental integration boundaries are listed in the
 [support matrix](docs/architecture.md#support-matrix). E2B is not bundled;
 remote sandbox integrations must implement and register a sandbox provider.
+
+Notification platforms are host-selected extensions. Register a channel and its
+configuration validator once; target configuration remains tenant-scoped and
+editable at runtime. The optional `notifybridge` accepts any `notify.Notifier`,
+without restricting custom platform names. Console includes the upstream
+`notify v1.6.0` platform catalog and separately shows registered channels.
+See [notification extensions](docs/notification-extensions.md)
+for registration, discovery, and delivery semantics.
 
 The [2026-09-06 integration acceptance](docs/verification/2026-09-06-assessment-closure.md)
 records the PostgreSQL gate, replacement-instance approval recovery, a real

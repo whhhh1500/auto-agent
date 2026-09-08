@@ -130,6 +130,13 @@ func (service *Service) List(ctx context.Context, tenantID string) ([]TargetDesc
 	return result, nil
 }
 
+// Channels returns the exact registered channel references for management
+// discovery. The returned slice is independent from the service's registry.
+// Channel metadata is deliberately limited to the provider-neutral reference.
+func (service *Service) Channels() []ChannelRef {
+	return append([]ChannelRef(nil), service.channels...)
+}
+
 // ListRecords returns bounded non-secret management records, including
 // disabled targets and the opaque revision needed for a later CAS.
 func (service *Service) ListRecords(ctx context.Context, tenantID string) ([]TargetRecord, error) {

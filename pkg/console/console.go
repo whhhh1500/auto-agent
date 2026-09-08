@@ -36,6 +36,7 @@ var consoleScriptPaths = []string{
 	"/js/bindings.js",
 	"/js/storage-settings.js",
 	"/js/model-settings.js",
+	"/js/notification-platforms.js",
 	"/js/notification-targets.js",
 	"/js/sandbox.js",
 	"/js/shell.js",

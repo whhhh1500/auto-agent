@@ -41,7 +41,10 @@ func (s *Server) handleNotificationTargetList(w http.ResponseWriter, r *http.Req
 	for _, record := range records {
 		views = append(views, httpnotification.View(record))
 	}
-	writeJSON(w, http.StatusOK, httpnotification.ListResponse{Targets: views})
+	writeJSON(w, http.StatusOK, httpnotification.ListResponse{
+		Targets:  views,
+		Channels: httpnotification.ChannelViews(s.notificationTargets.Channels()),
+	})
 }
 
 func (s *Server) handleNotificationTargetCreate(w http.ResponseWriter, r *http.Request) {

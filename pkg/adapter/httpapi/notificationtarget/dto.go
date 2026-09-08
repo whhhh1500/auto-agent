@@ -26,8 +26,16 @@ type TargetView struct {
 	Revision       string   `json:"revision"`
 }
 
+// ChannelView is a non-secret registered channel reference exposed only for
+// management discovery. Provider capabilities and configuration stay private.
+type ChannelView struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
 type ListResponse struct {
-	Targets []TargetView `json:"targets"`
+	Targets  []TargetView  `json:"targets"`
+	Channels []ChannelView `json:"channels"`
 }
 
 type CreateRequest struct {
@@ -135,6 +143,14 @@ func View(record appnotification.TargetRecord) TargetView {
 		ChannelVersion: record.Descriptor.Channel.Version, Label: record.Descriptor.Label,
 		Formats: append([]string(nil), record.Descriptor.Formats...), Enabled: record.Enabled, Revision: record.Revision,
 	}
+}
+
+func ChannelViews(channels []appnotification.ChannelRef) []ChannelView {
+	views := make([]ChannelView, len(channels))
+	for index, channel := range channels {
+		views[index] = ChannelView{ID: channel.ID, Version: channel.Version}
+	}
+	return views
 }
 
 func validateUniqueJSON(body []byte) error {

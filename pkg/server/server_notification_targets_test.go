@@ -122,8 +122,15 @@ func TestNotificationTargetAdminCRUDIsTenantScopedAndSecretFree(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/v1/admin/notification-targets", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"revision":"1"`) || strings.Contains(response.Body.String(), "fake-secret") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"revision":"1"`) || !strings.Contains(response.Body.String(), `"channels":[{"id":"webhook","version":"1"}]`) || strings.Contains(response.Body.String(), "fake-secret") || strings.Contains(response.Body.String(), "https://example.test") {
 		t.Fatalf("list code=%d body=%s", response.Code, response.Body.String())
+	}
+	unknownChannelBody := strings.Replace(body, `"channel_id":"webhook"`, `"channel_id":"unknown"`, 1)
+	request = httptest.NewRequest(http.MethodPost, "/v1/admin/notification-targets", strings.NewReader(unknownChannelBody))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown channel code=%d body=%s", response.Code, response.Body.String())
 	}
 	unknownBody := strings.TrimSuffix(body, "}") + `,"unknown":true}`
 	request = httptest.NewRequest(http.MethodPost, "/v1/admin/notification-targets", strings.NewReader(unknownBody))

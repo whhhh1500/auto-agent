@@ -261,7 +261,7 @@ func consoleBundle(t *testing.T, page string) string {
 	builder.WriteString(page)
 	for _, name := range []string{
 		"api.js", "lib.js", "auth.js", "accounts.js", "audit.js", "observability.js", "policies.js", "credentials.js",
-		"resources.js", "sessions.js", "playground.js", "bindings.js", "storage-settings.js", "model-settings.js", "notification-targets.js", "sandbox.js",
+		"resources.js", "sessions.js", "playground.js", "bindings.js", "storage-settings.js", "model-settings.js", "notification-platforms.js", "notification-targets.js", "sandbox.js",
 		"shell.js", "capabilities.js", "profiles.js", "approvals.js", "evaluations.js", "delegations.js", "runner-tasks.js", "projections.js", "app.js",
 	} {
 		data, err := staticFS.ReadFile("static/js/" + name)
@@ -280,7 +280,7 @@ func TestConsoleServesLocalJavaScriptModules(t *testing.T) {
 		t.Fatalf("console status=%d body=%s", pageResponse.Code, pageResponse.Body.String())
 	}
 	page := pageResponse.Body.String()
-	for _, src := range []string{"/console/assets/alpine.min.js", "/console/js/lib.js", "/console/js/api.js", "/console/js/auth.js", "/console/js/accounts.js", "/console/js/audit.js", "/console/js/observability.js", "/console/js/policies.js", "/console/js/credentials.js", "/console/js/resources.js", "/console/js/sessions.js", "/console/js/playground.js", "/console/js/bindings.js", "/console/js/storage-settings.js", "/console/js/model-settings.js", "/console/js/notification-targets.js", "/console/js/sandbox.js", "/console/js/shell.js", "/console/js/capabilities.js", "/console/js/profiles.js", "/console/js/approvals.js", "/console/js/evaluations.js", "/console/js/delegations.js", "/console/js/runner-tasks.js", "/console/js/projections.js", "/console/js/app.js"} {
+	for _, src := range []string{"/console/assets/alpine.min.js", "/console/js/lib.js", "/console/js/api.js", "/console/js/auth.js", "/console/js/accounts.js", "/console/js/audit.js", "/console/js/observability.js", "/console/js/policies.js", "/console/js/credentials.js", "/console/js/resources.js", "/console/js/sessions.js", "/console/js/playground.js", "/console/js/bindings.js", "/console/js/storage-settings.js", "/console/js/model-settings.js", "/console/js/notification-platforms.js", "/console/js/notification-targets.js", "/console/js/sandbox.js", "/console/js/shell.js", "/console/js/capabilities.js", "/console/js/profiles.js", "/console/js/approvals.js", "/console/js/evaluations.js", "/console/js/delegations.js", "/console/js/runner-tasks.js", "/console/js/projections.js", "/console/js/app.js"} {
 		if !strings.Contains(page, `src="`+src+`?v=`) {
 			t.Fatalf("console missing local script %q", src)
 		}
@@ -317,7 +317,7 @@ func TestConsoleServesLocalJavaScriptModules(t *testing.T) {
 		"/console/assets/alpine.min.js", "/console/js/api.js", "/console/js/lib.js", "/console/js/auth.js",
 		"/console/js/accounts.js", "/console/js/audit.js", "/console/js/observability.js", "/console/js/policies.js",
 		"/console/js/credentials.js", "/console/js/resources.js", "/console/js/sessions.js", "/console/js/playground.js",
-		"/console/js/bindings.js", "/console/js/storage-settings.js", "/console/js/model-settings.js", "/console/js/notification-targets.js", "/console/js/sandbox.js", "/console/js/shell.js",
+		"/console/js/bindings.js", "/console/js/storage-settings.js", "/console/js/model-settings.js", "/console/js/notification-platforms.js", "/console/js/notification-targets.js", "/console/js/sandbox.js", "/console/js/shell.js",
 		"/console/js/capabilities.js", "/console/js/profiles.js", "/console/js/approvals.js", "/console/js/evaluations.js",
 		"/console/js/delegations.js", "/console/js/runner-tasks.js", "/console/js/projections.js", "/console/js/app.js",
 	}
@@ -338,7 +338,7 @@ func TestConsoleServesLocalJavaScriptModules(t *testing.T) {
 func TestConsoleAppComposesAllDomainsWithoutRuntimeCollisions(t *testing.T) {
 	assets := []string{
 		"api.js", "lib.js", "auth.js", "accounts.js", "audit.js", "observability.js", "policies.js", "credentials.js",
-		"resources.js", "sessions.js", "playground.js", "bindings.js", "storage-settings.js", "model-settings.js", "notification-targets.js", "sandbox.js",
+		"resources.js", "sessions.js", "playground.js", "bindings.js", "storage-settings.js", "model-settings.js", "notification-platforms.js", "notification-targets.js", "sandbox.js",
 		"shell.js", "capabilities.js", "profiles.js", "approvals.js", "evaluations.js", "delegations.js", "runner-tasks.js", "projections.js", "app.js",
 	}
 	dir := t.TempDir()
@@ -1192,6 +1192,15 @@ func TestConsoleNotificationTargetsUseWriteOnlyConfigurationFlow(t *testing.T) {
 	if !strings.Contains(page, "<script src=\"/console/js/notification-targets.js?v=") {
 		t.Fatal("console must load the local notification targets domain module")
 	}
+	platformScript := "<script src=\"/console/js/notification-platforms.js?v="
+	if !strings.Contains(page, platformScript) || strings.Index(page, platformScript) > strings.Index(page, "<script src=\"/console/js/notification-targets.js?v=") {
+		t.Fatal("notification platform catalog must load before notification targets")
+	}
+	for _, required := range []string{"支持的平台目录", "同名渠道已注册", "尚未验证实际发送", "注册状态未加载", "platform.status!=='available'", "useNotificationPlatform(platform)"} {
+		if !strings.Contains(page, required) {
+			t.Fatalf("notification platform directory missing %q", required)
+		}
+	}
 	for _, forbidden := range []string{"has_config", "config_preview", "target.config"} {
 		if strings.Contains(page, forbidden) {
 			t.Fatalf("notification target view must not display private configuration field %q", forbidden)
@@ -1206,7 +1215,7 @@ func TestConsoleNotificationTargetsUseWriteOnlyConfigurationFlow(t *testing.T) {
 	module := response.Body.String()
 	for _, required := range []string{
 		"window.HarnessConsoleNotificationTargets", "notificationTargetEnsureTenant()", "loadNotificationTargets()", "saveNotificationTarget()", "deleteNotificationTarget(record)",
-		"/v1/admin/notification-targets", "notificationTargetConfigRequired()", "target.configText = ''",
+		"/v1/admin/notification-targets", "notificationTargetConfigRequired()", "notificationTargetChannelVersions()", "notificationTargetPlatformRegistered(platform)", "useNotificationPlatform(platform)", "target.configText = ''", "channels: []", "channelsLoaded: false",
 	} {
 		if !strings.Contains(module, required) {
 			t.Fatalf("notification targets module missing %q", required)
@@ -1217,13 +1226,22 @@ func TestConsoleNotificationTargetsUseWriteOnlyConfigurationFlow(t *testing.T) {
 			t.Fatalf("notification targets module must not use %q", forbidden)
 		}
 	}
+	platformResponse := httptest.NewRecorder()
+	Handler().ServeHTTP(platformResponse, httptest.NewRequest(http.MethodGet, "/js/notification-platforms.js", nil))
+	if platformResponse.Code != http.StatusOK {
+		t.Fatalf("notification platforms module status=%d", platformResponse.Code)
+	}
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "notification-targets.js"), response.Body.Bytes(), 0o600); err != nil {
 		t.Fatalf("write notification targets module: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "notification-platforms.js"), platformResponse.Body.Bytes(), 0o600); err != nil {
+		t.Fatalf("write notification platforms module: %v", err)
+	}
 	const regression = `
 global.window = { confirm: () => true }
+require('./notification-platforms.js')
 require('./notification-targets.js')
 const domain = window.HarnessConsoleNotificationTargets
 const sent = []
@@ -1232,7 +1250,7 @@ const model = {
   identity: { role: 'admin', tenant: 'tenant-a' },
   api: async (method, path, body) => {
     sent.push({ method, path, body })
-    if (method === 'GET') return { targets: [{ target_ref: 'ops', channel_id: 'webhook', channel_version: '1', label: 'Operations', formats: ['markdown'], enabled: true, revision: 'r1' }] }
+    if (method === 'GET') return { targets: [{ target_ref: 'ops', channel_id: 'webhook', channel_version: '1', label: 'Operations', formats: ['markdown'], enabled: true, revision: 'r1' }], channels: [{ id: 'webhook', version: '1' }, { id: 'slack', version: '1' }, { id: 'slack-alias', version: '1' }, { id: 'bridge', version: '2', config: 'must-not-be-retained' }] }
     if (method === 'POST' || method === 'PUT' || method === 'DELETE') return { status: 'ok' }
     throw new Error('unexpected request')
   },
@@ -1241,14 +1259,41 @@ const model = {
 ;(async () => {
   await model.loadNotificationTargets()
   if (model.notificationTargets.tenantID !== 'tenant-a') throw new Error('admin tenant was not prefilled')
+  if (model.notificationTargets.platforms.length !== 34 || model.notificationTargets.platformSourceVersion !== 'v1.6.0') throw new Error('full notification platform catalog was not loaded')
   const firstLoad = sent.find(request => request.method === 'GET')
   if (!firstLoad || firstLoad.path !== '/v1/admin/notification-targets?tenant_id=tenant-a') throw new Error('admin tenant was not used for initial load')
+  if (model.notificationTargets.channels.length !== 4 || model.notificationTargets.channels[3].id !== 'bridge' || 'config' in model.notificationTargets.channels[3]) throw new Error('registered channel metadata was not loaded safely')
+  model.notificationTargets.channelID = 'bridge'
+  if (model.notificationTargetChannelVersions().length !== 1 || model.notificationTargetChannelVersions()[0].version !== '2') throw new Error('channel version suggestions were not filtered by selected id')
+  model.notificationTargets.channelID = 'webhook'
+  const slack = model.notificationTargets.platforms.find(platform => platform.id === 'slack')
+  const telegram = model.notificationTargets.platforms.find(platform => platform.id === 'telegram')
+  const lineNotify = model.notificationTargets.platforms.find(platform => platform.id === 'linenotify')
+  const whatsapp = model.notificationTargets.platforms.find(platform => platform.id === 'whatsapp')
+  if (!slack || !telegram || !lineNotify || !whatsapp || !model.notificationTargetPlatformRegistered(slack)) throw new Error('exact registered catalog channel was not marked')
+  slack.aliases = ['slack-alias']
+  if (model.notificationTargetPlatformRegistered({ id: 'unregistered-alias', version: '1', aliases: ['slack'] })) throw new Error('alias must not be treated as a registered channel')
+  model.notificationTargets.targetRef = 'preserve-target'
+  model.notificationTargets.configText = '{"secret":"preserve"}'
+  model.useNotificationPlatform(telegram)
+  if (model.notificationTargets.channelID !== 'telegram' || model.notificationTargets.channelVersion !== '1' || model.notificationTargets.targetRef !== 'preserve-target' || model.notificationTargets.configText !== '' || !/宿主注册/.test(model.notificationTargets.status)) throw new Error('unregistered platform did not safely fill channel metadata with host registration prompt')
+  const beforeUnavailable = model.notificationTargets.channelID + '@' + model.notificationTargets.channelVersion
+  model.useNotificationPlatform(lineNotify)
+  if (model.notificationTargets.channelID + '@' + model.notificationTargets.channelVersion !== beforeUnavailable || !/已停服/.test(model.notificationTargets.status)) throw new Error('discontinued platform was selectable')
+  model.useNotificationPlatform(whatsapp)
+  if (model.notificationTargets.channelID + '@' + model.notificationTargets.channelVersion !== beforeUnavailable || !/上游不支持/.test(model.notificationTargets.status)) throw new Error('unsupported platform was selectable')
+  model.notificationTargets.channelsLoaded = false
+  model.useNotificationPlatform(slack)
+  if (!/注册状态尚未加载/.test(model.notificationTargets.status)) throw new Error('unloaded registration state was treated as unregistered')
+  model.notificationTargets.channelID = 'webhook'
+  model.notificationTargets.channelVersion = '1'
   model.notificationTargets.configText = '{"secret":"stale"}'
   await model.loadNotificationTargets()
   if (model.notificationTargets.configText !== '') throw new Error('list retained write-only configuration')
   const listed = model.notificationTargets.targets[0]
   if ('config' in listed || 'has_config' in listed || 'config_preview' in listed) throw new Error('list model invents private configuration')
   model.editNotificationTarget(listed)
+  if (model.notificationTargets.targetRef !== 'ops' || model.notificationTargets.channelID !== 'webhook' || model.notificationTargets.channelVersion !== '1') throw new Error('edit changed the stored target or channel reference')
   if (model.notificationTargets.configText !== '') throw new Error('edit hydrated a configuration')
   const preserve = model.notificationTargetBody(true)
   if ('config' in preserve || preserve.expected_revision !== 'r1') throw new Error('same-channel update did not preserve configuration by omission')

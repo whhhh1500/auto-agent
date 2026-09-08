@@ -1,6 +1,6 @@
 {
-  "inventory_date": "2026-09-07",
-  "module": "github.com/cc-auto-agent/harness-core",
+  "inventory_date": "2026-09-08",
+  "module": "github.com/whhhh1500/auto-agent",
   "status": "current-observed-snapshot",
   "public_api_additions": [
     {
@@ -1058,6 +1058,53 @@
         "TargetsCapabilityID"
       ],
       "note": "N0 adapter exposing notify.channels, notify.targets, and notify.send as normal core capabilities. It requires the core accepted-invocation proof, derives run identity from guarded context, marks send as approval-required but non-idempotent until a channel proves durable deduplication, and never exposes URLs or credentials to the model."
+    },
+    {
+      "package": "pkg/adapter/notification/notifybridge",
+      "types": [
+        "Channel",
+        "Factory",
+        "Resolver"
+      ],
+      "functions": [
+        "Channel.Deliver",
+        "Channel.Descriptor"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrDelivery",
+        "ErrFactory",
+        "ErrInvalidChannel",
+        "ErrPanic",
+        "ErrTargetResolution"
+      ],
+      "constants": [
+        "Subject"
+      ],
+      "note": "A host-configured bridge to one target-scoped nikoksr/notify notifier factory. It resolves and clears private configuration for each delivery and has no global provider registry or target discovery."
+    },
+    {
+      "package": "pkg/adapter/notification/runtime",
+      "types": [
+        "Assembly",
+        "ChannelFactory",
+        "Registration"
+      ],
+      "functions": [
+        "Assembly.BuildRegistry",
+        "Assembly.Refs",
+        "Assembly.Validators"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalidRegistration"
+      ],
+      "constants": [],
+      "note": "Explicit host-startup provider assembly. Each registration derives the exact SQL/service refs, optional configuration validator, and immutable channel registry; it performs no global discovery or runtime Go-code loading."
     },
     {
       "package": "pkg/adapter/notification/webhook",

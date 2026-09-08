@@ -1,8 +1,8 @@
 # Agent 模块实现、性能与扩展评估
 
-评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-08、本地 Git `9b478ab`；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
+评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-08、本地 Git `4abcfcb` 加本次通知扩展工作树；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
 
-本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **74 个包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
+本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **76 个包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
 
 ### 当前基线与证据类型
 
@@ -611,9 +611,9 @@ flowchart TD
 
 **实现 / 状态：** [app/notification](../pkg/app/notification)、[notification/coretool](../pkg/adapter/notification/coretool)、[notification/webhook](../pkg/adapter/notification/webhook)分离渠道、opaque TargetRef 与真实地址；目标配置有 SQL 适配。默认 Agent 可发现渠道并在受保护审批路径发送，发送与调用日志关联。
 
-**扩展：** E1/E2：实现邮件、Slack 等渠道适配器或连接自有通知服务；不得把“可定义渠道”当作所有第三方渠道已经内置。新增渠道需定义目标授权、去重、速率、失败与未知投递状态。
+**扩展：** E1/E2：通过 [notification/runtime](../pkg/adapter/notification/runtime) 集中注册任意渠道版本、配置校验器和工厂；可使用 [notifybridge](../pkg/adapter/notification/notifybridge) 接入任意 `notify.Notifier`。管理端动态发现已注册渠道，目标配置可在运行时更新；不内置固定平台名单，不提供任意 Go 插件热加载。详见[通知扩展指南](notification-extensions.md)。本次 SQLite/AES 集成和通知 race 测试验证了自定义渠道、租户隔离、配置更新、停用与删除；没有发送真实平台通知。
 
-**性能：** 延迟和吞吐主要取决于外部渠道；本次无真实通知发送或批量投递基准。审批与幂等增加治理价值，也有持久写入成本。
+**性能：** 延迟和吞吐主要取决于外部渠道；本次无真实通知发送或批量投递基准。审批与调用日志增加治理价值，也有持久写入成本；发送不声明幂等，桥接不自动重试。
 
 **对比 / 取舍：** 强调发送审批和租户目标管理时当前设计可复用；需要大量现成 SaaS 工具时，成熟框架连接器通常更省封装。外部通知成功与“请求已被接受”必须按渠道语义区分。
 
@@ -761,6 +761,8 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 | [pkg/adapter/modelruntime](../pkg/adapter/modelruntime) | M08、M09、M10 | 持久模型设置编译与内置插件 |
 | [pkg/adapter/modelsettings](../pkg/adapter/modelsettings) | M10 | 模型设置持久适配 |
 | [pkg/adapter/notification/coretool](../pkg/adapter/notification/coretool) | M38 | 通知服务到内核工具 |
+| [pkg/adapter/notification/notifybridge](../pkg/adapter/notification/notifybridge) | M38 | 可选 notify.Notifier 桥接，无固定平台 |
+| [pkg/adapter/notification/runtime](../pkg/adapter/notification/runtime) | M38 | 宿主渠道注册与目标服务组装 |
 | [pkg/adapter/notification/webhook](../pkg/adapter/notification/webhook) | M38 | Webhook 渠道 |
 | [pkg/adapter/notification/webhook/targetresolver](../pkg/adapter/notification/webhook/targetresolver) | M38 | 目标引用到实际 endpoint |
 | [pkg/adapter/runexecutor/graph](../pkg/adapter/runexecutor/graph) | M22 | Graph 到 RunExecutor |

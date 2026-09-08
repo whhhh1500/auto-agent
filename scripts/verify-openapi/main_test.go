@@ -87,7 +87,7 @@ func TestNotificationTargetsDocumentTenantFencingAndPrivateConfiguration(t *test
 	if _, ok := deleteRequest.Properties["config"]; ok {
 		t.Fatal("notification target delete request must not carry configuration")
 	}
-	for _, name := range []string{"NotificationTargetView", "NotificationTargetListResponse"} {
+	for _, name := range []string{"NotificationTargetView", "NotificationChannelView", "NotificationTargetListResponse"} {
 		response := notificationTargetSchema(t, document, name)
 		if _, ok := response.Properties["config"]; ok {
 			t.Fatalf("%s must not expose notification target configuration", name)
@@ -95,6 +95,18 @@ func TestNotificationTargetsDocumentTenantFencingAndPrivateConfiguration(t *test
 	}
 	view := notificationTargetSchema(t, document, "NotificationTargetView")
 	expectRequiredProperties(t, view, "target_ref", "channel_id", "channel_version", "enabled", "revision")
+	channel := notificationTargetSchema(t, document, "NotificationChannelView")
+	expectRequiredProperties(t, channel, "id", "version")
+	for _, forbidden := range []string{"config", "secret", "url", "capabilities"} {
+		if _, ok := channel.Properties[forbidden]; ok {
+			t.Fatalf("notification channel discovery must not expose %q", forbidden)
+		}
+	}
+	list := notificationTargetSchema(t, document, "NotificationTargetListResponse")
+	expectRequiredProperties(t, list, "targets", "channels")
+	if !hasResponseSchema(pathItem["get"], "NotificationTargetListResponse") {
+		t.Fatal("notification target list must return NotificationTargetListResponse")
+	}
 }
 
 func TestSandboxProviderDiscoveryDocumentsReadOnlySanitizedProbeContract(t *testing.T) {
