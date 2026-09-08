@@ -33,12 +33,12 @@ func TestNormalizedProtocolContract(t *testing.T) {
 			path:     "/chat/completions",
 			text:     `{"choices":[{"message":{"content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3}}`,
 			tool:     `{"choices":[{"message":{"tool_calls":[{"id":"call-1","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":3}}`,
-			textSSE: normalizedContractSSE(
+			textSSE: openAIChatContractSSE(
 				`{"choices":[{"delta":{"content":"hel"}}]}`,
 				`{"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}`,
 				`{"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3}}`,
 			),
-			toolSSE: normalizedContractSSE(
+			toolSSE: openAIChatContractSSE(
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"weather","arguments":"{\"city\":"}}]}}]}`,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`{"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3}}`,
@@ -191,6 +191,10 @@ func assertNormalizedContractChunks(t *testing.T, chunks []core.StreamChunk, fin
 	if assistant.Text != "" || assistant.ToolCall == nil || !reflect.DeepEqual(*assistant.ToolCall, wantCall) || !reflect.DeepEqual(assistant.ToolCalls, []core.ToolCall{wantCall}) {
 		t.Fatalf("tool chunks=%#v", chunks)
 	}
+}
+
+func openAIChatContractSSE(events ...string) string {
+	return normalizedContractSSE(events...) + "data: [DONE]\n\n"
 }
 
 func normalizedContractSSE(events ...string) string {
