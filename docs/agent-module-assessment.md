@@ -409,7 +409,7 @@ flowchart TD
 
 ### M23 — Graph 状态、检查点、历史与段授权
 
-**实现 / 状态：** [extensions/graph](../pkg/extensions/graph)定义标准库合同；[sql/graphcheckpoint](../pkg/adapter/sql/graphcheckpoint)持久化 CAS head、不可变版本与追加 transition，当前 schema v46（图历史表由 v41 引入）；[sql/graphsegment](../pkg/adapter/sql/graphsegment)处理段租约。ContextPlanner、SandboxAuthorizer、ApprovalAuthorizer 在 [ports.go](../pkg/execution/graph/ports.go)注入，不凭图节点文本授予权限。
+**实现 / 状态：** [extensions/graph](../pkg/extensions/graph)定义标准库合同；[sql/graphcheckpoint](../pkg/adapter/sql/graphcheckpoint)持久化 CAS head、不可变版本与追加 transition；图历史表由 schema v41 引入，当前 schema 为 v47；[sql/graphsegment](../pkg/adapter/sql/graphsegment)处理段租约。ContextPlanner、SandboxAuthorizer、ApprovalAuthorizer 在 [ports.go](../pkg/execution/graph/ports.go)注入，不凭图节点文本授予权限。
 
 **扩展：** E1：实现 Checkpoint Store / 可选 HistoryStore、段租约与授权端口；内存实现用于测试与嵌入。自定义存储须保持比较交换、版本历史和 transition 的原子性，不能只保存最后一份 JSON 就声称等价。
 
@@ -545,7 +545,7 @@ flowchart TD
 
 ### M34 — Session 持久化、SQL 与事件查询
 
-**实现 / 状态：** [session_store.go](../pkg/core/session_store.go)、[pkg/storage](../pkg/storage)提供 File、SQL、S3 等会话/对象实现，支持可选事件追加、write-behind 与证据查询。SQL 支持 SQLite / PostgreSQL，当前累计 schema **v41**，有启动迁移、锁与未来版本拒绝路径。各 Store 能力不应假定完全相同。
+**实现 / 状态：** [session_store.go](../pkg/core/session_store.go)、[pkg/storage](../pkg/storage)提供 File、SQL、S3 等会话/对象实现，支持可选事件追加、write-behind 与证据查询。SQL 支持 SQLite / PostgreSQL。此处的累计 schema **v41** 是 2026-09-06 的历史快照；当前 schema 为 **v47**，见[当前研究台账](research/2026-09-08-module-optimization-ledger.md)。两者都有启动迁移、锁与未来版本拒绝路径。各 Store 能力不应假定完全相同。
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
@@ -675,7 +675,7 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 
 ### M44 — 测试、架构边界与性能工具
 
-**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium，各记录注明执行范围。LLM 摘要计量后 core 实测为 34 个生产文件、8,721 非空物理行、公共表面计数 905，**不是 905 个接口**；最新新增一个复用协议校验器的 usage 消费函数，门禁阈值未放宽，摘要策略/计量扩展位于 app。
+**实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium，各记录注明执行范围。这里“34 个生产文件、8,721 非空物理行、公共表面计数 905（不是 905 个接口）”是 2026-09-06 的历史快照。当前状态见[研究台账 M44](research/2026-09-08-module-optimization-ledger.md)：34 个生产文件、8,819 非空行、910 个公共 API 项；硬限仍是 8,821 行和 910 个公共 API 项。当时新增一个复用协议校验器的 usage 消费函数，门禁阈值未放宽，摘要策略/计量扩展位于 app。
 
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 
