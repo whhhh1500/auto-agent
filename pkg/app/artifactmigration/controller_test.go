@@ -77,6 +77,179 @@ func TestCoordinatorCopiesReplaysAndActivatesAfterPersistentState(t *testing.T) 
 	}
 }
 
+// This restart-boundary test closes and reopens the durable SQLite handle and
+// recreates process-local routers/bindings around the same FileObjectStore
+// roots. It proves recovery from the prepared state, durable mutation digest
+// evidence, and writes made while the resumed streaming copy is live.
+func TestCoordinatorRestartsWithDiskSQLiteAndFileStores(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	dbPath := filepath.Join(t.TempDir(), "artifact-migration.db")
+	firstDB, firstRepository := openPersistentRepository(t, dbPath)
+	localRoot := t.TempDir()
+	localBase, err := storage.NewFileObjectStore(localRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetRoot := t.TempDir()
+	target, err := storage.NewFileObjectStore(targetRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localBase.Put(ctx, "seed", []byte("seed"), storage.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localBase.Put(ctx, "remove-before-restart", []byte("old"), storage.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	firstRouter := storage.NewDynamicObjectStore(localBase, "local")
+	first, err := app.NewCoordinator(firstRepository, "worker-before-restart", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequest := request(firstRouter, target, nil)
+	if _, err := first.Prepare(ctx, firstRequest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := firstRouter.Put(ctx, "before-restart", []byte("durable"), storage.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstRouter.Delete(ctx, "remove-before-restart"); err != nil {
+		t.Fatal(err)
+	}
+	beforeRestart, found, err := firstRepository.Load(ctx)
+	if err != nil || !found || beforeRestart.ListingCursor != "" || beforeRestart.MutationHighWater != 2 {
+		t.Fatalf("pre-restart migration=%#v found=%t err=%v", beforeRestart, found, err)
+	}
+	if err := firstDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	secondDB, secondRepository := openPersistentRepository(t, dbPath)
+	// A fresh DynamicObjectStore models the process-local route attachment
+	// disappearing across restart. Blocking its first source read lets writes
+	// race the resumed streaming copy and prove the new recorder is durable.
+	restartedSource := newBlockingOpenStore(localBase, 0)
+	released := false
+	defer func() {
+		if !released {
+			close(restartedSource.release)
+		}
+	}()
+	secondRouter := storage.NewDynamicObjectStore(restartedSource, "local")
+	second, err := app.NewCoordinator(secondRepository, "worker-after-restart", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := second.Prepare(ctx, request(secondRouter, target, nil))
+	if err != nil || !prepared.Prepared || prepared.Migration.ID != beforeRestart.ID || prepared.Migration.ListingCursor != beforeRestart.ListingCursor || prepared.Migration.MutationHighWater != beforeRestart.MutationHighWater {
+		t.Fatalf("restart prepare=%#v err=%v", prepared, err)
+	}
+	mutations, err := secondRepository.ListMutations(ctx, beforeRestart.ID, 0, 8)
+	if err != nil || len(mutations) != 2 {
+		t.Fatalf("reopened pending mutations=%#v err=%v", mutations, err)
+	}
+	for _, mutation := range mutations {
+		if mutation.Operation == app.MutationPut && mutation.Digest == "" {
+			t.Fatalf("put mutation lost digest after restart: %#v", mutation)
+		}
+	}
+	runDone := make(chan struct {
+		status app.Status
+		err    error
+	}, 1)
+	go func() {
+		status, runErr := second.RunOnce(ctx)
+		runDone <- struct {
+			status app.Status
+			err    error
+		}{status, runErr}
+	}()
+	select {
+	case <-restartedSource.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("restarted migration did not begin streaming copy")
+	}
+	var writes sync.WaitGroup
+	writes.Add(2)
+	go func() {
+		defer writes.Done()
+		if _, err := secondRouter.Put(ctx, "during-restart", []byte("replayed"), storage.PutOptions{}); err != nil {
+			t.Errorf("concurrent restarted put: %v", err)
+		}
+	}()
+	go func() {
+		defer writes.Done()
+		if err := secondRouter.Delete(ctx, "seed"); err != nil {
+			t.Errorf("concurrent restarted delete: %v", err)
+		}
+	}()
+	writes.Wait()
+	close(restartedSource.release)
+	released = true
+	var outcome struct {
+		status app.Status
+		err    error
+	}
+	select {
+	case outcome = <-runDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("restarted migration did not complete")
+	}
+	if outcome.err != nil || outcome.status.Migration.State != app.StateS3Active || secondRouter.Label() != "s3" || outcome.status.Migration.ListingCursor == "" || outcome.status.Migration.MutationHighWater != 4 {
+		t.Fatalf("restart run=%#v label=%q err=%v", outcome.status, secondRouter.Label(), outcome.err)
+	}
+	for key, want := range map[string]string{"before-restart": "durable", "during-restart": "replayed"} {
+		body, _, getErr := secondRouter.Get(ctx, key)
+		if getErr != nil || string(body) != want {
+			t.Fatalf("activated target key=%q body=%q err=%v", key, body, getErr)
+		}
+	}
+	for _, key := range []string{"remove-before-restart", "seed"} {
+		if _, _, getErr := secondRouter.Get(ctx, key); !errors.Is(getErr, storage.ErrObjectNotFound) {
+			t.Fatalf("activated target retained deleted key=%q err=%v", key, getErr)
+		}
+	}
+	if err := secondDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rebuild all process-local storage objects after activation. Prepare must
+	// restore the persisted active target instead of assuming the old router is
+	// still available in memory.
+	thirdDB, thirdRepository := openPersistentRepository(t, dbPath)
+	defer thirdDB.Close()
+	reopenedLocal, err := storage.NewFileObjectStore(localRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenedTarget, err := storage.NewFileObjectStore(targetRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdRouter := storage.NewDynamicObjectStore(reopenedLocal, "local")
+	third, err := app.NewCoordinator(thirdRepository, "worker-after-active-restart", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := third.Prepare(ctx, request(thirdRouter, reopenedTarget, nil))
+	if err != nil || restored.Prepared || restored.Migration.State != app.StateS3Active || restored.Migration.ListingCursor != outcome.status.Migration.ListingCursor || thirdRouter.Label() != "s3" {
+		t.Fatalf("active restart restore=%#v label=%q err=%v", restored, thirdRouter.Label(), err)
+	}
+	for key, want := range map[string]string{"before-restart": "durable", "during-restart": "replayed"} {
+		body, _, getErr := thirdRouter.Get(ctx, key)
+		if getErr != nil || string(body) != want {
+			t.Fatalf("restored target key=%q body=%q err=%v", key, body, getErr)
+		}
+	}
+	for _, key := range []string{"remove-before-restart", "seed"} {
+		if _, _, getErr := thirdRouter.Get(ctx, key); !errors.Is(getErr, storage.ErrObjectNotFound) {
+			t.Fatalf("restored target retained deleted key=%q err=%v", key, getErr)
+		}
+	}
+}
+
 func TestCoordinatorMutationAppendFailureLeavesLocalAndRejectsActivation(t *testing.T) {
 	base, closeDB := newRepository(t)
 	defer closeDB()
@@ -696,6 +869,24 @@ func newRepository(t *testing.T) (*sqlmigration.Store, func()) {
 		t.Fatal(err)
 	}
 	return repository, func() { _ = db.Close() }
+}
+
+func openPersistentRepository(t *testing.T, path string) (*sql.DB, *sqlmigration.Store) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?_pragma=busy_timeout%285000%29")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.OpenSQLSessionStore(context.Background(), db, storage.SQLDialectSQLite); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	repository, err := sqlmigration.New(db, sqlkit.SQLite)
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	return db, repository
 }
 
 type failingAppendRepository struct {
