@@ -38,12 +38,16 @@ func main() {
 	for delay := time.Second; ctx.Err() == nil; delay = min(delay*2, 15*time.Second) {
 		got, err := w.claim(ctx)
 		if err != nil {
-			time.Sleep(delay)
+			if err := waitForRetry(ctx, delay); err != nil {
+				return
+			}
 			continue
 		}
 		delay = time.Second
 		if got == nil {
-			time.Sleep(time.Second)
+			if err := waitForRetry(ctx, time.Second); err != nil {
+				return
+			}
 			continue
 		}
 		if got.CancelRequested {
@@ -64,6 +68,19 @@ func min(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+// waitForRetry keeps the worker's bounded idle/backoff cadence while allowing
+// signal cancellation to stop an otherwise idle worker promptly.
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 func (w worker) claim(ctx context.Context) (*claim, error) {
 	var out claim

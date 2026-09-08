@@ -34,6 +34,15 @@ func TestRunWorkerProcessCrashRecovery(t *testing.T) {
 	}
 }
 
+// FastRouter must preserve the same non-replay boundary without a model step:
+// the child is hard-killed after the guarded route has durably recorded its
+// call and committed its non-idempotent effect.
+func TestFastRouterProcessCrashRecovery(t *testing.T) {
+	for _, point := range []string{"effect_committed", "journal_completed"} {
+		t.Run(point, func(t *testing.T) { runFastRouterProcessCrashRecovery(t, point) })
+	}
+}
+
 // This uses a real Native Strict worker in a separate OS process. The child is
 // killed after the SQL tool journal commits but before Core can append the
 // tool/result; the replacement must use the sealed recovery path, not replay
@@ -291,12 +300,20 @@ type processCrashAuditEvidence struct {
 }
 
 func runProcessCrashRecovery(t *testing.T, point string, live bool) {
+	runProcessCrashRecoveryMode(t, point, live, false)
+}
+
+func runFastRouterProcessCrashRecovery(t *testing.T, point string) {
+	runProcessCrashRecoveryMode(t, point, false, true)
+}
+
+func runProcessCrashRecoveryMode(t *testing.T, point string, live, fastRouter bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	open := testdb.Postgres(t)
 	api := newSerialAuditedAPI(t, open(), &processCrashModel{}, &atomic.Int32{})
-	configureProcessCrash(t, api, nil)
+	configureProcessCrash(t, api, nil, fastRouter)
 	if _, err := api.db.ExecContext(ctx, `CREATE TABLE crash_effects (call_id TEXT NOT NULL, durable_version BIGINT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
@@ -306,8 +323,12 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 	}
 	sessionID := serialSession(t, api, "crash.agent")
 	var run storage.RunRecord
+	message := "Call crash.effect exactly once with n=7. Then report its result."
+	if fastRouter {
+		message = "fast crash route"
+	}
 	if err := acceptanceRequest(&http.Client{Timeout: 20 * time.Second}, http.MethodPost,
-		api.http.URL+"/v1/sessions/"+sessionID+"/runs/async", map[string]string{"message": "Call crash.effect exactly once with n=7. Then report its result."}, &run); err != nil {
+		api.http.URL+"/v1/sessions/"+sessionID+"/runs/async", map[string]string{"message": message}, &run); err != nil {
 		t.Fatal(err)
 	}
 	checkpoints := make(chan processCrashEvidence, 2)
@@ -333,7 +354,7 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 		hideCrashHelperWindow(cmd)
 		cmd.Env = append(os.Environ(), "HARNESS_CRASH_HELPER=1", "HARNESS_CRASH_SCHEMA="+schema,
 			"HARNESS_CRASH_COLLECTOR="+collector.URL, "HARNESS_CRASH_PHASE="+phase,
-			"HARNESS_CRASH_POINT="+point, fmt.Sprintf("HARNESS_CRASH_LIVE=%t", live))
+			"HARNESS_CRASH_POINT="+point, fmt.Sprintf("HARNESS_CRASH_LIVE=%t", live), fmt.Sprintf("HARNESS_CRASH_FAST_ROUTER=%t", fastRouter))
 		// Child logs stay local: no arbitrary upstream errors enter evidence.
 		var output bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &output, &output
@@ -421,8 +442,8 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 		RunStatus: state.Status, RunErrorCode: state.ErrorCode, FinalSQLHistory: processCrashSummarizeEvents(durableAfter),
 	}
 	events := serialAuditHistory(t, api, sessionID)
-	t.Logf("hard crash point=%s live=%t durable_version=%d effects=%d->%d model_calls=%d+%d journal_rows=%d status=%s code=%s",
-		point, live, versionBefore, effectsBefore, effectsAfter, before.ModelCalls, after.ModelCalls, journalAfter.Rows, state.Status, state.ErrorCode)
+	t.Logf("hard crash point=%s live=%t fast_router=%t durable_version=%d effects=%d->%d model_calls=%d+%d journal_rows=%d status=%s code=%s",
+		point, live, fastRouter, versionBefore, effectsBefore, effectsAfter, before.ModelCalls, after.ModelCalls, journalAfter.Rows, state.Status, state.ErrorCode)
 	if before.PID != first.Process.Pid || before.Phase != "crash" || !before.Blocked {
 		t.Fatalf("checkpoint did not identify the blocked owned child: checkpoint=%+v process_pid=%d", before, first.Process.Pid)
 	}
@@ -438,7 +459,11 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 	if requeued != 1 || failed != 0 {
 		t.Fatalf("claim recovery outcome: requeued=%d failed=%d", requeued, failed)
 	}
-	if effectsBefore != 1 || effectsAfter != 1 || before.ModelCalls != 1 || after.ModelCalls != 0 || journalAfter.Rows != 1 {
+	wantFirstModelCalls := 1
+	if fastRouter {
+		wantFirstModelCalls = 0
+	}
+	if effectsBefore != 1 || effectsAfter != 1 || before.ModelCalls != wantFirstModelCalls || after.ModelCalls != 0 || journalAfter.Rows != 1 {
 		t.Fatalf("crash replay duplicated work: effects=%d->%d calls=%d+%d journal_rows=%d", effectsBefore, effectsAfter, before.ModelCalls, after.ModelCalls, journalAfter.Rows)
 	}
 	if effectVersionBefore != versionBefore || effectVersionAfter != effectVersionBefore {
@@ -453,11 +478,11 @@ func runProcessCrashRecovery(t *testing.T, point string, live bool) {
 		t.Fatal("HTTP history differs from the raw durable SQL event chunks")
 	}
 	audit.HTTPMatchesSQL = true
-	callID := assertProcessCrashDurableHistory(t, run.RunID, versionBefore, durableBefore, events)
+	callID := assertProcessCrashDurableHistory(t, run.RunID, versionBefore, durableBefore, events, fastRouter)
 	if callID != journalBefore.CallID {
 		t.Fatalf("durable tool call and journal identity differ: history=%s journal=%s", callID, journalBefore.CallID)
 	}
-	assertProcessCrashTraces(t, point, sessionID, run.RunID, callID, before, after)
+	assertProcessCrashTraces(t, point, sessionID, run.RunID, callID, before, after, fastRouter)
 	processCrashRequireSafeAudit(t, audit)
 	// Publish only evidence that survived every semantic and trace assertion.
 	serialWriteAudit(t, run.RunID+"_process_crash", audit)
@@ -609,11 +634,14 @@ func assertProcessCrashQueue(t *testing.T, before, after processCrashQueueEviden
 	}
 }
 
-func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64, before, after []core.SessionEvent) string {
+func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64, before, after []core.SessionEvent, fastRouter bool) string {
 	t.Helper()
 	wantPrefix := []core.SessionEventType{
 		core.EvRunStart, core.EvUserMessage, core.EvStepStart,
 		core.EvAssistantMessage, core.EvRunUsage, core.EvToolCall,
+	}
+	if fastRouter {
+		wantPrefix = []core.SessionEventType{core.EvRunStart, core.EvUserMessage, core.EvToolCall}
 	}
 	if version != int64(len(wantPrefix)) || len(before) != len(wantPrefix) {
 		t.Fatalf("pre-effect durable prefix version=%d events=%d, want %d", version, len(before), len(wantPrefix))
@@ -623,31 +651,40 @@ func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64,
 			t.Fatalf("invalid durable prefix event %d: %+v", i, event)
 		}
 	}
-	var assistant core.AssistantMessageData
-	if err := json.Unmarshal(before[3].Data, &assistant); err != nil {
-		t.Fatal(err)
-	}
-	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Name != "crash.effect" {
-		t.Fatalf("durable assistant call differs from fixture: %+v", assistant.ToolCalls)
-	}
-	var usage core.RunUsageData
-	if err := json.Unmarshal(before[4].Data, &usage); err != nil {
-		t.Fatal(err)
-	}
-	if usage.InvocationID != fmt.Sprintf("model:%d", before[2].Seq) {
-		t.Fatalf("durable model usage does not bind the active step: usage=%+v step_seq=%d", usage, before[2].Seq)
+	callIndex, assistantCallID := 5, ""
+	if !fastRouter {
+		var assistant core.AssistantMessageData
+		if err := json.Unmarshal(before[3].Data, &assistant); err != nil {
+			t.Fatal(err)
+		}
+		if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].Name != "crash.effect" {
+			t.Fatalf("durable assistant call differs from fixture: %+v", assistant.ToolCalls)
+		}
+		assistantCallID = assistant.ToolCalls[0].ID
+		var usage core.RunUsageData
+		if err := json.Unmarshal(before[4].Data, &usage); err != nil {
+			t.Fatal(err)
+		}
+		if usage.InvocationID != fmt.Sprintf("model:%d", before[2].Seq) {
+			t.Fatalf("durable model usage does not bind the active step: usage=%+v step_seq=%d", usage, before[2].Seq)
+		}
+	} else {
+		callIndex = 2
 	}
 	var call core.ToolCallData
-	if err := json.Unmarshal(before[5].Data, &call); err != nil {
+	if err := json.Unmarshal(before[callIndex].Data, &call); err != nil {
 		t.Fatal(err)
 	}
-	if call.CallID == "" || call.CallID != assistant.ToolCalls[0].ID || call.Name != "crash.effect" || fmt.Sprint(call.Args["n"]) != "7" {
+	if call.CallID == "" || (!fastRouter && call.CallID != assistantCallID) || call.Name != "crash.effect" || fmt.Sprint(call.Args["n"]) != "7" {
 		t.Fatalf("durable tool call identity differs from model output: %+v", call)
 	}
-	if len(after) != len(before)+4 || !reflect.DeepEqual(after[:len(before)], before) {
+	wantSuffix := []core.SessionEventType{core.EvToolResult, core.EvStepEnd, core.EvRunError, core.EvRunEnd}
+	if fastRouter {
+		wantSuffix = []core.SessionEventType{core.EvToolResult, core.EvRunError, core.EvRunEnd}
+	}
+	if len(after) != len(before)+len(wantSuffix) || !reflect.DeepEqual(after[:len(before)], before) {
 		t.Fatalf("recovery did not preserve the exact durable prefix: before=%d after=%d", len(before), len(after))
 	}
-	wantSuffix := []core.SessionEventType{core.EvToolResult, core.EvStepEnd, core.EvRunError, core.EvRunEnd}
 	for i, event := range after[len(before):] {
 		if event.Seq != int64(len(before)+i) || event.RunID != runID || event.Type != wantSuffix[i] {
 			t.Fatalf("invalid repaired suffix event %d: %+v", i, event)
@@ -660,12 +697,16 @@ func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64,
 	if result.CallID != call.CallID || result.OK || result.Metadata["code"] != core.CodeToolOutcomeUnknown || result.Metadata["repaired"] != true {
 		t.Fatalf("interrupted tool result is not a repaired unknown outcome: %+v", result)
 	}
+	runErrorIndex := len(before) + 2
+	if fastRouter {
+		runErrorIndex = len(before) + 1
+	}
 	var runError core.RuntimeErrorData
-	if err := json.Unmarshal(after[len(before)+2].Data, &runError); err != nil {
+	if err := json.Unmarshal(after[runErrorIndex].Data, &runError); err != nil {
 		t.Fatal(err)
 	}
 	var runEnd core.RunEndData
-	if err := json.Unmarshal(after[len(before)+3].Data, &runEnd); err != nil {
+	if err := json.Unmarshal(after[runErrorIndex+1].Data, &runEnd); err != nil {
 		t.Fatal(err)
 	}
 	if runError.Code != core.CodeRunInterrupted || runEnd.Status != core.RunFailed {
@@ -674,7 +715,7 @@ func assertProcessCrashDurableHistory(t *testing.T, runID string, version int64,
 	return call.CallID
 }
 
-func assertProcessCrashTraces(t *testing.T, point, sessionID, runID, callID string, before, after processCrashEvidence) {
+func assertProcessCrashTraces(t *testing.T, point, sessionID, runID, callID string, before, after processCrashEvidence, fastRouter bool) {
 	t.Helper()
 	if before.ActiveCallID != callID {
 		t.Fatalf("crash checkpoint call identity differs: active=%s durable=%s", before.ActiveCallID, callID)
@@ -696,16 +737,19 @@ func assertProcessCrashTraces(t *testing.T, point, sessionID, runID, callID stri
 			toolSpans = append(toolSpans, span)
 		}
 	}
-	if len(modelSpans) != 1 || modelSpans[0].TraceID != before.ActiveTrace ||
+	if fastRouter && len(modelSpans) != 0 {
+		t.Fatalf("fast route emitted model spans: %+v", modelSpans)
+	}
+	if !fastRouter && (len(modelSpans) != 1 || modelSpans[0].TraceID != before.ActiveTrace ||
 		modelSpans[0].Attributes["run.id"] != runID || modelSpans[0].Attributes["session.id"] != sessionID ||
-		modelSpans[0].Attributes["run.step"] != "0" || modelSpans[0].Attributes["model.outcome"] != "ok" {
+		modelSpans[0].Attributes["run.step"] != "0" || modelSpans[0].Attributes["model.outcome"] != "ok") {
 		t.Fatalf("ended model span is detached from active run trace: active=%s/%s spans=%+v", before.ActiveTrace, before.ActiveSpan, modelSpans)
 	}
 	if point == "effect_committed" {
-		if len(toolSpans) != 0 || modelSpans[0].ParentID == before.ActiveSpan {
+		if len(toolSpans) != 0 || (!fastRouter && modelSpans[0].ParentID == before.ActiveSpan) {
 			t.Fatalf("effect checkpoint is not inside the still-active tool span: model=%+v tools=%+v", modelSpans, toolSpans)
 		}
-	} else if len(toolSpans) != 1 || toolSpans[0].TraceID != before.ActiveTrace || toolSpans[0].ParentID != before.ActiveSpan || modelSpans[0].ParentID != before.ActiveSpan ||
+	} else if len(toolSpans) != 1 || toolSpans[0].TraceID != before.ActiveTrace || toolSpans[0].ParentID != before.ActiveSpan || (!fastRouter && modelSpans[0].ParentID != before.ActiveSpan) ||
 		toolSpans[0].Attributes["run.id"] != runID || toolSpans[0].Attributes["session.id"] != sessionID ||
 		toolSpans[0].Attributes["call.id"] != callID || toolSpans[0].Attributes["capability.id"] != "crash.effect" ||
 		toolSpans[0].Attributes["tool.outcome"] != "ok" || toolSpans[0].Attributes["tool.idempotent"] != "false" {
@@ -819,11 +863,12 @@ func TestRunWorkerCrashHelper(t *testing.T) {
 			<-ctx.Done() // Parent kills us here; no provider return or cleanup runs.
 		}
 	}
+	fastRouter := os.Getenv("HARNESS_CRASH_FAST_ROUTER") == "true"
 	configureProcessCrash(t, api, func(ctx context.Context, callID string) {
 		if phase == "crash" && point == "effect_committed" {
 			report(ctx, true, callID)
 		}
-	})
+	}, fastRouter)
 	if phase == "crash" && point == "journal_completed" {
 		api.server.runtime.ToolJournal = &processCrashJournal{ToolInvocationJournal: api.server.runtime.ToolJournal, checkpoint: report}
 	}
@@ -1001,13 +1046,20 @@ func (model *nativeRecoveryCrashModel) Stream(ctx context.Context, options core.
 	return nil
 }
 
-func configureProcessCrash(t *testing.T, api *serialAuditedAPI, checkpoint func(context.Context, string)) {
+func configureProcessCrash(t *testing.T, api *serialAuditedAPI, checkpoint func(context.Context, string), fastRouter bool) {
 	t.Helper()
 	if os.Getenv("HARNESS_LLM_MODEL") == "" {
 		t.Setenv("HARNESS_LLM_MODEL", "crash-fixture")
 	}
 	serialRegister(t, api, processCrashTool{db: api.db, checkpoint: checkpoint})
 	serialProfile(t, api, "crash.agent", "Call crash.effect exactly once with n=7. Never simulate its result. After the tool result, answer briefly without another tool call.", "crash.effect")
+	if fastRouter {
+		api.server.runtime.FastRouters = core.FastRouterResolverFunc(func(context.Context, *core.AgentProfileSnapshot) (*core.FastRouter, error) {
+			router := &core.FastRouter{}
+			router.Add(core.FastRule{Match: func(text string) bool { return text == "fast crash route" }, Capability: "crash.effect", Args: func(string) map[string]any { return map[string]any{"n": 7} }})
+			return router, nil
+		})
+	}
 }
 
 type processCrashTool struct {
