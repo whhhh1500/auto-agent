@@ -41,7 +41,7 @@
 | [M17](#m17) | 人工审批 | 已验证路径 | 真实模型请求工具→持久暂停→替换服务实例→同 Run 恢复；副作用和终态各 1 次。该既有夹具未装 ContextAssembler。 |
 | [M18](#m18) | ToolJournal | 已验证故障路径 | 非幂等工具在 effect committed / journal completed 两点被真实硬杀；恢复保持 1 条 journal 与 1 次副作用。通用路径继续 fail closed；Native Strict 的证据完整 A/B 路径可窄恢复，缺失 witness/当前身份不符仍拒绝。 |
 | [M19](#m19) | 队列 / 租约 | 已验证故障路径 | 独立 worker 进程硬杀、过期 claim 回收、不同 PID 替换进程及队列清空通过；长期并发故障迁移未测。 |
-| [M20](#m20) | 子 Agent | 定向修复已冻结 | 子审批替换实例恢复已加 parent queue 映射与拒绝路径；SQLite/PostgreSQL/race 定向通过，统一门禁待运行。 |
+| [M20](#m20) | 子 Agent | 本轮整合门禁已通过 | 子审批替换实例恢复已加 parent queue 映射与拒绝路径；SQLite/PostgreSQL/race 定向和最终整合门禁均通过，见 M44。 |
 | [M21](#m21) | Workflow | 发现问题后验证 | 7→double=14→plus=17，受保护内层调用与三份工具结果均可审计，真实最终回答 17；不是复杂 DAG 验收。 |
 | [M22](#m22) | Graph | 本地示例已验证 | 三个独立进程以 SQL checkpoint 与外置 SQL 审批事实完成 draft→review→finalize；默认服务的 Graph RunExecutor 和模型驱动图仍未验。 |
 | [M23](#m23) | Graph 检查点 | 本地示例已验证 | 挂起后的审批 key/revision/source segment 在外置 SQLite 持久化；重建后恢复且 draft 只运行一次。没有通用审批服务或真实模型场景。 |
@@ -375,7 +375,7 @@ flowchart TD
 
 **扩展：** E1：注册子 Profile 和能力，注入 SessionStore / DelegationLinkStore；以合同缩小子权限与预算。子任务等待审批需向父 Run 传播暂停，不能产生失去父关联的孤立审批。
 
-**本轮修复 / 验收：** 子 approval 在替换实例中若没有 child queue row，会从深度 1 的 durable delegation link 定位并唤醒其 parent queue；resume 与 wake 均绑定 parent `session_id`、tenant、subject、waiting/cancel 状态。cancelled parent、link identity 不符、嵌套 link 或缺 parent queue 会返回 409 并保留 pending approval。SQLite 与 PostgreSQL replacement 正反路径和定向 race 已通过；尚待与本批其余冻结改动一起跑统一门禁。
+**本轮修复 / 验收：** 子 approval 在替换实例中若没有 child queue row，会从深度 1 的 durable delegation link 定位并唤醒其 parent queue；resume 与 wake 均绑定 parent `session_id`、tenant、subject、waiting/cancel 状态。cancelled parent、link identity 不符、嵌套 link 或缺 parent queue 会返回 409 并保留 pending approval。SQLite 与 PostgreSQL replacement 正反路径和定向 race 已通过；本批最终整合门禁见 [M44](#m44)。
 
 **性能：** 子 Agent 会增加模型轮次、上下文和存储；递归限制用于控制放大。尚无树深、扇出、并行度与 token 成本分布的基准，不能将包名 `subagent` 理解为无限并行调度器。
 
