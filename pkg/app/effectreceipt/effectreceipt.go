@@ -52,6 +52,10 @@ var (
 	ErrReadBack           = errors.New("external effect read-back failure")
 	ErrReadBackPanic      = errors.New("external effect read-back panic")
 	ErrReadBackMismatch   = errors.New("external effect read-back mismatch")
+	// ErrDispatchAdmission and ErrDispatchAdmissionPanic classify a failed
+	// context-bound native admission without retaining implementation details.
+	ErrDispatchAdmission      = errors.New("external effect dispatch admission failure")
+	ErrDispatchAdmissionPanic = errors.New("external effect dispatch admission panic")
 )
 
 // DriverRef fixes the provider adapter and version that own an effect.
@@ -177,6 +181,39 @@ type Store interface {
 	MarkConfirmed(context.Context, Intent, Observation) (Record, error)
 	MarkRejected(context.Context, Intent, Observation) (Record, error)
 	MarkUnknown(context.Context, Intent, string) (Record, error)
+}
+
+// DispatchAdmitter is an optional atomic admission port for a prepared
+// external-effect receipt. Service first calls Store.Ensure to durably create
+// or replay the immutable prepared intent; this port must never create one. A
+// true begun value belongs to the sole caller that transitioned the exact
+// prepared receipt to dispatching; a false value is an exact canonical replay
+// that must be reconciled by read-back. Native implementations may atomically
+// bind this transition to a current queue fence, authorization epoch, and tool
+// witness.
+type DispatchAdmitter interface {
+	BeginDispatch(context.Context, Intent) (Record, bool, error)
+}
+
+type dispatchAdmitterContextKey struct{}
+
+// WithDispatchAdmitter binds one optional admission port to ctx. Service uses
+// it only for the provider-crossing transition; ordinary calls without this
+// value retain the Store-only flow. A nil context is returned unchanged so the
+// caller receives Service's normal fixed invalid-context classification.
+func WithDispatchAdmitter(ctx context.Context, admitter DispatchAdmitter) context.Context {
+	if ctx == nil {
+		return nil
+	}
+	return context.WithValue(ctx, dispatchAdmitterContextKey{}, admitter)
+}
+
+func dispatchAdmitterFromContext(ctx context.Context) (DispatchAdmitter, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	admitter, ok := ctx.Value(dispatchAdmitterContextKey{}).(DispatchAdmitter)
+	return admitter, ok && admitter != nil
 }
 
 // RecoveryRecord is a durable effect record with SQL- or adapter-owned

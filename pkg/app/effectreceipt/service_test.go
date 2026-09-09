@@ -39,6 +39,83 @@ func TestExecutePersistsDispatchingBeforeProviderAndDoesNotConfirmAcceptance(t *
 	}
 }
 
+func TestExecuteEnsuresIntentThenUsesContextDispatchAdmitter(t *testing.T) {
+	request := testRequest(t, "native admission")
+	store := newFakeStore()
+	store.seed(t, Record{Intent: request.Intent, State: StatePrepared})
+	driver := &fakeDriver{ref: request.Intent.Driver}
+	service := testService(t, store, driver)
+	admitter := &fakeDispatchAdmitter{store: store}
+
+	record, err := service.Execute(WithDispatchAdmitter(context.Background(), admitter), request)
+	if err != nil || record.State != StateAccepted || admitter.calls != 1 {
+		t.Fatalf("record=%+v admission_calls=%d err=%v", record, admitter.calls, err)
+	}
+	if got, want := strings.Join(store.operations, ","), "ensure,admitted,accepted"; got != want {
+		t.Fatalf("admitted execute operation order=%q want=%q", got, want)
+	}
+
+	missing := testRequest(t, "missing native admission")
+	secondStore := newFakeStore()
+	secondAdmitter := &fakeDispatchAdmitter{store: secondStore}
+	secondService := testService(t, secondStore, &fakeDriver{ref: missing.Intent.Driver})
+	if record, err := secondService.Execute(WithDispatchAdmitter(context.Background(), secondAdmitter), missing); err != nil || record.State != StateAccepted {
+		t.Fatalf("new admitted receipt record=%+v err=%v", record, err)
+	}
+	if got, want := strings.Join(secondStore.operations, ","), "ensure,admitted,accepted"; got != want || secondAdmitter.calls != 1 {
+		t.Fatalf("new admitted create/transition sequence operations=%q calls=%d", got, secondAdmitter.calls)
+	}
+}
+
+func TestDispatchAdmitterErrorsAndPanicsAreFixed(t *testing.T) {
+	request := testRequest(t, "admission failures")
+	for _, test := range []struct {
+		name     string
+		admitter DispatchAdmitter
+		want     error
+	}{
+		{name: "error", admitter: dispatchAdmitterFunc(func(context.Context, Intent) (Record, bool, error) {
+			return Record{}, false, errors.New("provider secret")
+		}), want: ErrDispatchAdmission},
+		{name: "panic", admitter: dispatchAdmitterFunc(func(context.Context, Intent) (Record, bool, error) {
+			panic("provider panic secret")
+		}), want: ErrDispatchAdmissionPanic},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newFakeStore()
+			store.seed(t, Record{Intent: request.Intent, State: StatePrepared})
+			service := testService(t, store, &fakeDriver{ref: request.Intent.Driver})
+			if _, err := service.Execute(WithDispatchAdmitter(context.Background(), test.admitter), request); !errors.Is(err, test.want) {
+				t.Fatalf("error=%v want=%v", err, test.want)
+			}
+			if strings.Contains(strings.Join(store.operations, ","), "dispatching") {
+				t.Fatal("failed admission fell back to Store.BeginDispatch")
+			}
+		})
+	}
+}
+
+func TestDispatchingReceiptReconcilesWithoutAdmitterEvenWhenJournalWouldBeUncertain(t *testing.T) {
+	request := testRequest(t, "uncertain journal replay")
+	store := newFakeStore()
+	store.seed(t, Record{Intent: request.Intent, State: StateDispatching, DispatchAttempts: 1})
+	driver := &fakeDriver{ref: request.Intent.Driver}
+	driver.readBackFn = func(_ context.Context, intent Intent) (Observation, error) {
+		return confirmedObservation(intent), nil
+	}
+	service := testService(t, store, driver)
+	admitter := dispatchAdmitterFunc(func(context.Context, Intent) (Record, bool, error) {
+		panic("must not redispatch an uncertain journal")
+	})
+	record, err := service.Execute(WithDispatchAdmitter(context.Background(), admitter), request)
+	if err != nil || record.State != StateConfirmed || driver.dispatchCount() != 0 || driver.readBackCount() != 1 {
+		t.Fatalf("record=%+v dispatch=%d read_back=%d err=%v", record, driver.dispatchCount(), driver.readBackCount(), err)
+	}
+	if got, want := strings.Join(store.operations, ","), "ensure,confirmed"; got != want {
+		t.Fatalf("dispatching replay operations=%q want=%q", got, want)
+	}
+}
+
 func TestCrashAfterProviderDispatchRecoversWithReadBackWithoutRedispatch(t *testing.T) {
 	request := testRequest(t, "crash window")
 	store := newFakeStore()
@@ -467,6 +544,37 @@ type fakeStore struct {
 	ensureErr       error
 	markAcceptedErr error
 	beginGate       func()
+}
+
+type fakeDispatchAdmitter struct {
+	store *fakeStore
+	calls int
+}
+
+func (a *fakeDispatchAdmitter) BeginDispatch(_ context.Context, intent Intent) (Record, bool, error) {
+	a.calls++
+	a.store.mu.Lock()
+	defer a.store.mu.Unlock()
+	a.store.operations = append(a.store.operations, "admitted")
+	record, found := a.store.records[intent.IntentDigest]
+	if !found {
+		return Record{}, false, ErrNotFound
+	}
+	if record.Intent != intent {
+		return Record{}, false, ErrConflict
+	}
+	if record.State != StatePrepared {
+		return record, false, nil
+	}
+	record.State, record.DispatchAttempts = StateDispatching, record.DispatchAttempts+1
+	a.store.records[intent.IntentDigest] = record
+	return record, true, nil
+}
+
+type dispatchAdmitterFunc func(context.Context, Intent) (Record, bool, error)
+
+func (f dispatchAdmitterFunc) BeginDispatch(ctx context.Context, intent Intent) (Record, bool, error) {
+	return f(ctx, intent)
 }
 
 type wrongEnsureStore struct {

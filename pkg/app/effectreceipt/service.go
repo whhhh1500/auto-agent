@@ -21,8 +21,10 @@ func NewService(store Store, driver Driver) (*Service, error) {
 	return &Service{store: store, driver: driver}, nil
 }
 
-// Execute creates an intent record when needed and dispatches it once only
-// from prepared. Existing in-flight records are reconciled by read-back.
+// Execute first durably ensures the immutable prepared intent, then dispatches
+// once only from prepared. A context DispatchAdmitter owns only the atomic
+// prepared-to-dispatching transition; it never needs to create an intent.
+// Existing in-flight records are reconciled by read-back.
 func (s *Service) Execute(ctx context.Context, request DispatchRequest) (Record, error) {
 	if ctx == nil {
 		return Record{}, ErrInvalidContext
@@ -126,6 +128,9 @@ func (s *Service) dispatch(ctx context.Context, request DispatchRequest) (Record
 }
 
 func (s *Service) beginDispatch(ctx context.Context, intent Intent) (record Record, begun bool, err error) {
+	if admitter, ok := dispatchAdmitterFromContext(ctx); ok {
+		return s.admitDispatch(ctx, admitter, intent)
+	}
 	defer func() {
 		if recover() != nil {
 			record = Record{}
@@ -141,6 +146,34 @@ func (s *Service) beginDispatch(ctx context.Context, intent Intent) (record Reco
 		return Record{}, false, ErrStore
 	}
 	return record, begun, nil
+}
+
+func (s *Service) admitDispatch(ctx context.Context, admitter DispatchAdmitter, intent Intent) (record Record, begun bool, err error) {
+	defer func() {
+		if recover() != nil {
+			record = Record{}
+			begun = false
+			err = ErrDispatchAdmissionPanic
+		}
+	}()
+	record, begun, err = admitter.BeginDispatch(ctx, intent)
+	if err != nil {
+		return Record{}, false, fixedAdmissionError(err)
+	}
+	if recordForIntent(record, intent) != nil {
+		return Record{}, false, ErrDispatchAdmission
+	}
+	return record, begun, nil
+}
+
+func fixedAdmissionError(err error) error {
+	if errors.Is(err, ErrConflict) {
+		return ErrConflict
+	}
+	if errors.Is(err, ErrNotFound) {
+		return ErrNotFound
+	}
+	return ErrDispatchAdmission
 }
 
 func (s *Service) reconcileRecord(ctx context.Context, record Record) (Record, error) {
