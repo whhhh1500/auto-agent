@@ -438,6 +438,7 @@ func evaluationStoreConformanceCase(id string) evaluation.CaseResult {
 		CaseID: id, SessionID: "evalsess_conformance", AgentRunID: "evalcase_conformance",
 		Status: core.RunCompleted, Answer: "done", Score: 1, Passed: true,
 		Assertions: []evaluation.AssertionResult{{AssertionID: "status", Kind: evaluation.AssertRunStatus, Score: 1, Passed: true}},
+		Evidence:   &evaluation.ExecutionEvidence{ReportedInputTokens: 13, ReportedOutputTokens: 5, UsageReports: 1, StepsStarted: 1, StepsEnded: 1, TopLevelToolCalls: 1, ToolResultEventsOK: 1},
 		DurationMS: 1, CompletedAt: time.Unix(1_700_000_050, 0).UTC(),
 	}
 }

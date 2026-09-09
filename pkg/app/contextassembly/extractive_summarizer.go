@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -68,9 +69,16 @@ type extractiveTool struct {
 	result   *core.ChatMessage
 }
 
+type extractiveUserMessage struct {
+	sourceIndex int
+	message     core.ChatMessage
+}
+
 // Summarize emits existing durable summaries, the latest user goals, and tool
-// call/result evidence. It walks the source once and only writes bounded
-// fragments, so a giant transcript or tool result is never concatenated.
+// call/result evidence first. It then uses any remaining bounded envelope for
+// earlier user records in source order. It walks the source once and only
+// writes bounded fragments, so a giant transcript or tool result is never
+// concatenated.
 func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.ChatMessage) (string, error) {
 	if s == nil || ctx == nil || len(messages) == 0 || len(messages) > maxExtractiveSourceMessages {
 		return "", ErrInvalid
@@ -80,10 +88,16 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 	}
 
 	summaries := make([]core.ChatMessage, 0, maxExtractiveSummaryItems)
-	users := make([]core.ChatMessage, 0, maxExtractiveSummaryItems)
+	users := make([]extractiveUserMessage, 0, maxExtractiveSummaryItems)
 	tools := make([]extractiveTool, 0)
 	byID := make(map[string]int)
 	unpairedResults := make([]core.ChatMessage, 0)
+	// nested tracks protected child results by their active model-visible
+	// parent. They are audit evidence, not a second result the model should see;
+	// the parent result is the only model-facing program outcome. A nested
+	// result without a later parent completion is unsafe to summarize because
+	// it can make an interrupted program look complete.
+	nested := make(map[string]bool)
 	for i := range messages {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -94,7 +108,7 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 			continue
 		}
 		if message.Role == core.RoleUser {
-			users = appendLatest(users, message, maxExtractiveSummaryItems)
+			users = append(users, extractiveUserMessage{sourceIndex: i, message: message})
 		}
 		if message.Role == core.RoleAssistant {
 			calls := message.ToolCalls
@@ -117,10 +131,22 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 				copyOf := message
 				tools[index].result = &copyOf
 				delete(byID, message.ToolCallID) // IDs can be reused after a completed call, across turns.
-			} else {
-				unpairedResults = append(unpairedResults, message)
+				delete(nested, message.ToolCallID)
+				continue
 			}
+			parent, found := activeToolParent(message.ToolCallID, byID)
+			if !found {
+				if strings.Contains(message.ToolCallID, "/") {
+					return "", ErrInvalid
+				}
+				unpairedResults = append(unpairedResults, message)
+				continue
+			}
+			nested[parent] = true
 		}
+	}
+	if len(nested) != 0 {
+		return "", ErrInvalid
 	}
 
 	// Reserve a small suffix for the explicit omission declaration before any
@@ -129,14 +155,40 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 	reserve := 192
 	builder := boundedSummaryBuilder{limit: s.maxBytes - reserve, hardLimit: s.maxBytes}
 	builder.record(fmt.Sprintf("[extractive summary source_messages=%d]", len(messages)))
+	recentStart := max(0, len(users)-maxExtractiveSummaryItems)
+	// Build recent user records once before the prior-summary pass. In
+	// particular, messageValue may hash an oversized current update; caching
+	// means the reservation calculation and the later write cannot repeat that
+	// work or produce different evidence.
+	recentRecords := make([]string, 0, len(users)-recentStart)
+	recentReservedBytes := 0
+	for _, user := range users[recentStart:] {
+		record := "recent_user_goal_or_constraint: " + s.messageValue(user.message.Content, s.maxMessageBytes)
+		recentRecords = append(recentRecords, record)
+		// canFitRecordLength deliberately accounts for a newline even for the
+		// first record. Use the same conservative accounting for the
+		// reservation so every cached record that collectively fits is still
+		// eligible after the prior-summary pass.
+		recentReservedBytes += len(record) + 1
+	}
+
+	// Preserve the established output order (prior summary before recent user
+	// records), while preventing a nearly-full prior summary -- including its
+	// omission marker -- from consuming all room needed by current updates.
+	// If the current records alone exceed the envelope, leave the temporary
+	// limit at the header and restore the normal "write what fits" behavior
+	// below rather than growing the 12 KiB cap or dropping all current records.
+	originalLimit := builder.limit
+	builder.limit = max(builder.builder.Len(), originalLimit-recentReservedBytes)
 	for _, message := range summaries {
 		// A prior durable summary has a different budget from a single raw
 		// message. Preserve it whole when it fits, otherwise label its omission.
 		remaining := builder.limit - builder.builder.Len() - len("prior_summary: ") - 1
 		builder.record("prior_summary: " + s.messageValue(message.Content, remaining))
 	}
-	for _, message := range users {
-		builder.record("recent_user_goal_or_constraint: " + s.messageValue(message.Content, s.maxMessageBytes))
+	builder.limit = originalLimit
+	for _, record := range recentRecords {
+		builder.record(record)
 	}
 	for _, tool := range tools {
 		call := "tool_call id=" + s.identifier(tool.id) + " name=" + s.identifier(tool.name)
@@ -155,13 +207,47 @@ func (s *ExtractiveSummarizer) Summarize(ctx context.Context, messages []core.Ch
 	for _, result := range unpairedResults {
 		builder.record("tool_result id=" + s.identifier(result.ToolCallID) + " status=unpaired result=" + s.messageValue(result.Content, s.maxToolBytes))
 	}
-	if builder.omitted > 0 {
-		builder.forceRecord(fmt.Sprintf("[extractive omitted_records=%d]", builder.omitted))
+	// The recent goals, existing summaries, and tool causal evidence above are
+	// the fixed priority. Any remaining bounded envelope is then used for older
+	// user records in original source order. The label makes their historical
+	// position explicit instead of presenting them as current instructions.
+	omittedEarlierUsers := 0
+	for _, user := range users[:recentStart] {
+		prefix := "earlier_user_history source_index=" + strconv.Itoa(user.sourceIndex) + ": "
+		content := user.message.Content
+		// Earlier records are opportunistic. Never hash or scan an oversized
+		// source merely to discover that it cannot be retained: that would turn
+		// a full historical prefix into unbounded CPU work after the envelope is
+		// already full. The established recent-user and tool paths keep their
+		// existing evidence/hash behavior.
+		if len(content) > s.maxMessageBytes || !builder.canFitRecordLength(len(prefix)+len(content)) || !utf8.ValidString(content) {
+			omittedEarlierUsers++
+			continue
+		}
+		if !builder.tryRecord(prefix + content) {
+			// canFitRecordLength above makes this unreachable without a future
+			// builder change, but retain fail-closed omission accounting.
+			omittedEarlierUsers++
+		}
+	}
+	if builder.omitted > 0 || omittedEarlierUsers > 0 {
+		builder.forceRecord(fmt.Sprintf("[extractive omitted_records=%d omitted_earlier_users=%d]", builder.omitted, omittedEarlierUsers))
 	}
 	if builder.builder.Len() == 0 {
 		return "", ErrInvalid
 	}
 	return builder.builder.String(), nil
+}
+
+func activeToolParent(callID string, active map[string]int) (string, bool) {
+	parent := callID
+	for slash := strings.LastIndexByte(parent, '/'); slash > 0; slash = strings.LastIndexByte(parent, '/') {
+		parent = parent[:slash]
+		if _, found := active[parent]; found {
+			return parent, true
+		}
+	}
+	return "", false
 }
 
 func (s *ExtractiveSummarizer) toolArgs(args map[string]any) string {
@@ -222,14 +308,24 @@ type boundedSummaryBuilder struct {
 }
 
 func (b *boundedSummaryBuilder) record(value string) {
-	if value == "" || b.builder.Len()+len(value)+1 > b.limit {
+	if !b.tryRecord(value) {
 		b.omitted++
-		return
+	}
+}
+
+func (b *boundedSummaryBuilder) tryRecord(value string) bool {
+	if value == "" || !b.canFitRecordLength(len(value)) {
+		return false
 	}
 	if b.builder.Len() > 0 {
 		b.builder.WriteByte('\n')
 	}
 	b.builder.WriteString(value)
+	return true
+}
+
+func (b *boundedSummaryBuilder) canFitRecordLength(length int) bool {
+	return length > 0 && b.builder.Len()+length+1 <= b.limit
 }
 
 func (b *boundedSummaryBuilder) forceRecord(value string) {

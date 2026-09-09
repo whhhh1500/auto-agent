@@ -598,6 +598,7 @@ func (s *CapabilitySnapshot) executeProtected(
 		Args: args,
 		Context: CapabilityContext{
 			Principal: clonePrincipal(s.principal), Scope: s.Scope,
+			Data:                s.Capabilities,
 			CapabilityID:        call.Name,
 			CompositionRevision: compositionRevision,
 			Policy:              policy, Credentials: credentials, Invoker: invoker,

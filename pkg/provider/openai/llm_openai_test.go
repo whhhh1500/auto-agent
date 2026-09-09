@@ -148,6 +148,21 @@ func TestOpenAICompatibleFacadeUsesM2BridgeWithSharedTransport(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleFacadeBindsWireNameProtocolRevision(t *testing.T) {
+	adapter := NewOpenAICompatibleAdapter(OpenAIAdapterConfig{BaseURL: "https://api.example.test", APIKey: "test-secret", Model: "wire"})
+	if got, want := adapter.ArtifactRevision(), "openai-compatible/chat-completions/v3-wire-tool-names"; got != want {
+		t.Fatalf("ArtifactRevision()=%q, want %q", got, want)
+	}
+	bridge, err := adapter.m2Bridge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adapter.credentials.Clear()
+	if got, want := bridge.Plan.Protocol.ImplementationRevision, "openai-chat-completions-v3-wire-tool-names"; got != want {
+		t.Fatalf("plan protocol implementation revision=%q, want %q", got, want)
+	}
+}
+
 func TestRetryFacadeMapsM2HTTPStatusForExistingRetryPolicy(t *testing.T) {
 	for _, test := range []struct{ status, want int }{{http.StatusTooManyRequests, 2}, {http.StatusInternalServerError, 2}, {http.StatusBadRequest, 1}} {
 		t.Run(http.StatusText(test.status), func(t *testing.T) {

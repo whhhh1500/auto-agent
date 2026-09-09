@@ -3,13 +3,13 @@ package oteltelemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 
@@ -85,16 +85,16 @@ func TestRecorderExportsFixedSpansAndMetrics(t *testing.T) {
 	}
 }
 
-func TestRecorderBoundsRecordedExceptionMessage(t *testing.T) {
+func TestRecorderRedactsExceptionMessageAndUsesStableCategories(t *testing.T) {
 	tests := []struct {
-		name    string
-		message string
-		want    string
+		name     string
+		err      error
+		wantType string
 	}{
-		{name: "1023 bytes", message: strings.Repeat("x", 1023), want: strings.Repeat("x", 1023)},
-		{name: "1024 bytes", message: strings.Repeat("x", 1024), want: strings.Repeat("x", 1024)},
-		{name: "1025 bytes", message: strings.Repeat("x", 1025), want: strings.Repeat("x", 1024)},
-		{name: "does not split UTF-8", message: strings.Repeat("x", 1023) + "é", want: strings.Repeat("x", 1023)},
+		{name: "unknown error", err: errors.New("api_key=TOP-SECRET request body=private"), wantType: telemetryErrorTypeUnknown},
+		{name: "wrapped cancellation", err: fmt.Errorf("provider request failed: %w", context.Canceled), wantType: telemetryErrorTypeCanceled},
+		{name: "wrapped deadline", err: fmt.Errorf("provider request failed: %w", context.DeadlineExceeded), wantType: telemetryErrorTypeDeadline},
+		{name: "joined cancellation and deadline", err: errors.Join(context.Canceled, context.DeadlineExceeded), wantType: telemetryErrorTypeDeadline},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -110,39 +110,30 @@ func TestRecorderBoundsRecordedExceptionMessage(t *testing.T) {
 			}
 
 			_, span := recorder.Start(context.Background(), core.SpanRunSegment, nil)
-			span.End(errors.New(test.message), nil)
+			span.End(test.err, nil)
 
 			spans := traceExporter.GetSpans()
 			if len(spans) != 1 {
 				t.Fatalf("spans=%d, want 1", len(spans))
 			}
-			if got := spans[0].Status.Description; got != test.want {
-				t.Fatalf("status message length=%d, want %d", len(got), len(test.want))
+			if got := spans[0].Status.Description; got != telemetryErrorDescription {
+				t.Fatalf("status description=%q, want %q", got, telemetryErrorDescription)
 			}
-			for _, event := range spans[0].Events {
-				if event.Name != "exception" {
-					continue
-				}
-				for _, attribute := range event.Attributes {
-					if string(attribute.Key) != "exception.message" {
-						continue
-					}
-					got := attribute.Value.AsString()
-					if got != test.want {
-						t.Fatalf("exception message length=%d, want %d", len(got), len(test.want))
-					}
-					if !utf8.ValidString(got) {
-						t.Fatal("exception message is not valid UTF-8")
-					}
-					return
-				}
+			if got := exceptionEventAttribute(t, spans[0], "exception.message"); got != telemetryErrorDescription {
+				t.Fatalf("exception.message=%q, want %q", got, telemetryErrorDescription)
 			}
-			t.Fatal("exception event message not recorded")
+			if got := exceptionEventAttribute(t, spans[0], "exception.type"); got != test.wantType {
+				t.Fatalf("exception.type=%q, want %q", got, test.wantType)
+			}
+			if strings.Contains(spans[0].Status.Description, "TOP-SECRET") ||
+				strings.Contains(exceptionEventAttribute(t, spans[0], "exception.message"), "TOP-SECRET") {
+				t.Fatal("secret leaked into span status or exception message")
+			}
 		})
 	}
 }
 
-func TestRecorderPreservesSDKExceptionType(t *testing.T) {
+func TestRecorderDoesNotExportConcreteExceptionType(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
@@ -152,18 +143,6 @@ func TestRecorderPreservesSDKExceptionType(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			sdkExporter := tracetest.NewInMemoryExporter()
-			sdkProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(sdkExporter))
-			defer sdkProvider.Shutdown(context.Background())
-			_, sdkSpan := sdkProvider.Tracer(t.Name()).Start(context.Background(), "sdk-record-error")
-			sdkSpan.RecordError(test.err)
-			sdkSpan.End()
-			sdkSpans := sdkExporter.GetSpans()
-			if len(sdkSpans) != 1 {
-				t.Fatalf("SDK spans=%d, want 1", len(sdkSpans))
-			}
-			want := exceptionEventAttribute(t, sdkSpans[0], "exception.type")
-
 			recorderExporter := tracetest.NewInMemoryExporter()
 			recorderProvider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(recorderExporter))
 			defer recorderProvider.Shutdown(context.Background())
@@ -179,8 +158,8 @@ func TestRecorderPreservesSDKExceptionType(t *testing.T) {
 			if len(recorderSpans) != 1 {
 				t.Fatalf("recorder spans=%d, want 1", len(recorderSpans))
 			}
-			if got := exceptionEventAttribute(t, recorderSpans[0], "exception.type"); got != want {
-				t.Fatalf("exception.type=%q, SDK RecordError=%q", got, want)
+			if got := exceptionEventAttribute(t, recorderSpans[0], "exception.type"); got != telemetryErrorTypeUnknown {
+				t.Fatalf("exception.type=%q, want %q", got, telemetryErrorTypeUnknown)
 			}
 		})
 	}
@@ -333,6 +312,11 @@ func TestNewFromEnvExportsOTLPHTTP(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, field := range otel.GetTextMapPropagator().Fields() {
+		if strings.EqualFold(field, "baggage") {
+			t.Fatal("NewFromEnv enabled Baggage propagation")
+		}
 	}
 	ctx, span := recorder.Start(context.Background(), core.SpanRunSegment, nil)
 	recorder.AddCounter(ctx, core.MetricRuns, 1, core.TelemetryAttributes{"run.status": "completed"})

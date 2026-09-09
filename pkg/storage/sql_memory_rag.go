@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -69,6 +70,7 @@ var (
 	sqlMemoryCountScope  = sqlQuery{"SELECT COUNT(*) FROM memory_entries WHERE scope = ?"}
 	sqlMemoryCountKey    = sqlQuery{"SELECT COUNT(*) FROM memory_entries WHERE scope = ? AND key = ?"}
 	sqlMemoryCountScopes = sqlQuery{"SELECT COUNT(DISTINCT scope) FROM memory_entries"}
+	sqlMemoryLookup      = sqlQuery{"SELECT scope, id, key, content, tags_json, created_at FROM memory_entries WHERE scope = ? AND key = ?"}
 )
 
 func (s *SQLMemoryStore) Remember(ctx context.Context, scope core.ScopePath, entry core.MemoryEntry) (core.MemoryEntry, error) {
@@ -173,6 +175,40 @@ func (s *SQLMemoryStore) Recall(ctx context.Context, scope core.ScopePath, query
 		out = append(out, entry)
 	}
 	return out, rows.Err()
+}
+
+// Lookup returns the entry for one exact key in the supplied ownership scope.
+// It intentionally does not apply recall's case-insensitive content matching.
+func (s *SQLMemoryStore) Lookup(ctx context.Context, scope core.ScopePath, key string) (core.MemoryEntry, bool, error) {
+	if err := memory.ValidateScope(scope); err != nil {
+		return core.MemoryEntry{}, false, err
+	}
+	if err := memory.ValidateLookupKey(key); err != nil {
+		return core.MemoryEntry{}, false, err
+	}
+
+	var entry core.MemoryEntry
+	var storedScope string
+	var tagsJSON string
+	var createdMillis int64
+	err := s.db.QueryRowContext(ctx, sqlMemoryLookup.bind(s.dialect), scope.String(), key).Scan(
+		&storedScope, &entry.ID, &entry.Key, &entry.Content, &tagsJSON, &createdMillis,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return core.MemoryEntry{}, false, nil
+	}
+	if err != nil {
+		return core.MemoryEntry{}, false, err
+	}
+	if storedScope != scope.String() || entry.Key != key {
+		return core.MemoryEntry{}, false, fmt.Errorf("memory lookup returned a non-exact scope or key")
+	}
+	entry.Tags, err = decodeMemoryTags(tagsJSON)
+	if err != nil {
+		return core.MemoryEntry{}, false, fmt.Errorf("decode memory entry %q tags: %w", entry.ID, err)
+	}
+	entry.CreatedAt = time.UnixMilli(createdMillis).UTC()
+	return entry, true, nil
 }
 
 func (s *SQLMemoryStore) Forget(ctx context.Context, scope core.ScopePath, id string) error {

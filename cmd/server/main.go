@@ -28,11 +28,13 @@ import (
 	notificationruntime "github.com/whhhh1500/auto-agent/pkg/adapter/notification/runtime"
 	webhook "github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook"
 	webhooktargets "github.com/whhhh1500/auto-agent/pkg/adapter/notification/webhook/targetresolver"
+	programmaticextension "github.com/whhhh1500/auto-agent/pkg/adapter/programmatic/toolcapability"
 	sandboxexec "github.com/whhhh1500/auto-agent/pkg/adapter/sandboxexec"
 	notificationsql "github.com/whhhh1500/auto-agent/pkg/adapter/sql/notificationtarget"
 	appcontextassembly "github.com/whhhh1500/auto-agent/pkg/app/contextassembly"
 	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
 	appnotification "github.com/whhhh1500/auto-agent/pkg/app/notification"
+	programmaticcatalog "github.com/whhhh1500/auto-agent/pkg/app/programmatic"
 	"github.com/whhhh1500/auto-agent/pkg/control"
 	executionsandbox "github.com/whhhh1500/auto-agent/pkg/execution/sandbox"
 	"github.com/whhhh1500/auto-agent/pkg/extensions/memory"
@@ -192,9 +194,7 @@ func main() {
 	must(err)
 	notificationCapabilities, err := notificationcoretool.NewWithDirectory(notificationRegistry, notificationTargets)
 	must(err)
-	for _, capability := range notificationCapabilities {
-		must(capabilities.Register(global, capability))
-	}
+	must(bindProgrammaticExposures(capabilities, global, notificationCapabilities))
 	// One durable memory store and one durable RAG index serve both projection
 	// maintenance and the general profile's standard guarded capabilities.
 	// Constructing them once prevents divergent in-process caches or rebuilders.
@@ -204,12 +204,19 @@ func main() {
 	must(err)
 	memoryCapabilities, err := memory.NewStandardCapabilities(memoryStore)
 	must(err)
-	for _, capability := range memoryCapabilities {
-		must(capabilities.Register(global, capability))
-	}
+	must(bindProgrammaticExposures(capabilities, global, memoryCapabilities))
 	ragSearch, err := rag.NewStandardSearchCapability("rag.search", ragIndex)
 	must(err)
-	must(capabilities.Register(global, ragSearch))
+	must(bindProgrammaticExposures(capabilities, global, []core.Capability{ragSearch}))
+	programCatalog, err := programmaticextension.NewCatalogCapability("program.catalog")
+	must(err)
+	programExecute, err := programmaticextension.NewExecuteCapability("program.execute")
+	must(err)
+	// Program capabilities deliberately do not receive the programmatic
+	// exposure marker: only the explicit memory/RAG/notification allowlist may
+	// be invoked from a bounded program, preventing recursive execution.
+	must(capabilities.Register(global, programCatalog))
+	must(capabilities.Register(global, programExecute))
 	configuredStorage, err := configureStorageWithMigration(
 		context.Background(), dataDir, settingsRepository, sqlStore, os.LookupEnv, db, dialect,
 	)
@@ -531,6 +538,35 @@ func main() {
 		}
 		cancelTelemetryShutdown()
 	}
+}
+
+// bindProgrammaticExposures marks a composition-owned allowlist without
+// replacing its providers. The replacement preserves each provider instance,
+// including ArtifactRevision, while the copied metadata keeps caller-owned
+// manifests immutable. Core still evaluates profile, permission, approval,
+// budgets, journal, and the protected invoker for every nested call.
+func bindProgrammaticExposures(registry *core.CapabilityRegistry, scope core.ScopePath, capabilities []core.Capability) error {
+	if registry == nil {
+		return fmt.Errorf("programmatic exposure requires a capability registry")
+	}
+	for _, capability := range capabilities {
+		if capability == nil {
+			return fmt.Errorf("programmatic exposure capability is nil")
+		}
+		manifest := capability.Manifest()
+		metadata := make(map[string]string, len(manifest.Metadata)+1)
+		for key, value := range manifest.Metadata {
+			metadata[key] = value
+		}
+		metadata[programmaticcatalog.ExposureKey] = programmaticcatalog.ExposureVersion
+		manifest.Metadata = metadata
+		if err := registry.Bind(core.CapabilityBinding{
+			Scope: scope, Mode: core.BindingProvide, Manifest: manifest, Provider: capability,
+		}); err != nil {
+			return fmt.Errorf("mark %q for programmatic exposure: %w", manifest.ID, err)
+		}
+	}
+	return nil
 }
 
 // defaultNotificationAssembly supplies the host's only built-in notification

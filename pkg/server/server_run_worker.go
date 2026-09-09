@@ -456,7 +456,11 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 			if errorCode == "" && existingStatus == core.RunFailed {
 				errorCode = "run_already_started"
 			}
-			return s.finishQueuedRunClaim(task, workerID, existingStatus, errorCode)
+			if err := s.finishQueuedRunClaim(task, workerID, existingStatus, errorCode); err != nil {
+				return err
+			}
+			s.observeTerminalRouteEvidence(workerCtx, s.runtime, session, principal, task.RunID, existingStatus)
+			return nil
 		}
 	}
 
@@ -600,6 +604,7 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 	if err := s.finishQueuedRunClaim(task, workerID, status, runTerminalErrorCode(session, task.RunID)); err != nil {
 		return err
 	}
+	s.observeTerminalRouteEvidence(runCtx, runRuntime, session, principal, task.RunID, status)
 	if s.runStats != nil {
 		s.recordRunStat(context.WithoutCancel(runCtx), session, task.RunID, principal, status, started)
 	}

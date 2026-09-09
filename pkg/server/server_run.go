@@ -213,6 +213,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	controlFinished := !durableRunCreated
 	if durableRunCreated {
 		stopRunControlMonitor()
 		durableRunFinished = true
@@ -221,7 +222,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 				s.logger.ErrorContext(context.WithoutCancel(runCtx), "finish durable run failed", slogString("run", runID), slogString("error", err.Error()))
 			}
 			_ = stream.Write("control/error", map[string]string{"error": err.Error()})
+		} else {
+			controlFinished = true
 		}
+	}
+	if controlFinished {
+		s.observeTerminalRouteEvidence(runCtx, runRuntime, session, principal, runID, status)
 	}
 	if s.runStats != nil {
 		s.recordRunStat(context.WithoutCancel(runCtx), session, runID, principal, status, runStart)

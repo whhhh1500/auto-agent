@@ -33,6 +33,15 @@ type OpenAIAdapterConfig struct {
 	AllowedModels []string
 }
 
+// These legacy facade defaults intentionally mirror modelruntime's compiled
+// OpenAI chat plan. Keep the context budget here because this exported
+// compatibility facade constructs its plan lazily and must report a budget
+// before it creates credentials or a transport-backed bridge.
+const (
+	legacyOpenAIContextWindowTokens    = 128_000
+	legacyOpenAIDefaultMaxOutputTokens = 16_384
+)
+
 // NewOpenAIAdapterFromEnv reads the public HARNESS_LLM_* environment contract.
 func NewOpenAIAdapterFromEnv() (*OpenAICompatibleAdapter, error) {
 	base := os.Getenv("HARNESS_LLM_BASE_URL")
@@ -106,7 +115,30 @@ func NewOpenAICompatibleAdapter(cfg OpenAIAdapterConfig) *OpenAICompatibleAdapte
 func (a *OpenAICompatibleAdapter) Provider() string { return "openai-compatible" }
 
 func (a *OpenAICompatibleAdapter) ArtifactRevision() string {
-	return "openai-compatible/chat-completions/v2-terminal-sentinel"
+	return "openai-compatible/chat-completions/v3-wire-tool-names"
+}
+
+// ModelContextLimits reports the same bounded context plan that this facade
+// will compile. It only reads the immutable adapter configuration: asking for
+// limits neither constructs the lazy bridge nor materializes credentials.
+// Invalid values deliberately return zero values so core retains its
+// conservative fallback instead of assembling an unusable model request.
+func (a *OpenAICompatibleAdapter) ModelContextLimits() (int, int) {
+	if a == nil {
+		return 0, 0
+	}
+	return legacyOpenAIModelContextLimits(a.cfg.MaxTokens)
+}
+
+func legacyOpenAIModelContextLimits(maxTokens int) (int, int) {
+	maxOutput := maxTokens
+	if maxOutput == 0 {
+		maxOutput = legacyOpenAIDefaultMaxOutputTokens
+	}
+	if maxOutput <= 0 || maxOutput >= legacyOpenAIContextWindowTokens {
+		return 0, 0
+	}
+	return legacyOpenAIContextWindowTokens, maxOutput
 }
 
 func (a *OpenAICompatibleAdapter) Stream(ctx context.Context, opts core.GenerateOptions, emit func(core.StreamChunk)) error {
@@ -134,15 +166,19 @@ func (a *OpenAICompatibleAdapter) m2Bridge() (*corebridge.Adapter, error) {
 }
 
 func (a *OpenAICompatibleAdapter) buildM2Bridge() (*corebridge.Adapter, error) {
+	contextWindow, maxOutput := a.ModelContextLimits()
+	if contextWindow == 0 || maxOutput == 0 {
+		return nil, fmt.Errorf("openai adapter model context limits are invalid")
+	}
 	providerRef := modelcontrol.Ref{ID: "openai-compatible", Version: "1"}
 	protocolRef := modelcontrol.Ref{ID: "openai-chat-completions", Version: "1"}
 	endpoint := modelcontrol.EndpointRef{ID: "legacy-openai-endpoint", Revision: "1"}
 	credential := modelcontrol.CredentialRef{ID: "legacy-openai-credential", Revision: "1"}
-	catalog, err := modelcontrol.NewRegistry([]modelcontrol.CatalogModel{{Ref: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, WireModel: a.cfg.Model, Provider: providerRef, Protocol: protocolRef, Credential: credential, Capabilities: modelcontrol.ModelCapabilities{ContextWindowTokens: 128000, MaxOutputTokens: 16384, ToolCalls: true, Modalities: []modelcontrol.Modality{modelcontrol.ModalityText}}}}, []modelcontrol.ProviderSpec{{Ref: providerRef, Endpoint: endpoint, ImplementationRevision: "openai-compatible-http-v1"}}, []modelcontrol.ProtocolSpec{{Ref: protocolRef, ImplementationRevision: "openai-chat-completions-v2-terminal-sentinel"}}, []modelcontrol.Compatibility{{Provider: providerRef, Protocol: protocolRef}})
+	catalog, err := modelcontrol.NewRegistry([]modelcontrol.CatalogModel{{Ref: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, WireModel: a.cfg.Model, Provider: providerRef, Protocol: protocolRef, Credential: credential, Capabilities: modelcontrol.ModelCapabilities{ContextWindowTokens: contextWindow, MaxOutputTokens: maxOutput, ToolCalls: true, Modalities: []modelcontrol.Modality{modelcontrol.ModalityText}}}}, []modelcontrol.ProviderSpec{{Ref: providerRef, Endpoint: endpoint, ImplementationRevision: "openai-compatible-http-v1"}}, []modelcontrol.ProtocolSpec{{Ref: protocolRef, ImplementationRevision: "openai-chat-completions-v3-wire-tool-names"}}, []modelcontrol.Compatibility{{Provider: providerRef, Protocol: protocolRef}})
 	if err != nil {
 		return nil, err
 	}
-	plan, err := catalog.Resolve(modelcontrol.ResolveInput{Catalog: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, CompositionRevision: "legacy-openai-facade-v1"})
+	plan, err := catalog.Resolve(modelcontrol.ResolveInput{Catalog: modelcontrol.Ref{ID: "legacy-openai-model", Version: "1"}, CompositionRevision: "legacy-openai-facade-v2-wire-tool-names"})
 	if err != nil {
 		return nil, err
 	}

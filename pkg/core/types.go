@@ -244,7 +244,7 @@ type CapabilityContext struct {
 	// CompositionRevision is the immutable composition selected for this run.
 	// Capability adapters may use it for lease and artifact provenance.
 	CompositionRevision string               `json:"composition_revision,omitempty"`
-	Data                any                  `json:"-"`
+	Data                any                  `json:"-"` // Snapshot calls supply func() []SnapshotCapability for trusted, lazy catalog projection.
 	Policy              SandboxPolicy        `json:"policy"`
 	Credentials         CredentialAccessor   `json:"-"`
 	Invoker             ProtectedToolInvoker `json:"-"`

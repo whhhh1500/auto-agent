@@ -47,7 +47,7 @@ func TestGeneralProfileControllerPrefersPersistedModelAndHasNoTools(t *testing.T
 	}
 }
 
-func TestGeneralCapabilityIDsAreSortedUniqueAndDescribeSandbox(t *testing.T) {
+func TestGeneralCapabilityIDsAreSortedUniqueAndDescribeExecutionChoice(t *testing.T) {
 	ids := generalCapabilityIDs()
 	if !sort.StringsAreSorted(ids) {
 		t.Fatalf("capability ids are not sorted: %q", ids)
@@ -59,11 +59,25 @@ func TestGeneralCapabilityIDsAreSortedUniqueAndDescribeSandbox(t *testing.T) {
 		}
 		seen[id] = true
 	}
-	if !seen["sandbox.exec"] {
-		t.Fatal("sandbox.exec missing from general capability source")
+	for _, id := range []string{"program.catalog", "program.execute", "sandbox.exec"} {
+		if !seen[id] {
+			t.Fatalf("%s missing from general capability source", id)
+		}
 	}
-	if !strings.Contains(generalProfilePrompt, "argv only") || !strings.Contains(generalProfilePrompt, "network") || !strings.Contains(generalProfilePrompt, "host fallback") {
-		t.Fatalf("sandbox behavior missing from prompt: %q", generalProfilePrompt)
+	if seen["codeptc"] {
+		t.Fatal("reserved CodePTC must not be selected by the general profile")
+	}
+	for _, phrase := range []string{"ordinary tool directly", "program.execute", "deterministic, bounded", "program.catalog", "not exposed", "argv only", "network", "host fallback"} {
+		if !strings.Contains(generalProfilePrompt, phrase) {
+			t.Fatalf("general execution policy is incomplete (%q): %q", phrase, generalProfilePrompt)
+		}
+	}
+	const programBindingInstruction = "When choosing program.execute, first obtain program bindings from program.catalog and follow the program tool description."
+	if !strings.Contains(generalProfilePrompt, programBindingInstruction) {
+		t.Fatalf("general execution policy must condition catalog bindings on program execution: %q", generalProfilePrompt)
+	}
+	if strings.Contains(generalProfilePrompt, " First obtain program bindings from program.catalog") {
+		t.Fatalf("general execution policy must not require catalog before direct tool selection: %q", generalProfilePrompt)
 	}
 }
 

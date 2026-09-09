@@ -249,6 +249,38 @@ func TestCanaryRejectsFailedGateConflictAndInvalidPercentage(t *testing.T) {
 	}
 }
 
+func TestCanaryRequiredEfficiencyGateSurvivesCloneAndFailsClosedWhenMissing(t *testing.T) {
+	ctx := context.Background()
+	manager, scope, _ := newCanaryTestManager(t, newMemoryCanaryStore())
+	policy := evaluation.DefaultEfficiencyGatePolicy()
+
+	missing := canaryTestRecord(t, "canary-efficiency-missing", scope, "Missing", 1000)
+	missing.Gate.RequiredEfficiencyContract = policy.ContractID
+	if _, err := manager.Stage(ctx, missing); err == nil {
+		t.Fatal("required efficiency gate without a verdict staged a canary")
+	}
+
+	record := canaryTestRecord(t, "canary-efficiency-clone", scope, "Candidate", 1000)
+	record.Gate.RequiredEfficiencyContract = policy.ContractID
+	record.Gate.Efficiency = &evaluation.EfficiencyGateResult{
+		ContractID: policy.ContractID, Verdict: evaluation.EfficiencyGatePassed,
+		ReasonCodes: []evaluation.EfficiencyGateReasonCode{evaluation.EfficiencyReasonImprovementInsufficient},
+	}
+	staged, err := manager.Stage(ctx, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloneCanaryRecord(staged)
+	clone.Gate.Efficiency.ReasonCodes[0] = evaluation.EfficiencyReasonRunInvalid
+	if staged.Gate.Efficiency == nil || staged.Gate.Efficiency.ReasonCodes[0] != evaluation.EfficiencyReasonImprovementInsufficient {
+		t.Fatalf("canary clone lost or aliased efficiency verdict: staged=%#v clone=%#v", staged.Gate.Efficiency, clone.Gate.Efficiency)
+	}
+	clone.Gate.Efficiency = nil
+	if err := ValidateCanaryRecord(clone); err == nil {
+		t.Fatal("canary validation accepted a record whose required efficiency verdict was lost")
+	}
+}
+
 func TestCanarySubjectBucketingIsStable(t *testing.T) {
 	ctx := context.Background()
 	manager, scope, principal := newCanaryTestManager(t, newMemoryCanaryStore())

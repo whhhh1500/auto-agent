@@ -259,8 +259,11 @@ func verifyRagTokenizerV47(ctx context.Context, exec ragTokenizerMigrationExecut
 	if err != nil {
 		return err
 	}
-	if !found || stored != ragTokenizerSchemaVersionV47 {
-		return fmt.Errorf("RAG tokenizer migration did not record schema version %d", ragTokenizerSchemaVersionV47)
+	// A later semantic migration can advance the shared marker after the v47
+	// projection transaction commits. Any current marker at or beyond v47 still
+	// proves this tokenizer rebuild completed.
+	if !found || stored < ragTokenizerSchemaVersionV47 || stored > SQLSchemaVersion {
+		return fmt.Errorf("RAG tokenizer migration did not reach schema version %d", ragTokenizerSchemaVersionV47)
 	}
 	return nil
 }

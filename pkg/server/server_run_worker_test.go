@@ -997,6 +997,11 @@ func TestAsyncRunSubmitAndWorkerOnceCompletesDurably(t *testing.T) {
 
 func TestAsyncWorkerUsesCanaryRuntimeSelection(t *testing.T) {
 	fixture := newRunWorkerFixture(t)
+	// This case verifies runtime selection, not expiry. Keep the real lease
+	// path without coupling it to the shared fixture's 300ms expiry window.
+	fixture.server.leaseTTL = 5 * time.Second
+	fixture.server.runWorkerClaimTTL = 5 * time.Second
+	fixture.server.leaseOpTimeout = defaultLeaseOperationTimeout(5 * time.Second)
 	ctx := context.Background()
 	segments := fixture.principal.Scope.Segments()
 	product := core.MustScopePath(segments[:2]...)

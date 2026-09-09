@@ -1,8 +1,8 @@
 # Agent 模块实现、性能与扩展评估
 
-评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-08、本地 Git `4abcfcb` 加本次通知扩展工作树；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
+评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-09、本地 Git `ad90ac0` 加本次程序化执行工作树；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
 
-本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **76 个包**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
+本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **81 个包（79 个公开包与 2 个内部支持包）**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
 
 ### 当前基线与证据类型
 
@@ -142,6 +142,16 @@ flowchart TD
 <a id="m01"></a>
 
 ### M01 — Agent 循环与 Runtime
+
+**程序化执行增量（限定范围已验收）：** 当前工作树在同一个受保护模型循环内提供直接工具与 `program.execute` 两种动作选择；无需额外分类模型请求。PTC 使用有界 JSON 指令集执行循环、分支和数据处理，工具通过显式目录及受保护桥调用。CodePTC 仅保留 `codeptc@1` 路由与未来宿主接口，默认不可执行。路径测试不等于真实模型选路质量评测。见[程序化工具规范](programmatic-tools.md)与其验收台账。
+
+**2026-09-09 真实模型补验：** 请求 Terra 的简单、自主批量、指定 PTC 三项均通过；请求 Luna 的简单与自主批量通过，指定 PTC 两次非限流执行均未完成。两个模型自主批量都选择逐项直接调用，尚未证明自动选择更节省的 PTC。实测发现并修复工具 wire 名称与 Responses 流生命周期兼容问题；限流、失败和用量明细见[真实模型验收](verification/2026-09-09-programmatic-live-models.md)。
+
+**后续优化对照：** 上述为首轮历史样本。进一步发现兼容网关默认禁用批量工具调用；显式启用后，Terra 的批量直接调用 3 轮完成，带工具输出合同的 PTC 也 3 轮完成，但 token 更多。第二波六项对照只有这两项通过，Luna 仍有指令遵循、绑定及程序运行错误，不能声称跨模型稳定或 PTC 最优。详见[真实执行优化记录](verification/2026-09-09-execution-optimization.md)。
+
+**强制路由增量：** 当前工作树已有共享执行路由 resolver 和模型侧投影，支持 `direct_only`、`ptc_only` 与同一 Run 首个合格动作锁定的 `auto_first_action`；隐藏工具名不会仅凭模型输出进入 Core。第 42 波通过冻结二进制对两个请求模型各运行一次：Terra 三臂都完成，auto 选 direct 且总 token 只比 direct 高约 0.31%，强制 PTC 高约 8.42%；Luna auto 选 direct 并完成，随后 direct 最终请求 429，PTC 未运行。原始测试还暴露并修复了一项 wire 验收假阴性，原始证据未改写。该单一 fan-out 开发样本不触发自动晋级，general 仍为 `direct_only`。详见[强制执行路由真实模型验收](verification/2026-09-09-enforced-routing-live.md)。
+
+**Probe-aware v2 当前结论：** 第 52 波以 evidence v3、同一冻结 binary（SHA-256 `020257425785741dff557b20775329873ae6f0eeada4fdeeb112a40c69b0af16`）和 `128000/4096` assembler limits，对 Terra、Luna 各跑一个无重试的 auto PTC/direct 开发对照。四臂均以 8/8 exact-once、完整 usage/ledger、wire 与 context 谓词通过；Terra auto 为 12,527、direct 为 17,228 reported tokens（节省 27.3%），Luna 为 12,533 对 62,873（节省 80.1%）。auto/direct 的菜单与 envelope 不同、每模型仅一个开发样本，requested model 也不认证网关后端；因此只把它作为候选证据，不改默认或声称稳定/全局最优。Wave 47–51 的 assembler HTTP 400、32K wrapper、Luna direct limit、limits 不一致和 1/8 partial direct 均保留。该波证据来自私有 fixture record 与其持久对账；终态 OTel route receipt 仅作可缺失、可重复的观测投影，不是这些 predicate 或发布门禁的权威输入。详见[Probe-aware v2 实时路由验收](verification/2026-09-09-probe-aware-routing-v2-live.md)。
 
 **实现 / 状态：** [runtime.go](../pkg/core/runtime.go)、[agent.go](../pkg/core/agent.go)负责 Run 初始化、组合解析、模型调用、工具反馈与终态事件；默认 `general` 使用顺序模型—工具循环。每个已观察到完成的模型调用在 Session 中写一条带 canonical `model:<step-start-seq>` identity 的 usage ledger；即使上游没有报告 usage，也写 `0/0` 表示“结果已观察、未报告计量”。assistant/message 与该 usage 先作为一个内存 batch 进入 Session，随后才写 tool/call；因此 journal Begin 前的 checkpoint 能得到完整 prefix。usage 不进入后续 prompt 投影，既不按 chunk 写入，也不增加模型上下文 token。内核只依赖标准库，不直接管理 HTTP、SQL 或厂商 SDK。
 
@@ -321,7 +331,7 @@ flowchart TD
 
 **性能：** [实测记录与七份证据](performance/2026-09-06-rolling-summary.md)：默认本地摘要无额外模型请求，三轮累计输入 7,520→3,727、总 token 8,409→4,617，耗时 10,769→12,017 ms，两个 arm 各 3/3 正确。两组均关闭机械窗口裁剪，只比较完整历史与默认摘要阈值；种子直接写入 SQL，不是 128 轮真实交谈。局部提取中位 1.058 µs / 1,505 B，含事件恢复和投影的路径 193.634 µs / 约 225 KB 分配，不是 RSS。固定单样本不能外推平均收益。
 
-**对比 / 取舍：** 默认仅选最近 4 条 user 目标、旧摘要和工具证据，忽略普通 assistant 叙述；12 KiB 上限仍有嵌套增长、整项省略和旧摘要挤掉新记录的风险。后续已补齐 LLM 摘要的工具 JSONL 与 Usage/trace：三轮工具事实对照，两组各 3/3 正确，LLM 普通请求输入虽少 15.53%，计入摘要后总 token 却增加 193.69%、耗时增加 240.17%。详见[完整计量与失败证据](performance/2026-09-06-llm-summary-accounting.md)。仍默认本地提取；这不是无限轮、任意事实或语义任务平均效果的证明。
+**对比 / 取舍：** 默认优先选最近 4 条 user 目标、旧摘要和工具证据，忽略普通 assistant 叙述；2026-09-09 真实对照复现了早期事实被丢弃，现已利用剩余预算保留能完整容纳的较早 user 记录，并标明顺序及遗漏。两模型复验均仅一次回答调用通过，见[记忆与上下文优化](verification/2026-09-09-memory-context-optimization.md)。12 KiB 上限仍有嵌套增长、整项省略和旧摘要挤掉新记录的风险。历史 LLM 摘要工具事实对照中，两组各 3/3 正确，普通请求输入虽少 15.53%，计入摘要后总 token 却增加 193.69%、耗时增加 240.17%。详见[完整计量与失败证据](performance/2026-09-06-llm-summary-accounting.md)。仍默认本地提取；这不是无限轮、任意事实或语义任务平均效果的证明。
 
 ## 三、执行保护、恢复与编排
 
@@ -535,7 +545,7 @@ flowchart TD
 
 ### M32 — 长期 Memory
 
-**实现 / 状态：** [memory.go](../pkg/extensions/memory/memory.go)定义 `Store.Remember/Recall/Forget` 与进程内参考存储；[standard.go](../pkg/extensions/memory/standard.go)提供标准工具，默认服务接 SQL 持久实现。记忆按精确所有权 scope 存储，查询/标签有界，删除经过相应审批。核心 MemoryEntry 只是数据合同。
+**实现 / 状态：** [memory.go](../pkg/extensions/memory/memory.go)定义 `Store.Remember/Recall/Forget` 与进程内参考存储；[standard.go](../pkg/extensions/memory/standard.go)提供标准工具，默认服务接 SQL 持久实现。新增的 [`KeyStore`](../pkg/extensions/memory/memory.go) 是独立的可选精确键读取口：`LookupCapabilityID` 为 `memory.lookup`，`NewLookupCapability(KeyStore)` 和 `ValidateLookupKey` 只允许按当前所有权 scope 的原样 key 查询；[`SliceStore.Lookup`](../pkg/extensions/memory/memory.go) 与 [`SQLMemoryStore.Lookup`](../pkg/storage/sql_memory_rag.go)实现该口。它不在 `NewStandardCapabilities` 或默认 `general` 菜单中，宿主必须显式注册。`memory.recall` 仍是有界的相关性查询（大小写不敏感的 key/content 匹配与可选标签），`memory.lookup` 不搜索内容、不折叠大小写或分隔符。该增量不改 `pkg/core` API，也不需要 SQL schema 迁移；这里记录源码与回归合同，不声明真实模型结果。记忆按精确所有权 scope 存储，查询/标签有界，删除经过相应审批。核心 MemoryEntry 只是数据合同。
 
 **扩展：** E1：实现 Store 接向量库、外部记忆服务或业务数据库；保持 scope、更新和删除语义。E2：通过工具调用外部知识服务。自演化记忆、冲突合并、事实衰减和隐私保留策略仍需应用设计。
 
@@ -623,6 +633,8 @@ flowchart TD
 
 **实现 / 状态：** [pkg/evaluation](../pkg/evaluation)包含不可变数据集、Case 执行、Evaluator 注册、持久结果、恢复、回归 gate 与能力声明兼容性校验。默认评估权限以只读/幂等等约束收缩，避免任意生产副作用。
 
+Release 可选接入 `efficiency-gate/v1`：显式启用后才要求同一冻结 holdout cohort 的不同 candidate/baseline run、精确 baseline 引用、route/assignment 绑定，以及完整 ledger 与 `ExecutionEvidence` 的有限资源核对；未请求时不改变既有质量 gate。它约束成本非劣化与最小改进门槛，不是外部效果、语义完成度或 `CoverageContract` 的完整证明。
+
 **扩展：** E1：实现 Evaluator 与数据/结果 Store，加入业务事实、工具轨迹、成本和质量指标。LLM-as-judge 可以自建，但须记录模型、提示、版本和不确定性；包存在不意味着已经拥有行业标准任务集或领先分数。
 
 **性能：** 评估总耗时取决于 Case 数、模型调用和评分器；本次只做离线微基准，没有新跑全套任务质量评测。确定性 gate 成本和计费评估成本应分开。
@@ -634,6 +646,8 @@ flowchart TD
 ### M40 — Profile Release、Canary 与回滚
 
 **实现 / 状态：** [control/release.go](../pkg/control/release.go)、[control/canary.go](../pkg/control/canary.go)处理 Profile 发布快照、日志、恢复、评估 gate、确定性流量分配和共享存储修订同步。`TestReleaseAndCanaryRefreshAcrossManagers` 以两个独立的 Profile/Release/Canary manager 复用 SQL journal/canary store，验证 stage、pause、resume、promote、rollback 后另一 manager 的 refresh；`TestReleaseSyncUsesControlRevisionFastPath` 验证 release revision 快路径同步。它治理 Agent 配置/版本，不等于替代 Kubernetes 或完整流量网关。
+
+Canary/release 仅在请求携带 enabled efficiency policy 时附加该结果；`passed` 不代表完整执行覆盖或生产安全证明，OTel route receipt 不参与该 gate。
 
 **扩展：** E0/E1：配置现有发布流程、提供业务 gate 和外部发布系统适配。新策略必须记录 assignment 与恢复语义，不能只按内存随机数分流再宣称可重放。
 
@@ -679,9 +693,11 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 
 [进程硬终止验收](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery)再核对首/替换进程的 queue claim、Run trace、model/tool span 与 PID。`effect_committed` 的 active tool span 因进程被硬杀而不可能正常 end，证据不补造 span；此前结束的 model span 仍与 Run trace 关联。替换进程只做持久状态修复，没有 model/tool span。离线与 Gemini live 两层都使用本地 exporter；这不是远端 telemetry 平台证据。
 
-**实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。
+**实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。OTel error status 与 exception message 只输出固定 `error`，exception type 只保留 unknown/canceled/deadline 三类，默认传播只含 W3C TraceContext，不传播 Baggage。
 
-**扩展：** E1：注入 exporter/telemetry 或日志实现，接现有观测后端；明确采样、敏感内容与属性基数。trace 不是持久审批事实来源，丢采样不能影响运行正确性。
+terminal `auto_probe_once` 在 run/queue control 成功落成终态后，额外发出 `harness.programmatic.route.evidence` span。它只投影冻结 route identity、选择、probe candidate coverage、Journal 完成数、Session usage ledger 和 summary archive 的状态/计数；外部效果与最终 context assembly 保持 unavailable。该 span 有独立短超时且按 best effort 交付，进程失败窗口可导致缺失或重复，Session 与 Tool Journal 才是权威证据。
+
+**扩展：** E1：注入 exporter/telemetry 或日志实现，接现有观测后端；明确采样、敏感内容与属性基数。OTel span 是可采样、可丢失的观测投影，只能与 durable evidence 做一致性核对；它不能补造、替代或反向认证 Session、Tool Journal、SQL event、provider receipt、计费或外部效果。审计与 release 判断必须回到各自版本化的 durable records、评测结果和宿主合同。
 
 **性能：** 未在本次测无遥测/全采样/远端 exporter 的差值；额外属性、同步导出与大日志可能显著放大成本。默认接口轻量不代表任意 exporter 都低开销。
 
@@ -803,7 +819,7 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 | [pkg/extensions](../pkg/extensions) | M44 | 扩展集成测试包；无独立运行实现 |
 | [pkg/extensions/graph](../pkg/extensions/graph) | M22、M23 | 图合同、验证、状态与注册 |
 | [pkg/extensions/internal/support](../pkg/extensions/internal/support) | M32、M33 | 记忆/检索内部公共处理 |
-| [pkg/extensions/memory](../pkg/extensions/memory) | M32 | 长期 Memory 合同与工具 |
+| [pkg/extensions/memory](../pkg/extensions/memory) | M32 | 长期 Memory 合同与工具；可选 `memory.lookup` 精确键读取不在默认菜单 |
 | [pkg/extensions/rag](../pkg/extensions/rag) | M33 | RAG 合同与关键词检索 |
 | [pkg/extensions/runner](../pkg/extensions/runner) | M31 | Private Runner Hub/Store |
 | [pkg/extensions/subagent](../pkg/extensions/subagent) | M20 | 父子 Agent 委派 |
@@ -816,6 +832,11 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 | [pkg/server](../pkg/server) | M06、M17–M19、M31–M42 | HTTP 服务组合、调度和管理 |
 | [pkg/storage](../pkg/storage) | M07、M13、M17–M20、M23、M31–M40 | SQL/File/S3 及服务持久实现 |
 | [pkg/telemetry/otel](../pkg/telemetry/otel) | M43 | OpenTelemetry 适配 |
+| [pkg/app/programmatic](../pkg/app/programmatic) | M03、M16 | 显式程序化能力目录、精确绑定与未来 CodePTC 宿主接口 |
+| [pkg/adapter/programmatic/corebridge](../pkg/adapter/programmatic/corebridge) | M16–M18 | 受保护的确定性程序子调用桥 |
+| [pkg/adapter/programmatic/internal/jsonvalue](../pkg/adapter/programmatic/internal/jsonvalue) | M03、M16 | 有界、拒绝重复键的内部 JSON 解析支持 |
+| [pkg/adapter/programmatic/toolcapability](../pkg/adapter/programmatic/toolcapability) | M01、M03 | `program.catalog` / `program.execute` 能力组合 |
+| [pkg/execution/programmatic](../pkg/execution/programmatic) | M01、M21 | 有界程序解释器，非通用代码运行器 |
 
 ### 非 `pkg` 目录
 

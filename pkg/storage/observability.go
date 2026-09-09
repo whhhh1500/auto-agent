@@ -37,7 +37,11 @@ type ObsHit struct {
 	RunID     string    `json:"run_id,omitempty"`
 	Actor     string    `json:"actor,omitempty"`
 	TenantID  string    `json:"tenant,omitempty"`
-	Snippet   string    `json:"snippet,omitempty"`
+	// Snippet is retained for API and schema compatibility, but is a
+	// non-sensitive match summary. Event content and tool arguments are never
+	// persisted here. Values emitted by MatchEvent are either a capability ID
+	// or a fixed message-match category.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 // ObsHitFilter narrows a hit query.
@@ -73,6 +77,10 @@ const (
 	MaxObsRules        = 256
 	MaxObsHits         = 8192
 	MaxObsSnippetBytes = 4096
+
+	obsToolSummaryPrefix  = "tool:capability:"
+	obsMessageSummary     = "message:matched"
+	obsErrorSummaryPrefix = "error:code:"
 )
 
 // SQLObsStore implements ObsStore on the shared schema.
@@ -197,6 +205,10 @@ func (s *SQLObsStore) RecordHit(ctx context.Context, hit ObsHit) error {
 	if err := validateObsHit(hit); err != nil {
 		return err
 	}
+	// ObsStore is public and can be called independently of MatchEvent. Drop
+	// any non-canonical value here so callers cannot use the legacy column to
+	// copy payloads into the observability store.
+	hit.Snippet = safeObsHitSummary(hit.Snippet)
 	if hit.ID == "" {
 		id, err := core.NewID("hit_")
 		if err != nil {
@@ -301,13 +313,9 @@ func MatchEvent(rules []ObsRule, event core.SessionEvent) *ObsHit {
 		}
 		for _, rule := range rules {
 			if rule.Kind == "tool" && rule.Pattern == data.Name {
-				snippet := data.Name
-				if encoded, err := json.Marshal(data.Args); err == nil && string(encoded) != "null" {
-					snippet += " " + string(encoded)
-				}
 				return &ObsHit{
 					RuleID: rule.ID, RuleName: rule.Name, Kind: rule.Kind, Pattern: rule.Pattern,
-					RunID: event.RunID, Snippet: truncateText(snippet, 200),
+					RunID: event.RunID, Snippet: obsToolSummaryPrefix + data.Name,
 				}
 			}
 		}
@@ -329,7 +337,7 @@ func MatchEvent(rules []ObsRule, event core.SessionEvent) *ObsHit {
 			if rule.Kind == "keyword" && strings.Contains(lower, strings.ToLower(rule.Pattern)) {
 				return &ObsHit{
 					RuleID: rule.ID, RuleName: rule.Name, Kind: rule.Kind, Pattern: rule.Pattern,
-					RunID: event.RunID, Snippet: truncateText(extractSnippet(text, rule.Pattern), 200),
+					RunID: event.RunID, Snippet: obsMessageSummary,
 				}
 			}
 		}
@@ -337,29 +345,38 @@ func MatchEvent(rules []ObsRule, event core.SessionEvent) *ObsHit {
 	return nil
 }
 
-// extractSnippet returns the text around the first match occurrence.
-func extractSnippet(text, pattern string) string {
-	index := strings.Index(strings.ToLower(text), strings.ToLower(pattern))
-	if index < 0 {
-		return truncateText(text, 200)
+func safeObsHitSummary(summary string) string {
+	switch {
+	case strings.HasPrefix(summary, obsToolSummaryPrefix):
+		capabilityID := strings.TrimPrefix(summary, obsToolSummaryPrefix)
+		if isSafeObsIdentifier(capabilityID) {
+			return summary
+		}
+	case summary == obsMessageSummary:
+		return summary
+	case strings.HasPrefix(summary, obsErrorSummaryPrefix):
+		code := strings.TrimPrefix(summary, obsErrorSummaryPrefix)
+		if isSafeObsErrorCode(code) {
+			return summary
+		}
 	}
-	start := index - 60
-	if start < 0 {
-		start = 0
-	}
-	end := index + len(pattern) + 120
-	if end > len(text) {
-		end = len(text)
-	}
-	return text[start:end]
+	return ""
 }
 
-func truncateText(text string, n int) string {
-	runes := []rune(text)
-	if len(runes) <= n {
-		return text
+func isSafeObsErrorCode(value string) bool {
+	return isSafeObsIdentifier(value)
+}
+
+func isSafeObsIdentifier(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
 	}
-	return string(runes[:n]) + "…"
+	for _, char := range value {
+		if !(char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '.' || char == '_' || char == ':' || char == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateObsRule(rule ObsRule) error {

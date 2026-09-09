@@ -55,6 +55,10 @@ func TestSQLCanaryStoreRoundTripAndExpectedStatusCAS(t *testing.T) {
 	}
 	_, product, _, _ := testScopes()
 	record := sqlCanaryTestRecord(t, "canary-sql-roundtrip", product)
+	record.Gate.RequiredEfficiencyContract = evaluation.EfficiencyGateContractV1
+	record.Gate.Efficiency = &evaluation.EfficiencyGateResult{
+		ContractID: evaluation.EfficiencyGateContractV1, Verdict: evaluation.EfficiencyGatePassed,
+	}
 	beforeRevision, err := store.ControlRevision(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +74,17 @@ func TestSQLCanaryStoreRoundTripAndExpectedStatusCAS(t *testing.T) {
 	loaded, err := store.GetCanary(ctx, record.ID)
 	if err != nil || loaded.Revision != record.Revision || loaded.BaseReleaseRevision != record.BaseReleaseRevision ||
 		loaded.Gate.CapabilityCompatibility == nil || !loaded.Gate.CapabilityCompatibility.Compatible ||
+		loaded.Gate.Efficiency == nil ||
+		loaded.Gate.RequiredEfficiencyContract != evaluation.EfficiencyGateContractV1 ||
+		loaded.Gate.Efficiency.Verdict != evaluation.EfficiencyGatePassed ||
 		loaded.Gate.CapabilityCompatibility.CandidateSnapshotID != "candidate-capabilities" ||
 		loaded.Layer == nil || loaded.Layer.Name == nil || *loaded.Layer.Name != "SQL Candidate" {
 		t.Fatalf("canary round trip failed: %#v err=%v", loaded, err)
+	}
+	missingVerdict := loaded
+	missingVerdict.Gate.Efficiency = nil
+	if err := control.ValidateCanaryRecord(missingVerdict); err == nil {
+		t.Fatal("required efficiency gate remained valid after its durable verdict was removed")
 	}
 	loaded.Status = control.CanaryPaused
 	loaded.BasisPoints = 5000

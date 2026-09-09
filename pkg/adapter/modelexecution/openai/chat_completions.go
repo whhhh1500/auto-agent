@@ -20,7 +20,11 @@ func (p ChatCompletionsProtocol) Execute(ctx context.Context, request modelexecu
 	if provider == nil || ctx == nil || p.MaxTokens < 0 {
 		return fmt.Errorf("openai chat execution is invalid")
 	}
-	body, err := marshalChatRequest(request, p.MaxTokens)
+	aliases, err := newToolNameAliases(request)
+	if err != nil {
+		return err
+	}
+	body, err := marshalChatRequestWithAliases(request, p.MaxTokens, aliases)
 	if err != nil {
 		return err
 	}
@@ -29,10 +33,18 @@ func (p ChatCompletionsProtocol) Execute(ctx context.Context, request modelexecu
 		return err
 	}
 	defer response.Body.Close()
-	return parseChatResponse(response.Body, emit)
+	return parseChatResponseWithAliases(response.Body, aliases, emit)
 }
 
 func marshalChatRequest(request modelexecution.Request, maxTokens int) ([]byte, error) {
+	aliases, err := newToolNameAliases(request)
+	if err != nil {
+		return nil, err
+	}
+	return marshalChatRequestWithAliases(request, maxTokens, aliases)
+}
+
+func marshalChatRequestWithAliases(request modelexecution.Request, maxTokens int, aliases *toolNameAliases) ([]byte, error) {
 	messages := make([]map[string]any, 0, len(request.Messages)+1)
 	if request.System != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": request.System})
@@ -45,7 +57,11 @@ func marshalChatRequest(request modelexecution.Request, maxTokens int) ([]byte, 
 		if len(message.ToolCalls) > 0 {
 			calls := make([]map[string]any, 0, len(message.ToolCalls))
 			for _, call := range message.ToolCalls {
-				item := map[string]any{"id": call.ID, "type": "function", "function": map[string]any{"name": call.Name, "arguments": string(call.Arguments)}}
+				name, err := aliases.wire(call.Name)
+				if err != nil {
+					return nil, err
+				}
+				item := map[string]any{"id": call.ID, "type": "function", "function": map[string]any{"name": name, "arguments": string(call.Arguments)}}
 				if call.Continuation != "" {
 					extra, err := decodeChatContinuation(call.Continuation)
 					if err != nil {
@@ -72,7 +88,11 @@ func marshalChatRequest(request modelexecution.Request, maxTokens int) ([]byte, 
 			} else if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
 				return nil, fmt.Errorf("openai tool parameters: %w", err)
 			}
-			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": tool.Name, "description": tool.Description, "parameters": parameters}})
+			name, err := aliases.wire(tool.Name)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": name, "description": aliases.description(tool.Name, tool.Description), "parameters": parameters}})
 		}
 		payload["tools"] = tools
 	}
@@ -80,19 +100,23 @@ func marshalChatRequest(request modelexecution.Request, maxTokens int) ([]byte, 
 }
 
 func parseChatResponse(body io.Reader, emit modelexecution.Emit) error {
+	return parseChatResponseWithAliases(body, nil, emit)
+}
+
+func parseChatResponseWithAliases(body io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	reader := bufio.NewReader(&limitReader{reader: body, remaining: modelexecution.DefaultMaxResponseBytes})
 	first, err := firstNonSpace(reader)
 	if err != nil {
 		return err
 	}
 	if first == 'd' {
-		return parseChatSSE(reader, emit)
+		return parseChatSSEWithAliases(reader, aliases, emit)
 	}
 	raw, err := io.ReadAll(reader)
 	if err != nil {
 		return err
 	}
-	return parseChatSingle(raw, emit)
+	return parseChatSingleWithAliases(raw, aliases, emit)
 }
 
 type limitReader struct {
@@ -131,6 +155,10 @@ func firstNonSpace(r *bufio.Reader) (byte, error) {
 }
 
 func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
+	return parseChatSSEWithAliases(reader, nil, emit)
+}
+
+func parseChatSSEWithAliases(reader io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 	var pendingFinish *modelexecution.FinishReason
@@ -187,7 +215,11 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 				if err != nil {
 					return err
 				}
-				if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: fragment, Continuation: continuation}}); err != nil {
+				name, err := responseToolName(aliases, call.Function.Name)
+				if err != nil {
+					return err
+				}
+				if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: name, ArgumentsFragment: fragment, Continuation: continuation}}); err != nil {
 					return err
 				}
 			}
@@ -222,6 +254,10 @@ func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
 }
 
 func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
+	return parseChatSingleWithAliases(raw, nil, emit)
+}
+
+func parseChatSingleWithAliases(raw []byte, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	var response struct {
 		Choices []struct {
 			Message struct {
@@ -259,7 +295,11 @@ func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
 		if err != nil {
 			return err
 		}
-		if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: call.Function.Name, ArgumentsFragment: []byte(call.Function.Arguments), Continuation: continuation}}); err != nil {
+		name, err := responseToolName(aliases, call.Function.Name)
+		if err != nil {
+			return err
+		}
+		if err := emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: index, ID: call.ID, Name: name, ArgumentsFragment: []byte(call.Function.Arguments), Continuation: continuation}}); err != nil {
 			return err
 		}
 	}
@@ -273,6 +313,16 @@ func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
 		return err
 	}
 	return emit(modelexecution.Event{Kind: modelexecution.EventFinish, Finish: reason})
+}
+
+func responseToolName(aliases *toolNameAliases, wire string) (string, error) {
+	// Chat-completions commonly omits function.name after the first streamed
+	// arguments fragment. The normalized stream state binds that empty fragment
+	// to the already-established call index; only an asserted name is decoded.
+	if wire == "" {
+		return "", nil
+	}
+	return aliases.internal(wire)
 }
 func finish(value string) (modelexecution.FinishReason, error) {
 	switch value {

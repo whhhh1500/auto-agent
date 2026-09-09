@@ -11,7 +11,7 @@ in plugins, providers, profiles, and examples.
 > compatibility facade until the first stable release.
 
 详细技术评估：[Agent 模块实现、性能与扩展点](docs/agent-module-assessment.md)
-（44 个逻辑模块、76 个 Go 包）、[与主流框架的差异及选型](docs/agent-framework-comparison.md)、
+（44 个逻辑模块、81 个 Go 包（其中 79 个公开包））、[与主流框架的差异及选型](docs/agent-framework-comparison.md)、
 [本地性能实测与证据边界](docs/performance/2026-09-06-module-benchmarks.md)。
 
 ## Zero-configuration local start
@@ -97,8 +97,12 @@ pkg/app/notification     provider-neutral notification target and channel contra
 Dependency direction is inward: `core` imports none of the outer packages;
 providers, extensions, storage and transports depend on `core`. Cross-package
 behavior tests live in `pkg/integration`. The generic `cmd/server` mounts the
-built-in `general` profile with guarded scoped memory, RAG search, and approved
-notification capabilities. It also enables deterministic rolling summaries and
+built-in `general` profile with guarded scoped memory recall/remember/
+approval-gated forget, RAG search, and approved notification capabilities.
+The additive exact-key `memory.lookup` capability is deliberately outside that
+default menu: a host must construct it from a `memory.KeyStore` and register it
+explicitly. It performs no recall-style content search or key normalization and
+adds no Core API or SQL schema migration. The server also enables deterministic rolling summaries and
 bounded model-context assembly. Provider/protocol choice, notification targets,
 and object storage are database/Console configuration. Sequential execution is
 the default; the experimental Graph executor is registered but used only when a
@@ -629,7 +633,7 @@ completed-result recovery authorization.
 
 ## Observability watch rules and backtesting
 
-Watch rules let operators mark conversations for review: a rule matches a **tool** (exact capability id at call time) or a **keyword** (case-insensitive substring over user and assistant text), and every hit durably records the session id, run id, actor, tenant, and a content snippet. The console lists rules and hits and can jump straight to the session's event log. Matching is best-effort and deduplicated per rule per run — it never alters run semantics. The store keeps at most `storage.MaxObsRules` (256) watch rules, because every run event scans the full enabled set. Recorded hits are capped at `storage.MaxObsHits` (8192) and snippets at 4 KiB; retention prune frees hit slots.
+Watch rules let operators mark conversations for review: a rule matches a **tool** (exact capability id at call time) or a **keyword** (case-insensitive substring over user and assistant text), and every hit durably records the session id, run id, actor, tenant, and a non-sensitive summary. Tool summaries contain only the capability ID; user and assistant matches record the fixed value `message:matched`. Tool arguments and message content are never copied into the hit store. The v48 store migration clears legacy hit snippets, which may contain copied content. The console lists rules and hits and can jump straight to the session's event log. Matching is best-effort and deduplicated per rule per run — it never alters run semantics. The store keeps at most `storage.MaxObsRules` (256) watch rules, because every run event scans the full enabled set. Recorded hits are capped at `storage.MaxObsHits` (8192); retention prune frees hit slots.
 
 Backtesting closes the loop: `POST /v1/admin/backtests` copies a recorded session's assembled context (optionally truncated at a seq) into a NEW session under the source principal — so capability resolution and policies match the original tenant context — and synchronously replays a probe message through a chosen profile. Backtests use the Evaluation safety filter: only idempotent tools that do not require approval are exposed by default; this platform-admin-only endpoint may explicitly list non-idempotent capability IDs. Backtest runs are themselves observable, and each links back to its source session via metadata plus the source Composition/Assignment revisions returned in the response.
 

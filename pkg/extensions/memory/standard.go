@@ -46,7 +46,19 @@ type standardCapability struct {
 	action standardAction
 }
 
-func (*standardCapability) ArtifactRevision() string { return "memory-standard-capability/v1" }
+func (m *standardCapability) ArtifactRevision() string {
+	if m == nil {
+		return "memory-standard-capability/v3"
+	}
+	switch m.action {
+	case standardRecall:
+		return "memory-standard-capability/v3"
+	case standardRemember, standardForget:
+		return "memory-standard-capability/v2"
+	default:
+		return "memory-standard-capability/v3"
+	}
+}
 
 func (m *standardCapability) Manifest() core.CapabilityManifest {
 	manifest := core.CapabilityManifest{
@@ -55,7 +67,7 @@ func (m *standardCapability) Manifest() core.CapabilityManifest {
 	}
 	switch m.action {
 	case standardRecall:
-		manifest.Description = "Recall relevant remembered facts for the current principal scope."
+		manifest.Description = "Recall remembered facts for the current principal scope. A successful empty entries result means no matching memory."
 		manifest.RequiredPermissions = []core.Permission{core.PermRead}
 		manifest.Idempotent = true
 	case standardRemember:
@@ -76,9 +88,19 @@ func standardSchema(action standardAction) map[string]any {
 	required := []any{}
 	switch action {
 	case standardRecall:
-		properties["query"] = map[string]any{"type": "string", "maxLength": MaxQueryRunes}
-		properties["tags"] = tagsSchema()
-		properties["limit"] = map[string]any{"type": "integer", "minimum": 1, "maximum": MaxRecallLimit}
+		properties["query"] = map[string]any{
+			"type": "string", "maxLength": MaxQueryRunes,
+			"description": "If the task supplies a canonical identifier or key, copy it exactly as query, including punctuation and case. Otherwise use a short literal fragment expected in a remembered key or content. This capability does not automatically rewrite a query by meaning; empty entries is a successful no-match.",
+		}
+		properties["tags"] = map[string]any{
+			"type": "array", "maxItems": MaxRecallTags,
+			"items":       map[string]any{"type": "string", "maxLength": MaxTagRunes},
+			"description": "Optional. Provide tags only when they are already known to describe the fact; otherwise omit this field.",
+		}
+		properties["limit"] = map[string]any{
+			"type": "integer", "minimum": 1, "maximum": MaxRecallLimit,
+			"description": "Maximum number of recalled entries to return.",
+		}
 		required = append(required, "query")
 	case standardRemember:
 		properties["key"] = map[string]any{"type": "string", "maxLength": MaxEntryKeyBytes}

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/whhhh1500/auto-agent/pkg/core"
 )
@@ -118,6 +119,55 @@ func TestRollingSummarizerClosesRangeBeforeRetainingTail(t *testing.T) {
 	after, err := r.EnsureSummarized(context.Background(), session, "summary", nil, before)
 	if err != nil || len(after) != 3 || !reflect.DeepEqual(after[1:], before[len(before)-2:]) {
 		t.Fatalf("must archive all messages preceding the old summary event and preserve latest turn: messages=%d err=%v", len(after), err)
+	}
+}
+
+func TestRollingSummarizerArchivesCompleteProgramGroupAcrossThreshold(t *testing.T) {
+	session, _ := rollingTestSession(t)
+	parent := core.ToolCall{ID: "program-42", Name: "program.execute", Args: map[string]any{"program": "batch"}}
+	appendEvent := func(kind core.SessionEventType, data any) {
+		t.Helper()
+		if _, err := session.Append("program-turn", kind, data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendEvent(core.EvUserMessage, core.UserMessageData{Text: "process this batch"})
+	appendEvent(core.EvAssistantMessage, core.AssistantMessageData{ToolCall: &parent, ToolCalls: []core.ToolCall{parent}})
+	appendEvent(core.EvToolCall, core.ToolCallData{CallID: parent.ID, Name: parent.Name, Args: parent.Args})
+	appendEvent(core.EvToolResult, core.ToolResultData{CallID: parent.ID + "/read", Content: "large raw child result", OK: true})
+	approvalID := "apr_0123456789abcdef0123456789abcdef"
+	appendEvent(core.EvApprovalRequested, core.ApprovalRequestedData{ApprovalID: approvalID, ToolCall: parent, ResumeCall: parent})
+	appendEvent(core.EvApprovalResolved, core.ApprovalResolvedData{ApprovalID: approvalID, CallID: parent.ID, Decision: core.ApprovalApproved, ResolvedAt: time.Unix(1, 0).UTC()})
+	appendEvent(core.EvToolResult, core.ToolResultData{CallID: parent.ID + "/write", Content: "child result after approval", OK: true})
+	appendEvent(core.EvToolResult, core.ToolResultData{CallID: parent.ID, Content: `{"status":"completed"}`, OK: true})
+	appendEvent(core.EvUserMessage, core.UserMessageData{Text: "now explain the result"})
+	appendEvent(core.EvAssistantMessage, core.AssistantMessageData{Text: "latest answer"})
+
+	before, err := session.DeriveMessages()
+	if err != nil || len(before) != 7 {
+		t.Fatalf("projected program fixture messages=%#v err=%v", before, err)
+	}
+	archived := []core.ChatMessage(nil)
+	extractive, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &RollingSummarizer{MaxMessages: 5, KeepTail: 2, Summarizer: ContextSummarizerFunc(func(ctx context.Context, messages []core.ChatMessage) (string, error) {
+		archived = append([]core.ChatMessage(nil), messages...)
+		return extractive.Summarize(ctx, messages)
+	})}
+	after, err := r.EnsureSummarized(context.Background(), session, "summary", nil, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived) != 5 || !containsToolCall(archived, parent.ID, parent.Name) || !containsMessage(archived, `{"status":"completed"}`) {
+		t.Fatalf("program parent/result were split from archived prefix: %#v", archived)
+	}
+	if len(after) != 3 || after[1].Content != "now explain the result" || after[2].Content != "latest answer" {
+		t.Fatalf("unexpected summarized tail: %#v", after)
+	}
+	if strings.Contains(after[0].Content, "large raw child result") || strings.Contains(after[0].Content, "child result after approval") || !strings.Contains(after[0].Content, `{"status":"completed"}`) {
+		t.Fatalf("program summary leaked nested results or lost parent outcome: %q", after[0].Content)
 	}
 }
 

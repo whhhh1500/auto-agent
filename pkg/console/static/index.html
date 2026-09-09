@@ -952,7 +952,7 @@ form.card,div.card{background:var(--panel);border:1px solid var(--line);border-r
       </table>
       <h2 style="margin-top:10px">命中记录 <span class="pill" x-text="obs.total"></span></h2>
       <table>
-        <thead><tr><th>时间</th><th>规则</th><th>类型</th><th>会话</th><th>片段</th><th></th></tr></thead>
+        <thead><tr><th>时间</th><th>规则</th><th>类型</th><th>会话</th><th>安全摘要</th><th></th></tr></thead>
         <tbody><template x-for="h in obs.hits" :key="h.id">
           <tr>
             <td x-text="(h.time||'').replace('T',' ').slice(0,19)"></td>

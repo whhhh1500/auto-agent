@@ -1,6 +1,6 @@
 # Public API and Compatibility Inventory
 
-Snapshot date: 2026-09-08  
+Snapshot date: 2026-09-09  
 Status: current observed surface; this is an inventory, not a target-package
 claim.
 
@@ -16,6 +16,8 @@ The current public package paths are:
 
 ```text
 pkg/adapter/coreplugin
+pkg/adapter/programmatic/corebridge
+pkg/adapter/programmatic/toolcapability
 pkg/adapter/graphapproval
 pkg/adapter/graphtelemetry
 pkg/adapter/httpapi/accountadmin
@@ -63,6 +65,7 @@ pkg/app/modelexecution
 pkg/app/modelsettings
 pkg/app/notification
 pkg/app/runexecutor
+pkg/app/programmatic
 pkg/app/runliveness
 pkg/app/secretview
 pkg/app/settings
@@ -75,6 +78,7 @@ pkg/evaluation
 pkg/execution
 pkg/execution/graph
 pkg/execution/sandbox
+pkg/execution/programmatic
 pkg/extensions
 pkg/extensions/graph
 pkg/extensions/memory
@@ -100,17 +104,18 @@ JSON file; representative constructors and extension seams are:
 | Package | Representative public contracts | Constructors/factories |
 | --- | --- | --- |
 | `pkg/core` | `Agent`, `Session`, `SessionStore`, `CapabilityRegistry`, `AgentProfileRegistry.ReplaceExact`, `LlmAdapter`, `ToolRuntime`, `Plugin`, `Permission`, `SessionEvent` | `NewAgent`, `NewSession`, `RestoreSession`, `NewCapabilityRegistry`, `NewAgentProfileRegistry`, `NewCredentialRegistry`, `NewPolicyRegistry` |
-| `pkg/storage` | `AccountStore`, `SQLQueuedPrincipalResolver`, `ObjectStore`, optional streaming and SQL recovery seams (`AuthorizationEpochReader`, `FencedSessionAppender`, completed-result appenders), `SQLSessionStore`, `RunQueueStore`, `ApprovalStore`, `EvidenceStore`, `SQLDialect` (source-compatible alias; `SQLDialectSQLite`/`SQLDialectPostgres`) | `OpenSQLSessionStore`, `NewSQLAccountStore`, `NewSQLQueuedPrincipalResolver`, `NewMemoryObjectStore`, `NewFileObjectStore`, `NewS3ObjectStore`, `NewSQLRunControlStore`, `NewFencedWriteBehind` |
+| `pkg/extensions/memory` | Scoped `Store` plus optional `KeyStore`; `memory.lookup` is one exact canonical-key read, separate from relevance-oriented `memory.recall`. It is absent from `NewStandardCapabilities` and the default `general` profile, so hosts must opt in explicitly. | `NewStandardCapabilities`, `NewLookupCapability`, `NewSliceStore` |
+| `pkg/storage` | `AccountStore`, `SQLQueuedPrincipalResolver`, `ObjectStore`, optional streaming and SQL recovery seams (`AuthorizationEpochReader`, `FencedSessionAppender`, completed-result appenders), `SQLSessionStore`, `SQLMemoryStore.Lookup`, `RunQueueStore`, `ApprovalStore`, `EvidenceStore`, `SQLDialect` (source-compatible alias; `SQLDialectSQLite`/`SQLDialectPostgres`) | `OpenSQLSessionStore`, `NewSQLAccountStore`, `NewSQLQueuedPrincipalResolver`, `NewMemoryObjectStore`, `NewFileObjectStore`, `NewS3ObjectStore`, `NewSQLRunControlStore`, `NewFencedWriteBehind` |
 | `pkg/server` | `Config`, `Server`, `Authenticator`, `PrincipalMapper`, `RunPrincipalResolver` | `New` |
 | `pkg/control` | `ReleaseManager`, `CanaryManager`, `ReleaseJournal`, `CanaryStore` | `NewReleaseManager`, `NewCanaryManager` |
-| `pkg/evaluation` | `Store`, `Evaluator`, `Dataset`, `RunResult`, `GatePolicy` | `NewMemoryStore`, `NewRegistry` |
+| `pkg/evaluation` | `Store`, `Evaluator`, `Dataset`, `RunResult`, `GatePolicy`, `ExecutionEvidence`; `CaseResult.Evidence` is optional and absent in older persisted results, so it means no event projection was recorded. | `NewMemoryStore`, `NewRegistry` |
 | `pkg/execution` | `Executor` implementations, MCP configuration, tool-library observer | `NewMemoryLibraryObserver`, `RegisterMCPServer` |
 | `pkg/extensions/graph` | stdlib-only Graph/Context contracts: immutable definitions, bounded context/redaction/state, mutable CAS checkpoint heads, immutable checkpoint versions, append-only transitions, approval evidence, unchanged hot `Store`, and optional `HistoryStore`. New history surface is `CheckpointVersionInfo`, `CheckpointVersion`, `CheckpointVersionOrigin`, `CheckpointVersionID`, `CheckpointDigest`, clone helpers, and version validators. Implementations remain in sibling packages. | `NewNodeKindRegistry`, `NewPredicateRegistry`, `NewReducerRegistry`, `ValidateDefinition` |
 | `pkg/execution/graph` | **experimental Graph-G1 executor** with immutable implementation bindings, bounded retry/timeout/cancel, explicit segment lease/context planner/sandbox authorizer/approval authorizer ports, fail-closed unknown recovery, and approval suspension/resume. It does not expose core/provider SDK contracts; sequential remains the default runtime. | `NewBindings`, `NewExecutorWithOptions` |
 | `pkg/adapter/memory/graphcheckpoint` | bounded, defensive-copy reference Store and `HistoryStore` for tests/local embedding; it atomically records mutable heads with immutable versions and transitions, but is not durable and must not be selected as a production fact source. | `New`, `NewDefault` |
 | `pkg/adapter/sql/graphcheckpoint` | experimental SQLite/PostgreSQL v41 durable Graph checkpoint/HistoryStore: atomic mutable-head CAS plus immutable version and append-only transition evidence, with bounded strict JSON decoding. It does not wire execution, leases, providers, or server routes. | `New` |
 | `pkg/app/artifactmigration` | bounded durable resource-migration state, generation/CAS, worker lease, non-lease foreground mutation token, and metadata-only journal port. It has no copier, S3 client, route switch, server lifecycle, or credential configuration. | none; consumers implement/use `Repository` |
-| `pkg/app/runexecutor` | experimental bounded application-level orchestrator registry. It exposes only `RunTurn`/`ResumeTurn`; the default sequential adapter delegates to an injected `core.Runtime`. Factories must be cheap and side-effect-free; their panics become typed errors. One ID has one active version, so an upgrade uses a new ID or drains then rebuilds the registry. Profile/database selection and Graph registration remain outside this package. | `NewRegistry`, `NewDefaultRegistry`, `NewSequential` |
+| `pkg/app/runexecutor` | experimental bounded application-level orchestrator registry. It exposes only `RunTurn`/`ResumeTurn`; the default sequential adapter delegates to an injected `core.Runtime`. Factories must be cheap and side-effect-free; their panics become typed errors. One ID has one active version, so an upgrade uses a new ID or drains then rebuilds the registry. Profile/database selection and Graph registration remain outside this package. CodePTC reserves `codeptc@1` only; its future tool-access contract belongs to `app/programmatic`. No CodePTC executor is registered by default. | `NewRegistry`, `NewDefaultRegistry`, `NewSequential` |
 | `pkg/app/runliveness` | shared deadline-aware scheduler for active-run cancellation and lease liveness. It has no per-run ticker, no per-run goroutine, and requires every registered callback to define its failure boundary. | `New` |
 | `pkg/app/capabilityruntime` | bounded exact-version registry for dynamic capability runtime factories. It defensive-copies request/manifest values and contains factory panics; it owns neither a global registry nor transport policy. | `New` |
 | `pkg/app/contextassembly` | bounded, deterministic context selection plus extractive/rolling summary policies behind core's optional assembler seam. It owns no background worker or durable writer outside its supplied session path. | `NewAssembler`, `NewExtractiveSummarizer` |
@@ -153,6 +158,23 @@ JSON file; representative constructors and extension seams are:
 | `pkg/adapter/modelsettings` | encrypted settings-repository adapter preserving the additive legacy LLM JSON record and forwarding conditional creation only when its settings port supports it | `New` |
 | `pkg/adapter/storageconfig` | encrypted generic-settings adapter preserving `storage.resources`/`storage.sessions` keys, guarded revision updates, and non-secret resolution evidence | `New` |
 | `pkg/adapter/sql/sqlkit` | driver-neutral `Dialect` (`SQLite`, `Postgres`), `Valid`/stable `String`, and placeholder rebinding | `Bind` (returns an explicit error for an unsupported dialect) |
+
+### Exact memory lookup addition (2026-09-09)
+
+`pkg/extensions/memory.KeyStore` adds `Lookup(ctx, scope, key)` without
+changing the established `Store` contract. `LookupCapabilityID` is
+`memory.lookup`; `NewLookupCapability(KeyStore)` exposes it only when a host
+registers the returned capability. `ValidateLookupKey` rejects an empty,
+over-1024-byte, or NUL-containing key. `SliceStore.Lookup` and
+`storage.SQLMemoryStore.Lookup` validate the same scope/key boundary and return
+only an exact byte-for-byte key match in that scope. The SQL implementation
+does not apply `Recall`'s case-insensitive key/content relevance matching.
+
+The default standard menu remains `memory.recall`, `memory.remember`, and
+approval-gated `memory.forget`; the reference `general` profile registers that
+menu only. This is an additive, explicit opt-in seam: it introduces no
+`pkg/core` API and no SQL schema migration. It has source and regression
+coverage only in this inventory; no real-model result is claimed here.
 
 ## `pkg/core` foundation budget
 
@@ -367,3 +389,14 @@ profile-selected server composition. That server-facing adapter wraps one core
 `RunTurn` node rather than an arbitrary multi-node business graph. The complete
 Graph-G1 acceptance matrix, a production multi-node workflow, and broad
 end-to-end load evidence remain absent.
+
+## Programmatic execution additions (2026-09-08)
+
+| Package | Responsibility | Entry points |
+| --- | --- | --- |
+| `pkg/app/programmatic` | Explicit exposure projection and immutable binding descriptors; reserved future `CodePTCToolAccess`. No runner. | `Project`, `Catalog` |
+| `pkg/adapter/programmatic/corebridge` | Accepted parent invocation to guarded child calls with deterministic identity and exact capability bindings. | `New`, `Bridge.CallTool` |
+| `pkg/adapter/programmatic/toolcapability` | Composes catalog, VM and bridge as protected `program.catalog` / `program.execute` capabilities. | `NewCatalogCapability`, `NewExecuteCapability` |
+| `pkg/execution/programmatic` | Host-independent bounded JSON IR interpreter with loops, branches and data operations. | `Compile`, `Diagnostic`, `Program.Run`, `LanguageGuide` |
+
+These additions do not enable the deferred `codeptc@1` route. See [programmatic execution boundaries](../../programmatic-tools.md) and the completed acceptance ledger linked there.

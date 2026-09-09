@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -42,6 +43,9 @@ func TestRunExecutorCompositionRegistersSequentialAndGraph(t *testing.T) {
 	}
 	if _, _, err := registry.Resolve("unknown", "1", runexecutor.Dependencies{Runtime: testCompositionRuntime(t)}); err == nil {
 		t.Fatal("unknown executor accepted")
+	}
+	if _, _, err := registry.ResolveOrDefault(runexecutor.CodePTCID, runexecutor.CodePTCVersion, runexecutor.Dependencies{Runtime: testCompositionRuntime(t)}); !errors.Is(err, runexecutor.ErrExecutorNotFound) {
+		t.Fatalf("reserved CodePTC route must remain unavailable without a host implementation: %v", err)
 	}
 	product := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"}, core.ScopeRef{Kind: core.ScopeProduct, ID: "product"})
 	principal := core.Principal{TenantID: "tenant", SubjectID: "subject", Scope: product}

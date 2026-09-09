@@ -20,6 +20,14 @@ func NewResponsesProtocolRegistration(binding modelcontrol.ImplementationBinding
 }
 
 func marshalResponsesRequest(request modelexecution.Request, maxOutputTokens int) ([]byte, error) {
+	aliases, err := newToolNameAliases(request)
+	if err != nil {
+		return nil, err
+	}
+	return marshalResponsesRequestWithAliases(request, maxOutputTokens, aliases)
+}
+
+func marshalResponsesRequestWithAliases(request modelexecution.Request, maxOutputTokens int, aliases *toolNameAliases) ([]byte, error) {
 	input := make([]any, 0, len(request.Messages))
 	for _, message := range request.Messages {
 		switch message.Role {
@@ -32,7 +40,11 @@ func marshalResponsesRequest(request modelexecution.Request, maxOutputTokens int
 				input = append(input, map[string]any{"role": message.Role, "content": message.Content})
 			}
 			for _, call := range message.ToolCalls {
-				input = append(input, map[string]any{"type": "function_call", "call_id": call.ID, "name": call.Name, "arguments": string(call.Arguments)})
+				name, err := aliases.wire(call.Name)
+				if err != nil {
+					return nil, err
+				}
+				input = append(input, map[string]any{"type": "function_call", "call_id": call.ID, "name": name, "arguments": string(call.Arguments)})
 			}
 		case "tool":
 			input = append(input, map[string]any{"type": "function_call_output", "call_id": message.ToolCallID, "output": message.Content})
@@ -50,6 +62,7 @@ func marshalResponsesRequest(request modelexecution.Request, maxOutputTokens int
 		payload["max_output_tokens"] = maxOutputTokens
 	}
 	if len(request.Tools) > 0 {
+		payload["parallel_tool_calls"] = true
 		tools := make([]map[string]any, 0, len(request.Tools))
 		for _, tool := range request.Tools {
 			var parameters any
@@ -58,7 +71,11 @@ func marshalResponsesRequest(request modelexecution.Request, maxOutputTokens int
 			} else if err := json.Unmarshal(tool.Parameters, &parameters); err != nil {
 				return nil, fmt.Errorf("openai responses tool parameters: %w", err)
 			}
-			tools = append(tools, map[string]any{"type": "function", "name": tool.Name, "description": tool.Description, "parameters": parameters})
+			name, err := aliases.wire(tool.Name)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, map[string]any{"type": "function", "name": name, "description": aliases.description(tool.Name, tool.Description), "parameters": parameters})
 		}
 		payload["tools"] = tools
 	}

@@ -88,6 +88,155 @@ func TestExtractiveSummarizerKeepsExactHardOutputCap(t *testing.T) {
 	}
 }
 
+func TestExtractiveSummarizerReservesRecentUserAfterNearLimitPriorSummary(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const recent = "latest update: retain the Cedar release constraint before answering"
+	messages := []core.ChatMessage{
+		{Role: core.RoleUser, Content: strings.Repeat("P", 11950), Provenance: &core.ContextProvenance{Kind: "summary"}},
+		{Role: core.RoleUser, Content: recent},
+	}
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary) > DefaultExtractiveSummaryMaxBytes {
+		t.Fatalf("summary exceeded 12KiB cap: %d", len(summary))
+	}
+	if !strings.Contains(summary, "recent_user_goal_or_constraint: "+recent) {
+		t.Fatal("near-limit prior summary displaced the recent user update")
+	}
+}
+
+func TestExtractiveSummarizerKeepsFittingRecentUsersWhenTheirTotalExceedsEnvelope(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{
+		MaxBytes:        minimumExtractiveSummaryBytes,
+		MaxMessageBytes: 128,
+		MaxToolBytes:    128,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := []string{
+		"recent-1 " + strings.Repeat("a", 112),
+		"recent-2 " + strings.Repeat("b", 112),
+		"recent-3 " + strings.Repeat("c", 112),
+		"recent-4 " + strings.Repeat("d", 112),
+	}
+	messages := []core.ChatMessage{
+		{Role: core.RoleUser, Content: strings.Repeat("P", 240), Provenance: &core.ContextProvenance{Kind: "summary"}},
+	}
+	for _, update := range updates {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: update})
+	}
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary) > minimumExtractiveSummaryBytes {
+		t.Fatalf("summary exceeded hard cap: %d", len(summary))
+	}
+	if !strings.Contains(summary, "recent_user_goal_or_constraint: "+updates[0]) {
+		t.Fatalf("no fitting recent record was retained: %q", summary)
+	}
+}
+
+func TestExtractiveSummarizerRetainsEarlierUserWhenBudgetAllows(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := []core.ChatMessage{{Role: core.RoleUser, Content: "earliest confirmed fact: Cedar=alpha", SourceSeq: 1}}
+	for index := 0; index < 5; index++ {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: "recent goal " + string(rune('a'+index)), SourceSeq: int64(index + 2)})
+	}
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(summary, "earlier_user_history source_index=0: earliest confirmed fact: Cedar=alpha") {
+		t.Fatalf("earlier fact missing: %q", summary)
+	}
+	for _, want := range []string{"recent_user_goal_or_constraint: recent goal b", "recent_user_goal_or_constraint: recent goal e"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("recent user priority missing %q: %q", want, summary)
+		}
+	}
+}
+
+func TestExtractiveSummarizerBoundsAndLabelsOmittedEarlierUsers(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{MaxBytes: minimumExtractiveSummaryBytes, MaxMessageBytes: 128, MaxToolBytes: 128})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := make([]core.ChatMessage, 12)
+	for index := range messages {
+		messages[index] = core.ChatMessage{Role: core.RoleUser, Content: strings.Repeat("record ", 16) + string(rune('a'+index)), SourceSeq: int64(index + 1)}
+	}
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil || len(summary) > minimumExtractiveSummaryBytes {
+		t.Fatalf("summary bytes=%d err=%v", len(summary), err)
+	}
+	if !strings.Contains(summary, "omitted_earlier_users=") || strings.Contains(summary, "omitted_earlier_users=0") {
+		t.Fatalf("omitted earlier-user count missing: %q", summary)
+	}
+}
+
+func TestExtractiveSummarizerOmitsOversizedEarlierUsersWithoutHashRecords(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversized := strings.Repeat("old-history ", 1<<17)
+	messages := []core.ChatMessage{
+		{Role: core.RoleUser, Content: oversized, SourceSeq: 1},
+		{Role: core.RoleUser, Content: oversized, SourceSeq: 2},
+		{Role: core.RoleUser, Content: "recent one", SourceSeq: 3},
+		{Role: core.RoleUser, Content: "recent two", SourceSeq: 4},
+		{Role: core.RoleUser, Content: "recent three", SourceSeq: 5},
+		{Role: core.RoleUser, Content: "recent four", SourceSeq: 6},
+	}
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil || len(summary) > DefaultExtractiveSummaryMaxBytes {
+		t.Fatalf("summary bytes=%d err=%v", len(summary), err)
+	}
+	if strings.Contains(summary, "sha256=") || strings.Contains(summary, "earlier_user_history source_index=0") || !strings.Contains(summary, "omitted_earlier_users=2") {
+		t.Fatalf("oversized earlier users were retained or hashed: %q", summary)
+	}
+}
+
+func TestExtractiveSummarizerPrioritizesRecentGoalsAndToolPairsOverEarlierUsers(t *testing.T) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := make([]core.ChatMessage, 0, 166)
+	for index := 0; index < 160; index++ {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: strings.Repeat("old history ", 96) + string(rune('a'+index)), SourceSeq: int64(index + 1)})
+	}
+	for index, value := range []string{"recent goal one", "recent goal two", "recent goal three", "recent goal four"} {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: value, SourceSeq: int64(index + 161)})
+	}
+	messages = append(messages,
+		core.ChatMessage{Role: core.RoleAssistant, ToolCall: &core.ToolCall{ID: "priority-pair", Name: "memory.recall"}, SourceSeq: 165},
+		core.ChatMessage{Role: core.RoleTool, ToolCallID: "priority-pair", Content: "priority result", SourceSeq: 166},
+	)
+	summary, err := summarizer.Summarize(context.Background(), messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"recent_user_goal_or_constraint: recent goal four", "tool_call id=priority-pair name=memory.recall", "tool_result id=priority-pair result=priority result"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("priority evidence missing %q: %q", want, summary)
+		}
+	}
+	if !strings.Contains(summary, "omitted_earlier_users=") || strings.Contains(summary, "omitted_earlier_users=0") {
+		t.Fatalf("test did not exhaust earlier-user budget: %q", summary)
+	}
+}
+
 func TestExtractiveSummarizerNeverSplitsToolPairAtOutputBoundary(t *testing.T) {
 	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{MaxBytes: minimumExtractiveSummaryBytes, MaxMessageBytes: 256, MaxToolBytes: 256})
 	if err != nil {
@@ -177,6 +326,33 @@ func BenchmarkExtractiveSummarizerLargeToolResult(b *testing.B) {
 		summary, err := summarizer.Summarize(context.Background(), messages)
 		if err != nil || len(summary) > DefaultExtractiveSummaryMaxBytes {
 			b.Fatalf("summary bytes=%d err=%v", len(summary), err)
+		}
+	}
+}
+
+// BenchmarkExtractiveSummarizerOversizedEarlierUsers measures the bounded
+// rejection path. Fixture bytes describe the input, not bytes scanned: the
+// oversized payloads are skipped. Compare ns/op and allocations for regressions.
+func BenchmarkExtractiveSummarizerOversizedEarlierUsers(b *testing.B) {
+	summarizer, err := NewExtractiveSummarizer(ExtractiveSummarizerConfig{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	oversized := strings.Repeat("old-history ", 1<<17)
+	messages := make([]core.ChatMessage, 0, 12)
+	for index := 0; index < 8; index++ {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: oversized})
+	}
+	for _, content := range []string{"recent one", "recent two", "recent three", "recent four"} {
+		messages = append(messages, core.ChatMessage{Role: core.RoleUser, Content: content})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.ReportMetric(float64(len(oversized)*8), "fixture_bytes")
+	for index := 0; index < b.N; index++ {
+		summary, runErr := summarizer.Summarize(context.Background(), messages)
+		if runErr != nil || len(summary) > DefaultExtractiveSummaryMaxBytes {
+			b.Fatalf("summary bytes=%d err=%v", len(summary), runErr)
 		}
 	}
 }

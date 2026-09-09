@@ -248,6 +248,26 @@ func TestFoundationalDependencyBaseline(t *testing.T) {
 	packages := loadPackageImports(t)
 	rules := []dependencyRule{
 		{
+			name:    "programmatic tool bridge depends only on core and the capability contract",
+			from:    "adapter/programmatic/corebridge",
+			allowed: []string{"core", "app/programmatic", "adapter/programmatic/internal/jsonvalue"},
+		},
+		{
+			name:    "programmatic capability adapter composes only the contract, VM and protected bridge",
+			from:    "adapter/programmatic/toolcapability",
+			allowed: []string{"core", "app/programmatic", "execution/programmatic", "adapter/programmatic/corebridge", "adapter/programmatic/internal/jsonvalue"},
+		},
+		{
+			name:    "programmatic JSON parser has no internal dependencies",
+			from:    "adapter/programmatic/internal/jsonvalue",
+			allowed: nil,
+		},
+		{
+			name:    "programmatic VM has no internal host or runtime dependency",
+			from:    "execution/programmatic",
+			allowed: nil,
+		},
+		{
 			name:    "shared HTTP JSON codec has no internal product dependency",
 			from:    "adapter/httpapi/jsonbody",
 			allowed: nil,
@@ -308,9 +328,13 @@ func TestFoundationalDependencyBaseline(t *testing.T) {
 			allowed: []string{"app/modelsettings", "app/settings"},
 		},
 		{
-			name:    "evaluation may depend only on core among internal packages",
+			name:    "evaluation may depend on core, the shared execution route, and its exact private ledger collector",
 			from:    "evaluation",
-			allowed: []string{"core"},
+			allowed: []string{"core", "app/runexecutor"},
+			allowedExact: []string{
+				modulePath + "/internal/executionroute",
+				modulePath + "/internal/evaluationledger",
+			},
 		},
 		{
 			name:    "control may depend on core and evaluation among internal packages",

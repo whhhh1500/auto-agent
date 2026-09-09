@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/whhhh1500/auto-agent/internal/evaluationledger"
+	"github.com/whhhh1500/auto-agent/internal/executionroute"
+	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
@@ -31,7 +34,10 @@ type Runner struct {
 	Sessions   core.SessionStore
 	Store      Store
 	Evaluators *Registry
-	Now        func() time.Time
+	// Executors is the same application-level registry used by the server.
+	// A nil registry preserves embedded-runner compatibility with sequential.
+	Executors *runexecutor.Registry
+	Now       func() time.Time
 }
 
 func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error) {
@@ -45,6 +51,10 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error)
 		return RunResult{}, fmt.Errorf("evaluation principal is incomplete")
 	}
 	store, sessions, registry, err := r.dependencies()
+	if err != nil {
+		return RunResult{}, err
+	}
+	executors, err := r.executors()
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -98,7 +108,7 @@ func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error)
 	if err := store.CreateRun(ctx, run); err != nil {
 		return RunResult{}, err
 	}
-	return r.executeRun(ctx, store, sessions, registry, run, dataset, request.Principal, false)
+	return r.executeRun(ctx, store, sessions, registry, executors, run, dataset, request.Principal, false)
 }
 
 // Resume continues a running evaluation after process/request interruption.
@@ -112,6 +122,10 @@ func (r *Runner) Resume(ctx context.Context, runID string, principal core.Princi
 		return RunResult{}, fmt.Errorf("evaluation runtime is nil")
 	}
 	store, sessions, registry, err := r.dependencies()
+	if err != nil {
+		return RunResult{}, err
+	}
+	executors, err := r.executors()
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -133,7 +147,7 @@ func (r *Runner) Resume(ctx context.Context, runID string, principal core.Princi
 	if dataset.Revision != run.DatasetRevision || run.TotalCases != len(dataset.Cases) {
 		return run, fmt.Errorf("evaluation dataset changed before resume")
 	}
-	return r.executeRun(ctx, store, sessions, registry, run, dataset, principal, true)
+	return r.executeRun(ctx, store, sessions, registry, executors, run, dataset, principal, true)
 }
 
 func (r *Runner) dependencies() (Store, core.SessionStore, *Registry, error) {
@@ -155,11 +169,19 @@ func (r *Runner) dependencies() (Store, core.SessionStore, *Registry, error) {
 	return r.Store, sessions, registry, nil
 }
 
+func (r *Runner) executors() (*runexecutor.Registry, error) {
+	if r != nil && r.Executors != nil {
+		return r.Executors, nil
+	}
+	return runexecutor.NewDefaultRegistry()
+}
+
 func (r *Runner) executeRun(
 	ctx context.Context,
 	store Store,
 	sessions core.SessionStore,
 	registry *Registry,
+	executors *runexecutor.Registry,
 	run RunResult,
 	dataset Dataset,
 	principal core.Principal,
@@ -212,7 +234,7 @@ func (r *Runner) executeRun(
 		if err := ctx.Err(); err != nil {
 			return r.interruptRun(store, run, err)
 		}
-		caseResult, caseErr := r.runCase(ctx, sessions, registry, run, dataset, evalCase, principal, run.ProfileID, run.AllowCapabilities)
+		caseResult, caseErr := r.runCase(ctx, sessions, registry, executors, run, dataset, evalCase, principal, run.ProfileID, run.AllowCapabilities)
 		if caseErr != nil {
 			return r.interruptRun(store, run, caseErr)
 		}
@@ -261,6 +283,7 @@ func (r *Runner) runCase(
 	ctx context.Context,
 	sessions core.SessionStore,
 	registry *Registry,
+	executors *runexecutor.Registry,
 	evaluationRun RunResult,
 	dataset Dataset,
 	evalCase Case,
@@ -327,6 +350,8 @@ func (r *Runner) runCase(
 	}()
 	var turn core.TurnResult
 	var runErr error
+	collector := evaluationledger.New()
+	caseRuntime := collector.Runtime(r.Runtime)
 	if status, exists := session.RunStatus(agentRunID); exists {
 		if status == "" {
 			expectedVersion := session.Version()
@@ -354,10 +379,17 @@ func (r *Runner) runCase(
 		}
 	} else {
 		expectedVersion := session.Version()
-		turn, runErr = r.Runtime.RunTurn(ctx, principal, session, core.TurnInput{
+		decision, err := executionroute.Resolve(ctx, executionroute.Request{
+			Runtime: caseRuntime, Registry: executors, Principal: principal, Session: session,
+			RunID: agentRunID, BaseMetadata: evaluationRun.CompositionMetadata,
+		})
+		if err != nil {
+			return CaseResult{}, err
+		}
+		turn, runErr = decision.Executor.RunTurn(ctx, principal, session, core.TurnInput{
 			RunID: agentRunID, Text: evalCase.Input,
 			CapabilityFilter:    safeEvaluationFilter(allow),
-			CompositionMetadata: evaluationRun.CompositionMetadata,
+			CompositionMetadata: decision.CompositionMetadata,
 		}, nil)
 		persistCtx, cancelPersist := evaluationPersistenceContext(ctx)
 		saveErr := sessions.Save(persistCtx, session, expectedVersion)
@@ -393,7 +425,42 @@ func (r *Runner) runCase(
 		DurationMS: time.Since(started).Milliseconds(), ToolCalls: observation.ToolCalls,
 		CompletedAt: r.now(),
 	}
+	evidence, err := executionEvidence(session.Events(), agentRunID)
+	if err != nil {
+		return CaseResult{}, err
+	}
+	caseResult.Evidence = evidence
+	ledger, err := collector.Project(session.Events(), agentRunID)
+	if err != nil {
+		return CaseResult{}, err
+	}
+	caseResult.Ledger = projectExecutionLedger(ledger)
 	return caseResult, nil
+}
+
+func projectExecutionLedger(source *evaluationledger.Ledger) *ExecutionLedger {
+	if source == nil {
+		return nil
+	}
+	ledger := &ExecutionLedger{Complete: source.Complete, IncompleteReasons: append([]string(nil), source.IncompleteReasons...)}
+	ledger.ModelCalls = make([]ExecutionLedgerModelCall, 0, len(source.ModelCalls))
+	for _, call := range source.ModelCalls {
+		entry := ExecutionLedgerModelCall{Step: call.Step, Invoked: call.Invoked, Outcome: call.Outcome, UsageReports: call.UsageReports}
+		if call.Usage != nil {
+			entry.Usage = &ExecutionLedgerUsage{InputTokens: call.Usage.InputTokens, OutputTokens: call.Usage.OutputTokens}
+		}
+		ledger.ModelCalls = append(ledger.ModelCalls, entry)
+	}
+	for _, assembly := range source.ContextAssemblies {
+		ledger.ContextAssemblies = append(ledger.ContextAssemblies, ExecutionLedgerContext{
+			ContextWindowTokens: assembly.ContextWindowTokens, MaxOutputTokens: assembly.MaxOutputTokens,
+			InputBytes: assembly.InputBytes, InputTokens: assembly.InputTokens, DroppedGroups: assembly.DroppedGroups, Outcome: assembly.Outcome,
+		})
+	}
+	for _, gate := range source.GateCalls {
+		ledger.GateCalls = append(ledger.GateCalls, ExecutionLedgerGateCall{Step: gate.Step, Outcome: gate.Outcome})
+	}
+	return ledger
 }
 
 func appendEvaluationContext(session *core.Session, messages []ContextMessage, runID string) error {
@@ -509,6 +576,73 @@ func observeEvaluationRun(session *core.Session, runID string, turn core.TurnRes
 	}
 	sort.Strings(observation.ToolCalls)
 	return observation
+}
+
+func executionEvidence(events []core.SessionEvent, runID string) (*ExecutionEvidence, error) {
+	if err := core.ValidateRunID(runID); err != nil {
+		return nil, err
+	}
+	evidence := &ExecutionEvidence{}
+	topLevelCalls := map[string]bool{}
+	maxTokens := core.MaxReportedTokensPerRun
+	for _, event := range events {
+		if event.RunID != runID {
+			continue
+		}
+		switch event.Type {
+		case core.EvRunUsage:
+			var data core.RunUsageData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return nil, fmt.Errorf("decode execution evidence usage: %w", err)
+			}
+			if data.InputTokens < 0 || data.OutputTokens < 0 || data.InputTokens > maxTokens-evidence.ReportedInputTokens || data.OutputTokens > maxTokens-evidence.ReportedOutputTokens {
+				return nil, fmt.Errorf("execution evidence usage exceeds bounds")
+			}
+			evidence.ReportedInputTokens += data.InputTokens
+			evidence.ReportedOutputTokens += data.OutputTokens
+			evidence.UsageReports++
+		case core.EvStepStart:
+			var data core.StepData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return nil, fmt.Errorf("decode execution evidence step start: %w", err)
+			}
+			evidence.StepsStarted++
+		case core.EvStepEnd:
+			var data core.StepData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return nil, fmt.Errorf("decode execution evidence step end: %w", err)
+			}
+			evidence.StepsEnded++
+		case core.EvAssistantMessage:
+			var data core.AssistantMessageData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return nil, fmt.Errorf("decode execution evidence assistant message: %w", err)
+			}
+			calls := data.ToolCalls
+			if len(calls) == 0 && data.ToolCall != nil {
+				calls = []core.ToolCall{*data.ToolCall}
+			}
+			for _, call := range calls {
+				topLevelCalls[call.ID] = true
+			}
+		case core.EvToolResult:
+			var data core.ToolResultData
+			if err := json.Unmarshal(event.Data, &data); err != nil {
+				return nil, fmt.Errorf("decode execution evidence tool result: %w", err)
+			}
+			if data.OK {
+				evidence.ToolResultEventsOK++
+			} else {
+				evidence.ToolResultEventsNotOK++
+			}
+		}
+	}
+	evidence.NoUsageReported = evidence.UsageReports == 0
+	evidence.TopLevelToolCalls = len(topLevelCalls)
+	if err := validateExecutionEvidence(*evidence); err != nil {
+		return nil, err
+	}
+	return evidence, nil
 }
 
 func extractArtifacts(session *core.Session, runID string) ArtifactSnapshot {

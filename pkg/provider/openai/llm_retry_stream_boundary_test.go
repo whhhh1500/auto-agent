@@ -136,7 +136,7 @@ func TestRetryFacadeAcceptsSSETerminatorWithoutFinishReason(t *testing.T) {
 
 func TestRetryFacadeArtifactRevisionBindsRetryClassifier(t *testing.T) {
 	retry := retryFacade("https://example.invalid", 1)
-	if got, want := retry.ArtifactRevision(), "retry/v2/openai-compatible/chat-completions/v2-terminal-sentinel"; got != want {
+	if got, want := retry.ArtifactRevision(), "retry/v2/openai-compatible/chat-completions/v3-wire-tool-names"; got != want {
 		t.Fatalf("ArtifactRevision()=%q, want %q", got, want)
 	}
 }

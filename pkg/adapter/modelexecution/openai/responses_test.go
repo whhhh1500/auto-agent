@@ -141,7 +141,7 @@ func TestResponsesSingleAndRequestMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wire map[string]any
-	if err := json.Unmarshal(body, &wire); err != nil || wire["instructions"] != "system" || wire["max_output_tokens"].(float64) != 12 || wire["stream"] != true || wire["store"] != false {
+	if err := json.Unmarshal(body, &wire); err != nil || wire["instructions"] != "system" || wire["max_output_tokens"].(float64) != 12 || wire["stream"] != true || wire["store"] != false || wire["parallel_tool_calls"] != true {
 		t.Fatalf("body=%s err=%v", body, err)
 	}
 	single := `{"id":"res-1","status":"completed","output":[{"id":"msg-1","type":"message","content":[{"type":"output_text","text":"hello"}]},{"id":"item-1","type":"function_call","call_id":"call-1","name":"weather","arguments":"{}"}],"usage":{"input_tokens":1,"output_tokens":2}}`

@@ -7,15 +7,17 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/whhhh1500/auto-agent/internal/executionroute"
 	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
+	"github.com/whhhh1500/auto-agent/pkg/app/programmatic"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
 const (
 	generalProfileID           = "general"
 	generalProfileName         = "通用智能体"
-	generalProfileDescription  = "A general-purpose assistant that can recall and remember scoped facts, search knowledge, deliver approved notifications, and execute argv-only sandbox tasks when permitted."
-	generalProfilePrompt       = "Be helpful, accurate, clear, and honest about uncertainty. Use memory recall only when it helps the current request; remember only durable user-relevant facts. Treat memory.forget as destructive: use it only when requested and explain that it requires approval. Search the knowledge base when it is relevant. Before sending a notification, inspect available channels and opaque targets, require a target, and explain that delivery requires approval. sandbox.exec accepts argv only (never a shell), follows the trusted provider's reported network policy, and writes verified artifacts under /artifacts for object-storage publication. Host-network mode provides no network-isolation guarantee; any offline notice is informational only. If the platform sandbox is unavailable, explain that execution is unavailable rather than using a host fallback."
+	generalProfileDescription  = "A general-purpose assistant that can recall and remember scoped facts, search knowledge, deliver approved notifications, and choose direct tools or bounded program execution when permitted."
+	generalProfilePrompt       = "Be helpful, accurate, clear, and honest about uncertainty. Choose among the tools currently exposed: call an ordinary tool directly for a simple action or when the next decision requires your interpretation; use program.execute for deterministic, bounded loops, branches and data processing. When choosing program.execute, first obtain program bindings from program.catalog and follow the program tool description. If program.execute is not exposed, use the available direct tools. Treat returned tool outcomes as evidence before deciding the next step. Use memory recall only when it helps the current request; remember only durable user-relevant facts. Treat memory.forget as destructive: use it only when requested and explain that it requires approval. Search the knowledge base when it is relevant. Before sending a notification, inspect available channels and opaque targets, require a target, and explain that delivery requires approval. sandbox.exec accepts argv only (never a shell), follows the trusted provider's reported network policy, and writes verified artifacts under /artifacts for object-storage publication. Host-network mode provides no network-isolation guarantee; any offline notice is informational only. If the platform sandbox is unavailable, explain that execution is unavailable rather than using a host fallback."
 	generalProfileMaxSteps     = core.DefaultMaxSteps
 	generalProfileMaxToolCalls = core.DefaultMaxToolCalls
 	legacyOpenAIProvider       = "openai"
@@ -131,6 +133,10 @@ func (controller *generalProfileController) replaceLocked(selection core.ModelSe
 		Scope: controller.scope, ProfileID: generalProfileID,
 		Name: &name, Description: &description, Model: &selection,
 		MaxSteps: &maxSteps, MaxToolCalls: &maxToolCalls,
+		Metadata: map[string]string{
+			executionroute.RouteVersionKey: executionroute.RouteVersion,
+			executionroute.RouteModeKey:    string(programmatic.RouteDirectOnly),
+		},
 		AddCapabilities: append([]string(nil), controller.capabilities...),
 		PutFragments: []core.PromptFragment{{
 			ID: "general.instructions", Section: core.PromptInstructions, Content: generalProfilePrompt,
@@ -169,6 +175,6 @@ func unconfiguredGeneralModelSelection() core.ModelSelection {
 
 func generalCapabilityIDs() []string {
 	return []string{
-		"memory.forget", "memory.recall", "memory.remember", "notify.channels", "notify.send", "notify.targets", "rag.search", "sandbox.exec",
+		"memory.forget", "memory.recall", "memory.remember", "notify.channels", "notify.send", "notify.targets", "program.catalog", "program.execute", "rag.search", "sandbox.exec",
 	}
 }

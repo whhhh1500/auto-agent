@@ -5,7 +5,7 @@ unaware of transport, databases, model vendors and optional product features.
 
 For the detailed implementation and extension audit, see the
 [44-module Agent assessment](agent-module-assessment.md), including a complete
-74-package coverage index. The companion
+package coverage index (see the public API inventory for the current package list). The companion
 [framework comparison](agent-framework-comparison.md) explains scenario-based
 tradeoffs, and the [2026-09-06 benchmarks](performance/2026-09-06-module-benchmarks.md)
 separate measured local costs from historical integration evidence and unmeasured claims.
@@ -87,7 +87,9 @@ implementation.
   Windows admits one active session per process and reports `NetworkHost`,
   `NetworkIsolation=false`; strict network-isolation requests and elevated
   source processes are rejected. Neither provider falls back to host execution.
-- `pkg/extensions/*` contains optional capability consumers.
+- `pkg/extensions/*` contains optional capability consumers. In particular,
+  `pkg/extensions/memory` keeps the relevance-oriented `Store.Recall` contract
+  separate from the optional exact-key `KeyStore.Lookup` seam.
 - `pkg/storage` implements persistence and SQL-backed operational stores.
 - `pkg/control` owns control-plane orchestration such as restorable profile releases, evaluation-gated durable canaries, and revision-driven shared-store synchronization.
 - `pkg/evaluation` owns immutable datasets, isolated Case execution,
@@ -104,6 +106,11 @@ implicitly copied to Metrics or durable W3C Baggage.
 The server command is a reference composition, not a product workflow. It
 installs the built-in `general` profile, with scoped memory recall/remember/
 approval-gated forget, RAG search, and approval-gated notification capabilities.
+`memory.lookup` is deliberately absent: a host may create it with
+`memory.NewLookupCapability(memory.KeyStore)` and register it explicitly when
+an exact canonical-key read is appropriate. That read preserves punctuation and
+case and does not perform recall-style content search or separator
+normalization; it adds no `pkg/core` API or SQL schema migration.
 It builds each durable memory/RAG store once and shares those instances with
 projection maintenance. Provider/protocol/model, notification target, and object
 storage selection are database/Console state. `general` uses sequential
@@ -127,6 +134,8 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | Core sequential runtime, HTTP/JSON and SSE | Implemented; runtime contracts remain provider-neutral | `go test ./pkg/core ./pkg/server ./pkg/integration` and OpenAPI gate |
 | SQLite and PostgreSQL stores/adapters | Implemented; PostgreSQL requires an explicit test database | `go run ./scripts/test-postgres -log <new-evidence-path>` selects every `TestPostgres` test, rejects named skips, and refuses an existing evidence path so one run cannot truncate or interleave another run's proof |
 | Default server Graph executor | Experimental; one registered `core-turn` node | `pkg/adapter/runexecutor/graph` tests |
+| PTC | Bounded programmatic tools within the guarded model loop; bounded protocol and SQL approval-recovery acceptance completed. The shared data-plane resolver can enforce direct, PTC, or first-action-locked auto projection. Live evidence shows first-action auto is direct-biased, so general remains direct-only while the next probe-aware candidate and promotion stay evidence-gated and manual. | [Programmatic tool contract](programmatic-tools.md); [routing-efficiency triad](verification/2026-09-09-routing-efficiency-triad.md); [enforced routing live acceptance](verification/2026-09-09-enforced-routing-live.md); [diverse routing live acceptance](verification/2026-09-09-diverse-enforced-routing-live.md) |
+| CodePTC | Deferred; reserved `codeptc@1` route and experimental host tool-access contract only, no built-in executor or AI mode selector | [Reserved extension boundary](codeptc-extension.md); default registry rejects this route |
 | Multi-node Graph engine | Experimental trusted Go assembly; SQL example with injected reviews | `go test ./examples/graph-review` |
 | Windows local sandbox | Current-user Basic only; Medium source, restricted child, Job cleanup, one active session per process, Host networking | [Native Basic acceptance](verification/2026-09-06-windows-basic-acceptance.md) |
 | Linux local sandbox | Existing `bwrap`/`prlimit` provider; required confinement dependencies must be available | Native Linux tests; not validated by a Windows test pass |
@@ -135,6 +144,7 @@ All public APIs remain pre-GA; "implemented" is not a stable compatibility promi
 | WASM execution | Per-call isolated runtime, default 128 MiB guest linear memory / 30 s timeout, context cancellation enabled; optional caller-owned compilation cache | [Real WASI, resource and cache acceptance](performance/2026-09-06-wasm-resource-and-cache.md); limits do not cap total host RSS or hard-preempt arbitrary file reads / compilation |
 | Default model context budget | Reserves final tool declarations before selecting history; System, messages and tools share an application-layer ContextEstimator | [Context budget boundary](agent-module-assessment.md#m14); conservative estimates are not an exact provider tokenizer |
 | Optional tool disclosure | Restores up to 8 recent tool schemas from projected history and the current authorized snapshot; host-owned library dispatch is preserved | [4/24-tool real conversation comparison](performance/2026-09-06-tool-disclosure.md); extra discovery calls can increase total tokens and latency; `toollib.SetSearcher` does not replace the core searcher |
+| Optional exact memory lookup | `KeyStore.Lookup` reads one byte-exact key in the caller's ownership scope; `SliceStore` and `SQLMemoryStore` implement it. It is intentionally not part of the standard memory menu or default `general` profile. | Memory and SQL-store regression contracts; no real-model result or schema migration is claimed |
 | Queued worker process-crash recovery | Before a journaled tool begins, the server durably checkpoints the assistant/tool-call prefix; an unknown non-idempotent outcome is repaired as `run_interrupted` without provider replay | [Hard-kill PostgreSQL acceptance](verification/2026-09-06-assessment-closure.md#worker-process-crash-recovery); recovery is fail-closed, including a journal row already marked completed |
 | Native-static queued recovery (v43/v44/v45/v46) | Implemented and accepted for the sealed single-tail A/B coordinator: atomically deliver a completed journal result, or read back its exact sidecar-bound result, then continue only with the built-in sequential executor and current admissions | [Native worker verification](verification/2026-09-07-native-model-worker.md#second-batch-verification-accepted-2026-09-08) |
 
@@ -458,3 +468,5 @@ boundaries, not shipped capabilities. Add them only when a real consumer and
 behavior tests justify the new adapter. The embedded console can later be
 replaced by a standalone Studio without changing the `/v1` API or the injected
 `Authenticator` seam.
+
+Routing now has a shared data-plane resolver and a model-facing projection that locks the same Run to its first eligible action. The remaining control-plane boundary is deterministic eligibility across task families plus offline candidates, holdout evaluation, canary evidence and manual promotion. A prompt or `parallel_tool_calls` request flag does not establish this policy, and no online self-modifying route is implemented.

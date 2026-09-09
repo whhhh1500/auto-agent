@@ -33,7 +33,11 @@ func (p ResponsesProtocol) Execute(ctx context.Context, request modelexecution.R
 	if provider == nil || ctx == nil || p.MaxOutputTokens < 0 {
 		return fmt.Errorf("openai responses execution is invalid")
 	}
-	body, err := marshalResponsesRequest(request, p.MaxOutputTokens)
+	aliases, err := newToolNameAliases(request)
+	if err != nil {
+		return err
+	}
+	body, err := marshalResponsesRequestWithAliases(request, p.MaxOutputTokens, aliases)
 	if err != nil {
 		return err
 	}
@@ -42,23 +46,36 @@ func (p ResponsesProtocol) Execute(ctx context.Context, request modelexecution.R
 		return err
 	}
 	defer response.Body.Close()
-	return parseResponsesResponse(response.Body, emit)
+	return parseResponsesResponseWithAliases(response.Body, aliases, emit)
 }
 
 func parseResponsesResponse(body io.Reader, emit modelexecution.Emit) error {
+	return parseResponsesResponseWithAliases(body, nil, emit)
+}
+
+func parseResponsesResponseWithAliases(body io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	reader := bufio.NewReader(&limitReader{reader: body, remaining: modelexecution.DefaultMaxResponseBytes})
-	first, err := firstNonSpace(reader)
-	if err != nil {
+	if _, err := firstNonSpace(reader); err != nil {
 		return err
 	}
-	if first == 'd' {
-		return parseResponsesSSE(reader, emit)
+	if responsesSSEPrefix(reader) {
+		return parseResponsesSSEWithAliases(reader, aliases, emit)
 	}
 	raw, err := io.ReadAll(reader)
 	if err != nil {
 		return err
 	}
-	return parseResponsesSingle(raw, emit)
+	return parseResponsesSingleWithAliases(raw, aliases, emit)
+}
+
+func responsesSSEPrefix(reader *bufio.Reader) bool {
+	for _, prefix := range [...]string{"data:", "event:", "id:", "retry:", ":"} {
+		value, err := reader.Peek(len(prefix))
+		if err == nil && string(value) == prefix {
+			return true
+		}
+	}
+	return false
 }
 
 type responsesUsage struct {
@@ -111,8 +128,8 @@ type responseOutputState struct {
 	done                   bool
 }
 type responseContentState struct {
-	kind, text string
-	done       bool
+	kind, text            string
+	contentDone, partDone bool
 }
 type responsesStreamState struct {
 	created, completed bool
@@ -122,14 +139,19 @@ type responsesStreamState struct {
 	events             int
 	outputs            map[int]*responseOutputState
 	contents           map[string]*responseContentState
+	aliases            *toolNameAliases
 }
 
 func parseResponsesSSE(reader io.Reader, emit modelexecution.Emit) error {
+	return parseResponsesSSEWithAliases(reader, nil, emit)
+}
+
+func parseResponsesSSEWithAliases(reader io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	scanner := bufio.NewScanner(reader)
 	// A valid normalized text/tool fragment may be as large as its contract
 	// bound; the enclosing limitReader still caps the entire response at 32MiB.
 	scanner.Buffer(make([]byte, 0, 1<<20), int(modelexecution.DefaultMaxResponseBytes))
-	state := responsesStreamState{outputs: make(map[int]*responseOutputState), contents: make(map[string]*responseContentState)}
+	state := responsesStreamState{outputs: make(map[int]*responseOutputState), contents: make(map[string]*responseContentState), aliases: aliases}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -279,7 +301,7 @@ func (s *responsesStreamState) addContent(event responsesSSEEvent) error {
 func (s *responsesStreamState) emitContent(event responsesSSEEvent, kind, delta string, emit modelexecution.Emit) error {
 	content, err := s.content(event, kind)
 	output, outputErr := s.output(event, "message")
-	if err != nil || outputErr != nil || output.done || content.done {
+	if err != nil || outputErr != nil || output.done || content.contentDone || content.partDone {
 		return fmt.Errorf("openai responses content delta is invalid")
 	}
 	if int64(len(content.text))+int64(len(delta)) > modelexecution.DefaultMaxTextBytes {
@@ -295,13 +317,18 @@ func (s *responsesStreamState) emitContent(event responsesSSEEvent, kind, delta 
 func (s *responsesStreamState) finishContent(event responsesSSEEvent, kind, final string, emit modelexecution.Emit) error {
 	content, err := s.content(event, kind)
 	output, outputErr := s.output(event, "message")
-	if err != nil || outputErr != nil || output.done || content.done {
+	if err != nil || outputErr != nil || output.done || content.contentDone {
 		return fmt.Errorf("openai responses content completion is invalid")
 	}
-	if err := s.emitSuffix(content, final, emit); err != nil {
-		return err
+	if content.partDone && final != content.text {
+		return fmt.Errorf("openai responses final content conflicts")
 	}
-	content.done = true
+	if !content.partDone {
+		if err := s.emitSuffix(content, final, emit); err != nil {
+			return err
+		}
+	}
+	content.contentDone = true
 	return nil
 }
 
@@ -316,7 +343,21 @@ func (s *responsesStreamState) finishContentPart(event responsesSSEEvent, emit m
 	if event.Part.Type != "output_text" && event.Part.Type != "refusal" {
 		return nil
 	}
-	return s.finishContent(event, event.Part.Type, value, emit)
+	content, err := s.content(event, event.Part.Type)
+	output, outputErr := s.output(event, "message")
+	if err != nil || outputErr != nil || output.done || content.partDone {
+		return fmt.Errorf("openai responses content completion is invalid")
+	}
+	if content.contentDone && value != content.text {
+		return fmt.Errorf("openai responses final content conflicts")
+	}
+	if !content.contentDone {
+		if err := s.emitSuffix(content, value, emit); err != nil {
+			return err
+		}
+	}
+	content.partDone = true
+	return nil
 }
 
 func (s *responsesStreamState) emitSuffix(content *responseContentState, final string, emit modelexecution.Emit) error {
@@ -344,7 +385,11 @@ func (s *responsesStreamState) emitArguments(event responsesSSEEvent, delta stri
 		return nil
 	}
 	output.emitted = true
-	return emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: *event.OutputIndex, ID: output.callID, Name: output.name, ArgumentsFragment: []byte(delta)}})
+	name, err := s.aliases.internal(output.name)
+	if err != nil {
+		return err
+	}
+	return emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: *event.OutputIndex, ID: output.callID, Name: name, ArgumentsFragment: []byte(delta)}})
 }
 
 func (s *responsesStreamState) finishArguments(event responsesSSEEvent, emit modelexecution.Emit) error {
@@ -358,7 +403,11 @@ func (s *responsesStreamState) finishArguments(event responsesSSEEvent, emit mod
 		return nil
 	}
 	output.emitted = true
-	return emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: *event.OutputIndex, ID: output.callID, Name: output.name, ArgumentsFragment: []byte(suffix)}})
+	name, err := s.aliases.internal(output.name)
+	if err != nil {
+		return err
+	}
+	return emit(modelexecution.Event{Kind: modelexecution.EventToolCallDelta, ToolCall: &modelexecution.ToolCallDelta{Index: *event.OutputIndex, ID: output.callID, Name: name, ArgumentsFragment: []byte(suffix)}})
 }
 
 func (s *responsesStreamState) finishOutput(event responsesSSEEvent, emit modelexecution.Emit) error {
@@ -429,7 +478,7 @@ func (s *responsesStreamState) reconcileItem(index int, item responsesItem, emit
 			if content.Type == "refusal" {
 				value = content.Refusal
 			}
-			if err := s.emitSuffix(state, value, emit); err != nil {
+			if err := s.reconcileContent(state, value, emit); err != nil {
 				return err
 			}
 		}
@@ -437,6 +486,16 @@ func (s *responsesStreamState) reconcileItem(index int, item responsesItem, emit
 	default:
 		return fmt.Errorf("openai responses final output is unsupported")
 	}
+}
+
+func (s *responsesStreamState) reconcileContent(content *responseContentState, final string, emit modelexecution.Emit) error {
+	if content.contentDone || content.partDone {
+		if final != content.text {
+			return fmt.Errorf("openai responses final content conflicts")
+		}
+		return nil
+	}
+	return s.emitSuffix(content, final, emit)
 }
 
 func (s *responsesStreamState) output(event responsesSSEEvent, kind string) (*responseOutputState, error) {
@@ -473,11 +532,15 @@ func contentKey(output, content int, itemID string) string {
 }
 
 func parseResponsesSingle(raw []byte, emit modelexecution.Emit) error {
+	return parseResponsesSingleWithAliases(raw, nil, emit)
+}
+
+func parseResponsesSingleWithAliases(raw []byte, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	var response responsesFinal
 	if err := json.Unmarshal(raw, &response); err != nil || response.Status != "completed" || !validResponseID(response.ID) {
 		return fmt.Errorf("openai responses single response is invalid")
 	}
-	state := responsesStreamState{created: true, outputs: make(map[int]*responseOutputState), contents: make(map[string]*responseContentState)}
+	state := responsesStreamState{created: true, outputs: make(map[int]*responseOutputState), contents: make(map[string]*responseContentState), aliases: aliases}
 	for index, item := range response.Output {
 		if err := state.addOutput(responsesSSEEvent{OutputIndex: &index, Item: &item}); err != nil {
 			return err

@@ -7,11 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 
@@ -31,7 +29,16 @@ import (
 
 const instrumentationName = "harness-core"
 
-const maxTelemetryErrorBytes = 1024
+const (
+	// telemetryErrorDescription is deliberately content-free. Provider and
+	// capability errors can include request data or credentials, so telemetry
+	// never exports an error's original text.
+	telemetryErrorDescription = "error"
+
+	telemetryErrorTypeUnknown  = "error.unknown"
+	telemetryErrorTypeCanceled = "context.canceled"
+	telemetryErrorTypeDeadline = "context.deadline_exceeded"
+)
 
 type Recorder struct {
 	tracer     trace.Tracer
@@ -129,41 +136,30 @@ func (s spanEnder) End(err error, attributes core.TelemetryAttributes) {
 	}
 	s.span.SetAttributes(otelAttributes(attributes)...)
 	if err != nil {
-		message := boundedError(err)
-		// Preserve the standard RecordError exception event semantics while
-		// bounding its message before the SDK records it.
+		// Preserve the standard exception event shape without exporting the
+		// original error text. Upstream errors frequently include request
+		// payloads, headers, paths, or credentials.
 		s.span.AddEvent("exception", trace.WithAttributes(
 			attribute.String("exception.type", telemetryErrorType(err)),
-			attribute.String("exception.message", message),
+			attribute.String("exception.message", telemetryErrorDescription),
 		))
-		s.span.SetStatus(codes.Error, message)
+		s.span.SetStatus(codes.Error, telemetryErrorDescription)
 	}
 	s.span.End()
 }
 
-func boundedError(err error) string {
-	if err == nil {
-		return ""
-	}
-	message := err.Error()
-	if len(message) <= maxTelemetryErrorBytes {
-		return message
-	}
-	limit := maxTelemetryErrorBytes
-	for limit > 0 && !utf8.RuneStart(message[limit]) {
-		limit--
-	}
-	return message[:limit]
-}
-
-// telemetryErrorType matches the standard OTel RecordError exception.type
-// formatting so existing error-type aggregation remains stable.
+// telemetryErrorType returns only a stable, content-free category. Keep this
+// intentionally small: reflected concrete error types can encode deployment
+// details and turn error aggregation into an unbounded schema.
 func telemetryErrorType(err error) string {
-	typeOf := reflect.TypeOf(err)
-	if typeOf.PkgPath() == "" && typeOf.Name() == "" {
-		return typeOf.String()
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return telemetryErrorTypeDeadline
+	case errors.Is(err, context.Canceled):
+		return telemetryErrorTypeCanceled
+	default:
+		return telemetryErrorTypeUnknown
 	}
-	return fmt.Sprintf("%s.%s", typeOf.PkgPath(), typeOf.Name())
 }
 
 func otelAttributes(values core.TelemetryAttributes) []attribute.KeyValue {
@@ -190,8 +186,9 @@ type Config struct {
 }
 
 // NewFromEnv builds OTLP/HTTP trace and metric providers and installs W3C
-// TraceContext+Baggage propagation globally. The returned shutdown must be
-// called during service termination.
+// TraceContext propagation globally. Baggage is deliberately excluded because
+// it may contain product or user data. The returned shutdown must be called
+// during service termination.
 func NewFromEnv(ctx context.Context, config Config) (*Recorder, func(context.Context) error, error) {
 	serviceName := strings.TrimSpace(config.ServiceName)
 	if serviceName == "" {
@@ -236,9 +233,7 @@ func NewFromEnv(ctx context.Context, config Config) (*Recorder, func(context.Con
 	}
 	otel.SetTracerProvider(tracerProvider)
 	otel.SetMeterProvider(meterProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{}, propagation.Baggage{},
-	))
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 	shutdown := func(shutdownCtx context.Context) error {
 		return errors.Join(meterProvider.Shutdown(shutdownCtx), tracerProvider.Shutdown(shutdownCtx))
 	}

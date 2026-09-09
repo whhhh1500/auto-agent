@@ -25,6 +25,8 @@ var (
 
 const graphCheckpointHistorySchemaVersionV41 = 41
 
+const obsHitSummarySchemaVersionV48 = 48
+
 // postgresSchemaMigrationLockKey serializes PostgreSQL OpenSQLSessionStore
 // schema work. It deliberately differs from postgresStartupLockKey: callers
 // can hold the initial-admin bootstrap lock while opening the store, and a
@@ -252,6 +254,11 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 			}
 			stored = ragTokenizerSchemaVersionV47
 		}
+		if stored < obsHitSummarySchemaVersionV48 {
+			if err := migrateObsHitSummariesV48(ctx, db); err != nil {
+				return nil, fmt.Errorf("clear legacy observability hit snippets: %w", err)
+			}
+		}
 		if stored < SQLSchemaVersion {
 			if _, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion)); err != nil {
 				return nil, fmt.Errorf("upgrade sql schema version: %w", err)
@@ -259,6 +266,14 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 		}
 	}
 	return store, nil
+}
+
+// migrateObsHitSummariesV48 removes legacy watch-hit content. The prior
+// format could contain tool arguments or message text, while v48 admits only
+// canonical non-sensitive summaries for newly written hits.
+func migrateObsHitSummariesV48(ctx context.Context, db sqlSchemaExecutor) error {
+	_, err := db.ExecContext(ctx, "UPDATE obs_hits SET snippet = '' WHERE snippet <> ''")
+	return err
 }
 
 // applySQLiteStartupPragma makes concurrently opening handles wait through a

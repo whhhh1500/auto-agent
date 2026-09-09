@@ -48,6 +48,25 @@ func (a *RetryLlmAdapter) ArtifactRevision() (revision string) {
 	return "retry/v2/" + a.Next.Provider()
 }
 
+// ModelContextLimits transparently forwards an optional model context budget
+// from the next adapter. An unavailable, panicking, or invalid report becomes
+// zero values so core uses its conservative defaults.
+func (a *RetryLlmAdapter) ModelContextLimits() (window, output int) {
+	defer func() {
+		if recover() != nil || window <= 0 || output <= 0 || output >= window {
+			window, output = 0, 0
+		}
+	}()
+	if a == nil || a.Next == nil {
+		return 0, 0
+	}
+	limits, ok := a.Next.(interface{ ModelContextLimits() (int, int) })
+	if !ok || limits == nil {
+		return 0, 0
+	}
+	return limits.ModelContextLimits()
+}
+
 func (a *RetryLlmAdapter) Stream(ctx context.Context, opts core.GenerateOptions, emit func(core.StreamChunk)) error {
 	if a == nil || a.Next == nil {
 		return fmt.Errorf("retry adapter requires a next model adapter")

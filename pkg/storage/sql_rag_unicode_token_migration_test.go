@@ -284,7 +284,7 @@ func testRagUnicodeTokenizerV47TokenLimit(t *testing.T, dialect SQLDialect, db *
 	if _, err := OpenSQLSessionStore(ctx, db, dialect); err != nil {
 		t.Fatalf("v47 retry at %d tokens: %v", rag.MaxDocumentTokens, err)
 	}
-	assertRagSchemaMarker(t, ctx, db, dialect, ragTokenizerSchemaVersionV47)
+	assertRagSchemaMarker(t, ctx, db, dialect, SQLSchemaVersion)
 	var tokens int
 	query := sqlQuery{`SELECT COUNT(*) FROM rag_document_tokens WHERE scope = ? AND document_id = ?`}.bind(dialect)
 	if err := db.QueryRowContext(ctx, query, limitScope.String(), "v47-limit").Scan(&tokens); err != nil || tokens != rag.MaxDocumentTokens {
@@ -414,7 +414,7 @@ func assertV47RagUnicodeState(t *testing.T, ctx context.Context, db *sql.DB, dia
 		}
 		return
 	}
-	assertRagSchemaMarker(t, ctx, db, dialect, ragTokenizerSchemaVersionV47)
+	assertRagSchemaMarker(t, ctx, db, dialect, SQLSchemaVersion)
 	for _, row := range []struct {
 		scope core.ScopePath
 		id    string
@@ -646,6 +646,6 @@ func assertV47ConcurrentOpen(t *testing.T, ctx context.Context, dialect SQLDiale
 			t.Fatalf("concurrent v47 open: %v", err)
 		}
 	}
-	assertRagSchemaMarker(t, ctx, first, dialect, ragTokenizerSchemaVersionV47)
+	assertRagSchemaMarker(t, ctx, first, dialect, SQLSchemaVersion)
 	assertV47ProjectionAuditCount(t, ctx, first, dialect, expectedInserts)
 }

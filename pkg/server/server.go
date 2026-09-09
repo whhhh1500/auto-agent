@@ -575,6 +575,7 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		}
 		evaluationRunner = &evaluation.Runner{
 			Runtime: config.Runtime, Sessions: config.Sessions, Store: config.Evaluations, Evaluators: evaluators,
+			Executors: config.RunExecutors,
 		}
 	}
 	runWorkerCount := config.RunWorkerConcurrency

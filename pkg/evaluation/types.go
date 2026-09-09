@@ -111,20 +111,81 @@ type ArtifactSnapshot struct {
 	AssignmentRevision   string `json:"assignment_revision,omitempty"`
 }
 
+// ExecutionEvidence is a bounded, read-only projection of one case Session's
+// durable events. It reports model and summary usage contributions, but it
+// does not infer provider requests, execution strategy, nested-tool shape, or
+// external side effects. NoUsageReported only records that no EvRunUsage event
+// was observed; false does not establish complete provider accounting.
+type ExecutionEvidence struct {
+	ReportedInputTokens  int64 `json:"reported_input_tokens"`
+	ReportedOutputTokens int64 `json:"reported_output_tokens"`
+	// UsageReports counts durable EvRunUsage events, including summaries.
+	UsageReports    int  `json:"usage_reports"`
+	NoUsageReported bool `json:"no_usage_reported"`
+	// StepsStarted and StepsEnded count lifecycle events, not model or network calls.
+	StepsStarted int `json:"steps_started"`
+	StepsEnded   int `json:"steps_ended"`
+	// TopLevelToolCalls counts distinct IDs declared in assistant events. This
+	// prevents the legacy ToolCall and ToolCalls aliases from being double-counted.
+	TopLevelToolCalls int `json:"top_level_tool_calls"`
+	// ToolResultEventsOK and ToolResultEventsNotOK count result events. They do
+	// not establish that an external tool side effect occurred or was repeated.
+	ToolResultEventsOK    int `json:"tool_result_events_ok"`
+	ToolResultEventsNotOK int `json:"tool_result_events_not_ok"`
+}
+
 type CaseResult struct {
-	CaseID      string            `json:"case_id"`
-	SessionID   string            `json:"session_id"`
-	AgentRunID  string            `json:"agent_run_id"`
-	Status      core.RunStatus    `json:"status"`
-	Answer      string            `json:"answer,omitempty"`
-	Error       string            `json:"error,omitempty"`
-	Score       float64           `json:"score"`
-	Passed      bool              `json:"passed"`
-	Assertions  []AssertionResult `json:"assertions"`
-	Artifacts   ArtifactSnapshot  `json:"artifacts"`
-	DurationMS  int64             `json:"duration_ms"`
-	ToolCalls   []string          `json:"tool_calls,omitempty"`
-	CompletedAt time.Time         `json:"completed_at"`
+	CaseID     string             `json:"case_id"`
+	SessionID  string             `json:"session_id"`
+	AgentRunID string             `json:"agent_run_id"`
+	Status     core.RunStatus     `json:"status"`
+	Answer     string             `json:"answer,omitempty"`
+	Error      string             `json:"error,omitempty"`
+	Score      float64            `json:"score"`
+	Passed     bool               `json:"passed"`
+	Assertions []AssertionResult  `json:"assertions"`
+	Artifacts  ArtifactSnapshot   `json:"artifacts"`
+	Evidence   *ExecutionEvidence `json:"execution_evidence,omitempty"`
+	// Ledger is absent for historical case JSON where this evidence was not
+	// collected. Current evaluation runs populate a content-free projection.
+	Ledger      *ExecutionLedger `json:"execution_ledger,omitempty"`
+	DurationMS  int64            `json:"duration_ms"`
+	ToolCalls   []string         `json:"tool_calls,omitempty"`
+	CompletedAt time.Time        `json:"completed_at"`
+}
+
+// ExecutionLedger never contains prompt/messages, tools or arguments, model
+// results, error text, or hashes. Complete is false when collection or strict
+// durable model usage reconciliation could not establish full evidence.
+type ExecutionLedger struct {
+	Complete          bool                       `json:"complete"`
+	IncompleteReasons []string                   `json:"incomplete_reasons,omitempty"`
+	ModelCalls        []ExecutionLedgerModelCall `json:"model_calls,omitempty"`
+	ContextAssemblies []ExecutionLedgerContext   `json:"context_assemblies,omitempty"`
+	GateCalls         []ExecutionLedgerGateCall  `json:"gate_calls,omitempty"`
+}
+type ExecutionLedgerUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+type ExecutionLedgerModelCall struct {
+	Step         int                   `json:"step"`
+	Invoked      bool                  `json:"invoked"`
+	Outcome      string                `json:"outcome"`
+	Usage        *ExecutionLedgerUsage `json:"usage,omitempty"`
+	UsageReports int                   `json:"usage_reports"`
+}
+type ExecutionLedgerContext struct {
+	ContextWindowTokens int    `json:"context_window_tokens"`
+	MaxOutputTokens     int    `json:"max_output_tokens"`
+	InputBytes          int64  `json:"input_bytes"`
+	InputTokens         int64  `json:"input_tokens"`
+	DroppedGroups       int    `json:"dropped_groups"`
+	Outcome             string `json:"outcome"`
+}
+type ExecutionLedgerGateCall struct {
+	Step    int    `json:"step"`
+	Outcome string `json:"outcome"`
 }
 
 type RunStatus string
@@ -169,9 +230,12 @@ type Comparison struct {
 }
 
 type GatePolicy struct {
-	RequirePassed bool     `json:"require_passed,omitempty"`
-	MinScore      *float64 `json:"min_score,omitempty"`
-	MaxRegression *float64 `json:"max_regression,omitempty"`
+	RequirePassed bool `json:"require_passed,omitempty"`
+	// RequireAllCases applies a stricter release-style rule without changing
+	// RequirePassed's dataset-average threshold semantics.
+	RequireAllCases bool     `json:"require_all_cases,omitempty"`
+	MinScore        *float64 `json:"min_score,omitempty"`
+	MaxRegression   *float64 `json:"max_regression,omitempty"`
 }
 
 type GateResult struct {
@@ -179,6 +243,14 @@ type GateResult struct {
 	Reasons                 []string                       `json:"reasons,omitempty"`
 	Comparison              *Comparison                    `json:"comparison,omitempty"`
 	CapabilityCompatibility *CapabilityCompatibilityResult `json:"capability_compatibility,omitempty"`
+	// Efficiency is populated only by release surfaces that explicitly opt in
+	// to the independent efficiency comparison. It remains separate from the
+	// legacy quality verdict so existing callers retain their prior semantics.
+	Efficiency *EfficiencyGateResult `json:"efficiency,omitempty"`
+	// RequiredEfficiencyContract records an enabled release efficiency policy
+	// in a durable gate artifact. A non-empty value is both the required marker
+	// and the contract expected from Efficiency during canary restoration.
+	RequiredEfficiencyContract string `json:"required_efficiency_contract,omitempty"`
 }
 
 func ValidateDataset(dataset *Dataset) error {
@@ -344,8 +416,15 @@ func Compare(current, baseline RunResult, tolerance float64) (Comparison, error)
 	if current.DatasetID != baseline.DatasetID || current.DatasetVersion != baseline.DatasetVersion || current.DatasetRevision != baseline.DatasetRevision {
 		return Comparison{}, fmt.Errorf("evaluation runs use different dataset revisions")
 	}
-	if tolerance < 0 || tolerance > 1 {
+	if !finiteUnitScore(current.Score) || !finiteUnitScore(baseline.Score) || !finiteUnitScore(tolerance) {
 		return Comparison{}, fmt.Errorf("comparison tolerance must be between 0 and 1")
+	}
+	for _, results := range [][]CaseResult{current.Cases, baseline.Cases} {
+		for _, result := range results {
+			if !finiteUnitScore(result.Score) {
+				return Comparison{}, fmt.Errorf("comparison case score is invalid")
+			}
+		}
 	}
 	comparison := Comparison{
 		CurrentRunID: current.ID, BaselineRunID: baseline.ID,
@@ -369,11 +448,22 @@ func EvaluateGate(current RunResult, baseline *RunResult, policy GatePolicy) (Ga
 	if current.Status != RunCompleted {
 		return GateResult{}, fmt.Errorf("current evaluation run is not completed")
 	}
-	if policy.MinScore != nil && (*policy.MinScore < 0 || *policy.MinScore > 1) {
+	if !finiteUnitScore(current.Score) {
+		return GateResult{}, fmt.Errorf("current evaluation score must be between 0 and 1")
+	}
+	if policy.MinScore != nil && !finiteUnitScore(*policy.MinScore) {
 		return GateResult{}, fmt.Errorf("gate min score must be between 0 and 1")
 	}
-	if policy.MaxRegression != nil && (*policy.MaxRegression < 0 || *policy.MaxRegression > 1) {
+	if policy.MaxRegression != nil && !finiteUnitScore(*policy.MaxRegression) {
 		return GateResult{}, fmt.Errorf("gate max regression must be between 0 and 1")
+	}
+	allCurrentCasesPassed := false
+	if policy.RequireAllCases {
+		var err error
+		allCurrentCasesPassed, err = completeCaseResults(current)
+		if err != nil {
+			return GateResult{}, fmt.Errorf("current evaluation cases are incomplete: %w", err)
+		}
 	}
 	result := GateResult{Passed: true}
 	if policy.RequirePassed && !current.Passed {
@@ -384,9 +474,24 @@ func EvaluateGate(current RunResult, baseline *RunResult, policy GatePolicy) (Ga
 		result.Passed = false
 		result.Reasons = append(result.Reasons, fmt.Sprintf("score %.6f is below minimum %.6f", current.Score, *policy.MinScore))
 	}
+	if policy.RequireAllCases && !allCurrentCasesPassed {
+		result.Passed = false
+		result.Reasons = append(result.Reasons, "one or more evaluation cases did not pass")
+	}
 	if policy.MaxRegression != nil {
 		if baseline == nil {
 			return GateResult{}, fmt.Errorf("gate max regression requires a baseline run")
+		}
+		if policy.RequireAllCases {
+			if baseline.Status != RunCompleted {
+				return GateResult{}, fmt.Errorf("baseline evaluation run is not completed")
+			}
+			if _, err := completeCaseResults(*baseline); err != nil {
+				return GateResult{}, fmt.Errorf("baseline evaluation cases are incomplete: %w", err)
+			}
+			if err := sameCaseIDs(current.Cases, baseline.Cases); err != nil {
+				return GateResult{}, fmt.Errorf("current and baseline evaluation cases differ: %w", err)
+			}
 		}
 		comparison, err := Compare(current, *baseline, *policy.MaxRegression)
 		if err != nil {
@@ -400,6 +505,49 @@ func EvaluateGate(current RunResult, baseline *RunResult, policy GatePolicy) (Ga
 		}
 	}
 	return result, nil
+}
+
+func completeCaseResults(run RunResult) (bool, error) {
+	if run.TotalCases < 1 || len(run.Cases) != run.TotalCases {
+		return false, fmt.Errorf("case count is %d, want %d", len(run.Cases), run.TotalCases)
+	}
+	seen := make(map[string]bool, len(run.Cases))
+	passedCases := 0
+	for _, result := range run.Cases {
+		if !caseIDPattern.MatchString(result.CaseID) {
+			return false, fmt.Errorf("case id %q is invalid", result.CaseID)
+		}
+		if !finiteUnitScore(result.Score) {
+			return false, fmt.Errorf("case %q score is invalid", result.CaseID)
+		}
+		if seen[result.CaseID] {
+			return false, fmt.Errorf("case id %q is duplicated", result.CaseID)
+		}
+		seen[result.CaseID] = true
+		if result.Passed {
+			passedCases++
+		}
+	}
+	if run.PassedCases != passedCases {
+		return false, fmt.Errorf("passed case count is %d, want %d", run.PassedCases, passedCases)
+	}
+	return passedCases == run.TotalCases, nil
+}
+
+func sameCaseIDs(current, baseline []CaseResult) error {
+	if len(current) != len(baseline) {
+		return fmt.Errorf("case counts differ")
+	}
+	baselineIDs := make(map[string]bool, len(baseline))
+	for _, result := range baseline {
+		baselineIDs[result.CaseID] = true
+	}
+	for _, result := range current {
+		if !baselineIDs[result.CaseID] {
+			return fmt.Errorf("case %q is missing from baseline", result.CaseID)
+		}
+	}
+	return nil
 }
 
 func ValidateRunResult(run RunResult, final bool) error {
@@ -485,11 +633,21 @@ func ValidateCaseResult(result CaseResult) error {
 	default:
 		return fmt.Errorf("evaluation case run status %q is invalid", result.Status)
 	}
-	if result.Score < 0 || result.Score > 1 || result.DurationMS < 0 || result.CompletedAt.IsZero() {
+	if !finiteUnitScore(result.Score) || result.DurationMS < 0 || result.CompletedAt.IsZero() {
 		return fmt.Errorf("evaluation case result score, duration, or time is invalid")
 	}
 	if len(result.Answer) > MaxEvaluationText || len(result.Error) > MaxEvaluationText {
 		return fmt.Errorf("evaluation case result text is too large")
+	}
+	if result.Evidence != nil {
+		if err := validateExecutionEvidence(*result.Evidence); err != nil {
+			return err
+		}
+	}
+	if result.Ledger != nil {
+		if err := validateExecutionLedger(*result.Ledger); err != nil {
+			return err
+		}
 	}
 	for name, value := range map[string]string{
 		"composition revision": result.Artifacts.CompositionRevision,
@@ -507,7 +665,7 @@ func ValidateCaseResult(result CaseResult) error {
 	}
 	seenAssertions := map[string]bool{}
 	for _, assertion := range result.Assertions {
-		if !caseIDPattern.MatchString(assertion.AssertionID) || seenAssertions[assertion.AssertionID] || assertion.Score < 0 || assertion.Score > 1 {
+		if !caseIDPattern.MatchString(assertion.AssertionID) || seenAssertions[assertion.AssertionID] || !finiteUnitScore(assertion.Score) {
 			return fmt.Errorf("evaluation assertion result is invalid")
 		}
 		seenAssertions[assertion.AssertionID] = true
@@ -519,6 +677,124 @@ func ValidateCaseResult(result CaseResult) error {
 		if err := core.ValidateNamespacedID(capability); err != nil {
 			return fmt.Errorf("evaluation tool call: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateExecutionLedger(ledger ExecutionLedger) error {
+	validOutcome := func(value string) bool { return value == "ok" || value == "error" }
+	validGateOutcome := func(value string) bool { return value == "accepted" || value == "denied" }
+	validReason := map[string]bool{
+		"context_accounting_unavailable":    true,
+		"adapter_calls_unavailable":         true,
+		"model_resolver_error":              true,
+		"model_resolver_nil":                true,
+		"duplicate_adapter_step":            true,
+		"adapter_usage_without_call":        true,
+		"adapter_usage_duplicate":           true,
+		"adapter_usage_invalid":             true,
+		"adapter_usage_missing":             true,
+		"adapter_error":                     true,
+		"adapter_finish_without_call":       true,
+		"context_assembly_error":            true,
+		"model_gate_denied":                 true,
+		"model_gate_accounting_unavailable": true,
+		"durable_step_decode_error":         true,
+		"durable_step_duplicate":            true,
+		"durable_step_missing":              true,
+		"durable_step_without_adapter":      true,
+		"durable_usage_decode_error":        true,
+		"durable_usage_invalid":             true,
+		"durable_usage_duplicate":           true,
+		"durable_usage_missing":             true,
+		"durable_usage_conflict":            true,
+		"durable_usage_without_adapter":     true,
+	}
+	if len(ledger.ModelCalls) > core.HardMaxSteps || len(ledger.ContextAssemblies) > core.HardMaxSteps || len(ledger.GateCalls) > core.HardMaxSteps {
+		return fmt.Errorf("evaluation execution ledger exceeds bounded call evidence")
+	}
+	seenReasons := map[string]bool{}
+	for _, reason := range ledger.IncompleteReasons {
+		if !validReason[reason] || seenReasons[reason] {
+			return fmt.Errorf("evaluation execution ledger reasons are invalid")
+		}
+		seenReasons[reason] = true
+	}
+	if ledger.Complete && len(ledger.IncompleteReasons) != 0 {
+		return fmt.Errorf("complete evaluation execution ledger has incomplete reasons")
+	}
+	if !ledger.Complete && len(ledger.IncompleteReasons) == 0 {
+		return fmt.Errorf("incomplete evaluation execution ledger has no reason")
+	}
+	if ledger.Complete && len(ledger.ModelCalls) == 0 {
+		return fmt.Errorf("complete evaluation execution ledger has no model calls")
+	}
+	seenSteps := map[int]bool{}
+	for _, call := range ledger.ModelCalls {
+		if call.Step < 0 || call.Step > core.HardMaxSteps || seenSteps[call.Step] || !call.Invoked || !validOutcome(call.Outcome) || call.UsageReports < 0 || call.UsageReports > core.MaxSessionEvents {
+			return fmt.Errorf("evaluation execution ledger model call is invalid")
+		}
+		seenSteps[call.Step] = true
+		if call.Usage != nil && (call.Usage.InputTokens < 0 || call.Usage.OutputTokens < 0 || call.Usage.InputTokens > core.MaxReportedTokensPerCall || call.Usage.OutputTokens > core.MaxReportedTokensPerCall) {
+			return fmt.Errorf("evaluation execution ledger usage is invalid")
+		}
+		if ledger.Complete && (call.UsageReports != 1 || call.Usage == nil) {
+			return fmt.Errorf("evaluation execution ledger usage reporting is inconsistent")
+		}
+	}
+	for _, assembly := range ledger.ContextAssemblies {
+		if assembly.ContextWindowTokens <= 0 || assembly.MaxOutputTokens <= 0 || assembly.MaxOutputTokens >= assembly.ContextWindowTokens || assembly.InputBytes < 0 || assembly.InputTokens < 0 || assembly.DroppedGroups < 0 || !validOutcome(assembly.Outcome) {
+			return fmt.Errorf("evaluation execution ledger context assembly is invalid")
+		}
+	}
+	if ledger.Complete && len(ledger.ContextAssemblies) != len(ledger.ModelCalls) {
+		return fmt.Errorf("complete evaluation execution ledger context count does not match model calls")
+	}
+	seenGateSteps := map[int]bool{}
+	for _, gate := range ledger.GateCalls {
+		if gate.Step < 0 || gate.Step > core.HardMaxSteps || seenGateSteps[gate.Step] || !validGateOutcome(gate.Outcome) {
+			return fmt.Errorf("evaluation execution ledger gate call is invalid")
+		}
+		seenGateSteps[gate.Step] = true
+	}
+	if ledger.Complete && len(ledger.GateCalls) != 0 {
+		if len(ledger.GateCalls) != len(ledger.ModelCalls) {
+			return fmt.Errorf("complete evaluation execution ledger gate count does not match model calls")
+		}
+		for step := range seenSteps {
+			if !seenGateSteps[step] {
+				return fmt.Errorf("complete evaluation execution ledger gate steps do not match model calls")
+			}
+		}
+	}
+	return nil
+}
+
+func validateExecutionEvidence(evidence ExecutionEvidence) error {
+	if evidence.ReportedInputTokens < 0 || evidence.ReportedOutputTokens < 0 {
+		return fmt.Errorf("evaluation execution evidence has negative reported tokens")
+	}
+	if evidence.ReportedInputTokens > core.MaxReportedTokensPerRun || evidence.ReportedOutputTokens > core.MaxReportedTokensPerRun {
+		return fmt.Errorf("evaluation execution evidence reported tokens exceed the bounded session maximum")
+	}
+	for name, value := range map[string]int{
+		"usage reports":             evidence.UsageReports,
+		"steps started":             evidence.StepsStarted,
+		"steps ended":               evidence.StepsEnded,
+		"top-level tool calls":      evidence.TopLevelToolCalls,
+		"tool result events OK":     evidence.ToolResultEventsOK,
+		"tool result events not OK": evidence.ToolResultEventsNotOK,
+	} {
+		if value < 0 || value > core.MaxSessionEvents {
+			return fmt.Errorf("evaluation execution evidence %s is outside bounds", name)
+		}
+	}
+	if evidence.NoUsageReported {
+		if evidence.UsageReports != 0 || evidence.ReportedInputTokens != 0 || evidence.ReportedOutputTokens != 0 {
+			return fmt.Errorf("evaluation execution evidence no-usage marker is inconsistent")
+		}
+	} else if evidence.UsageReports == 0 {
+		return fmt.Errorf("evaluation execution evidence usage report presence is inconsistent")
 	}
 	return nil
 }
@@ -549,6 +825,10 @@ func normalizedThreshold(value float64) float64 {
 		return 1
 	}
 	return value
+}
+
+func finiteUnitScore(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 1
 }
 
 func validateMetadata(metadata map[string]string) error {

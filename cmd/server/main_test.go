@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	programmaticcatalog "github.com/whhhh1500/auto-agent/pkg/app/programmatic"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"github.com/whhhh1500/auto-agent/pkg/extensions/runner"
 	"github.com/whhhh1500/auto-agent/pkg/server"
@@ -78,6 +79,102 @@ func TestDefaultNotificationAssemblyDeclaresWebhookOnly(t *testing.T) {
 	if len(validators) != 1 || validators[0].Channel() != refs[0] {
 		t.Fatalf("notification validators=%#v", validators)
 	}
+}
+
+func TestBindProgrammaticExposuresMarksOnlyExplicitAllowlistAndPreservesProviderRevision(t *testing.T) {
+	global := core.MustScopePath(core.ScopeRef{Kind: core.ScopeGlobal, ID: "global"})
+	product, err := global.Child(core.ScopeRef{Kind: core.ScopeProduct, ID: "product"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := core.NewCapabilityRegistry()
+	allowed := []*programmaticExposureTestCapability{
+		newProgrammaticExposureTestCapability("memory.recall", "memory-revision"),
+		newProgrammaticExposureTestCapability("rag.search", "rag-revision"),
+		newProgrammaticExposureTestCapability("notify.send", "notification-revision"),
+	}
+	notExposed := []*programmaticExposureTestCapability{
+		newProgrammaticExposureTestCapability("sandbox.exec", "sandbox-revision"),
+		newProgrammaticExposureTestCapability("program.catalog", "catalog-revision"),
+		newProgrammaticExposureTestCapability("program.execute", "execute-revision"),
+	}
+	for _, capability := range notExposed {
+		if err := registry.Register(global, capability); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A separate reference registry measures provider identity without priming
+	// the real startup registry with a layer that the binding helper requires.
+	reference := core.NewCapabilityRegistry()
+	for _, capability := range allowed {
+		if err := reference.Register(global, capability); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := reference.Entries(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bindProgrammaticExposures(registry, global, capabilitiesFromExposureTest(allowed)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := registry.Entries(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeByID, afterByID := exposureEntriesByID(before), exposureEntriesByID(after)
+	for _, capability := range allowed {
+		entry := afterByID[capability.manifest.ID]
+		if entry.Manifest.Metadata[programmaticcatalog.ExposureKey] != programmaticcatalog.ExposureVersion || entry.Manifest.Metadata["existing"] != "preserved" {
+			t.Fatalf("allowlisted capability %q metadata=%#v", capability.manifest.ID, entry.Manifest.Metadata)
+		}
+		if entry.ProviderRevision != beforeByID[capability.manifest.ID].ProviderRevision {
+			t.Fatalf("provider revision changed for %q: before=%q after=%q", capability.manifest.ID, beforeByID[capability.manifest.ID].ProviderRevision, entry.ProviderRevision)
+		}
+		if _, mutated := capability.manifest.Metadata[programmaticcatalog.ExposureKey]; mutated {
+			t.Fatalf("caller manifest metadata was mutated for %q: %#v", capability.manifest.ID, capability.manifest.Metadata)
+		}
+	}
+	for _, capability := range notExposed {
+		if _, marked := afterByID[capability.manifest.ID].Manifest.Metadata[programmaticcatalog.ExposureKey]; marked {
+			t.Fatalf("non-allowlisted capability %q was exposed: %#v", capability.manifest.ID, afterByID[capability.manifest.ID].Manifest.Metadata)
+		}
+	}
+}
+
+type programmaticExposureTestCapability struct {
+	manifest core.CapabilityManifest
+	revision string
+}
+
+func newProgrammaticExposureTestCapability(id, revision string) *programmaticExposureTestCapability {
+	return &programmaticExposureTestCapability{manifest: core.CapabilityManifest{
+		ID: id, Version: "1", Name: id, Kind: core.KindTool, Contract: "test/programmatic-exposure/v1",
+		Metadata: map[string]string{"existing": "preserved"},
+		Tool:     &core.ToolExposure{Description: "test tool", Parameters: map[string]any{"type": "object", "additionalProperties": false}},
+	}, revision: revision}
+}
+
+func (c *programmaticExposureTestCapability) Manifest() core.CapabilityManifest { return c.manifest }
+func (c *programmaticExposureTestCapability) Execute(context.Context, core.CapabilityRequest) (core.CapabilityResult, error) {
+	return core.CapabilityResult{OK: true}, nil
+}
+func (c *programmaticExposureTestCapability) ArtifactRevision() string { return c.revision }
+
+func capabilitiesFromExposureTest(capabilities []*programmaticExposureTestCapability) []core.Capability {
+	out := make([]core.Capability, len(capabilities))
+	for i, capability := range capabilities {
+		out[i] = capability
+	}
+	return out
+}
+
+func exposureEntriesByID(entries []core.SnapshotCapability) map[string]core.SnapshotCapability {
+	out := make(map[string]core.SnapshotCapability, len(entries))
+	for _, entry := range entries {
+		out[entry.Manifest.ID] = entry
+	}
+	return out
 }
 
 func TestSecurityModeRejectsUnsafeProductionFallbacks(t *testing.T) {

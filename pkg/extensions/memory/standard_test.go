@@ -26,10 +26,11 @@ func TestNewStandardCapabilitiesManifestsAreSeparatedAndClosed(t *testing.T) {
 		idempotent bool
 		approval   bool
 		required   []string
+		revision   string
 	}{
-		RecallCapabilityID:   {permission: core.PermRead, idempotent: true, required: []string{"query"}},
-		RememberCapabilityID: {permission: core.PermWrite, required: []string{"key", "content"}},
-		ForgetCapabilityID:   {permission: core.PermWrite, approval: true, required: []string{"id"}},
+		RecallCapabilityID:   {permission: core.PermRead, idempotent: true, required: []string{"query"}, revision: "memory-standard-capability/v3"},
+		RememberCapabilityID: {permission: core.PermWrite, required: []string{"key", "content"}, revision: "memory-standard-capability/v2"},
+		ForgetCapabilityID:   {permission: core.PermWrite, approval: true, required: []string{"id"}, revision: "memory-standard-capability/v2"},
 	}
 	for _, capability := range capabilities {
 		manifest := capability.Manifest()
@@ -37,10 +38,46 @@ func TestNewStandardCapabilitiesManifestsAreSeparatedAndClosed(t *testing.T) {
 		if !ok || len(manifest.RequiredPermissions) != 1 || manifest.RequiredPermissions[0] != expected.permission || manifest.Idempotent != expected.idempotent || manifest.RequiresApproval != expected.approval {
 			t.Fatalf("manifest=%#v", manifest)
 		}
+		revisioner, revisionOK := capability.(core.ArtifactRevisioner)
+		if !revisionOK || revisioner.ArtifactRevision() != expected.revision {
+			t.Fatalf("artifact revision for %s=%q want %q", manifest.ID, revisioner.ArtifactRevision(), expected.revision)
+		}
 		parameters := manifest.Tool.Parameters
 		if parameters["additionalProperties"] != false || !sameRequired(parameters["required"], expected.required) {
 			t.Fatalf("schema for %s=%#v", manifest.ID, parameters)
 		}
+		if manifest.ID == RecallCapabilityID {
+			if manifest.Version != "1.0.0" {
+				t.Fatalf("recall manifest version=%q", manifest.Version)
+			}
+			if manifest.Description != "Recall remembered facts for the current principal scope. A successful empty entries result means no matching memory." {
+				t.Fatalf("recall manifest description=%q", manifest.Description)
+			}
+			properties, ok := parameters["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("recall properties=%#v", parameters)
+			}
+			for _, name := range []string{"query", "tags", "limit"} {
+				property, ok := properties[name].(map[string]any)
+				description, descriptionOK := property["description"].(string)
+				if !ok || !descriptionOK || description == "" {
+					t.Fatalf("recall %s description=%#v", name, property)
+				}
+				if name == "query" && description != "If the task supplies a canonical identifier or key, copy it exactly as query, including punctuation and case. Otherwise use a short literal fragment expected in a remembered key or content. This capability does not automatically rewrite a query by meaning; empty entries is a successful no-match." {
+					t.Fatalf("recall query description=%q", description)
+				}
+			}
+		}
+	}
+}
+
+func TestStandardCapabilityArtifactRevisionFailsClosed(t *testing.T) {
+	var absent *standardCapability
+	if got := absent.ArtifactRevision(); got != "memory-standard-capability/v3" {
+		t.Fatalf("nil capability revision=%q", got)
+	}
+	if got := (&standardCapability{action: standardAction(255)}).ArtifactRevision(); got != "memory-standard-capability/v3" {
+		t.Fatalf("unknown action revision=%q", got)
 	}
 }
 
@@ -62,6 +99,14 @@ func TestStandardCapabilitiesRequireAcceptedInvocationAndLegacyCompatibility(t *
 	result, err := legacy.Execute(context.Background(), core.CapabilityRequest{Args: map[string]any{"action": "recall"}, Context: core.CapabilityContext{Principal: core.Principal{Scope: scope}}})
 	if err != nil || !result.OK || legacy.Manifest().ID != "memory.legacy" {
 		t.Fatalf("legacy behavior changed: result=%#v err=%v", result, err)
+	}
+	legacyProperties, ok := legacy.Manifest().Tool.Parameters["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("legacy properties=%#v", legacy.Manifest().Tool.Parameters)
+	}
+	legacyQuery, ok := legacyProperties["query"].(map[string]any)
+	if !ok || legacyQuery["description"] != "If the task supplies a canonical identifier or key, copy it exactly as query, including punctuation and case. Otherwise use a short literal fragment expected in a remembered key or content. This capability does not automatically rewrite a query by meaning; empty entries is a successful no-match." {
+		t.Fatalf("legacy query contract=%#v", legacyQuery)
 	}
 }
 
@@ -90,6 +135,20 @@ func TestStandardCapabilitiesSuccessPathsAndPrincipalScope(t *testing.T) {
 	}
 	if entries, err := store.Recall(context.Background(), fixture.principal.Scope, "", nil, 0); err != nil || len(entries) != 0 {
 		t.Fatalf("principal scope entries=%#v err=%v", entries, err)
+	}
+}
+
+func TestStandardRecallEmptyEntriesIsSuccessfulNoMatch(t *testing.T) {
+	fixture := newStandardFixture(t, NewSliceStore())
+	result := fixture.invoke(t, RecallCapabilityID, map[string]any{"query": "absent canonical identifier"}, nil)
+	if !result.OK {
+		t.Fatalf("no-match recall=%#v", result)
+	}
+	var payload struct {
+		Entries []Entry `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil || payload.Entries == nil || len(payload.Entries) != 0 {
+		t.Fatalf("no-match payload=%q entries=%#v err=%v", result.Content, payload.Entries, err)
 	}
 }
 

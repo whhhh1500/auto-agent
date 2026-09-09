@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place. Most migrations add objects; semantic
 // migrations may atomically rebuild a derived projection before advancing the
 // recorded version.
-const SQLSchemaVersion = 47
+const SQLSchemaVersion = 48
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (

@@ -40,6 +40,13 @@ type Store interface {
 	Forget(ctx context.Context, scope core.ScopePath, id string) error
 }
 
+// KeyStore provides exact, byte-for-byte key lookup within one ownership scope.
+// It is intentionally separate from Store so hosts can opt in without changing
+// the established recall contract.
+type KeyStore interface {
+	Lookup(ctx context.Context, scope core.ScopePath, key string) (Entry, bool, error)
+}
+
 // SliceStore is the dependency-free in-process reference implementation.
 type SliceStore struct {
 	mu         sync.RWMutex
@@ -115,6 +122,20 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
+// ValidateLookupKey validates one canonical key for exact memory lookup.
+func ValidateLookupKey(key string) error {
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("memory lookup key is empty")
+	}
+	if len(key) > MaxEntryKeyBytes {
+		return fmt.Errorf("memory lookup key exceeds maximum of %d bytes", MaxEntryKeyBytes)
+	}
+	if strings.ContainsRune(key, '\x00') {
+		return fmt.Errorf("memory lookup key contains NUL")
+	}
+	return nil
+}
+
 // ValidateRecall validates the bounded query contract for memory recalls.
 func ValidateRecall(query string, tags []string, limit int) error {
 	if utf8.RuneCountInString(query) > MaxQueryRunes {
@@ -179,6 +200,23 @@ func (s *SliceStore) scopeCap() int {
 		return s.maxScopes
 	}
 	return MaxScopes
+}
+
+func (s *SliceStore) Lookup(_ context.Context, scope core.ScopePath, key string) (Entry, bool, error) {
+	if err := ValidateScope(scope); err != nil {
+		return Entry{}, false, err
+	}
+	if err := ValidateLookupKey(key); err != nil {
+		return Entry{}, false, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, entry := range s.scope[scope.String()] {
+		if entry.Key == key {
+			return cloneEntry(entry), true, nil
+		}
+	}
+	return Entry{}, false, nil
 }
 
 func (s *SliceStore) Recall(_ context.Context, scope core.ScopePath, query string, tags []string, limit int) ([]Entry, error) {
@@ -279,7 +317,7 @@ func (m *Capability) Manifest() core.CapabilityManifest {
 		},
 		"query": map[string]any{
 			"type": "string", "maxLength": MaxQueryRunes,
-			"description": "Recall filter over key and content.",
+			"description": "If the task supplies a canonical identifier or key, copy it exactly as query, including punctuation and case. Otherwise use a short literal fragment expected in a remembered key or content. This capability does not automatically rewrite a query by meaning; empty entries is a successful no-match.",
 		},
 		"id": map[string]any{"type": "string", "maxLength": MaxEntryIDBytes, "description": "Entry id (forget)."},
 	})

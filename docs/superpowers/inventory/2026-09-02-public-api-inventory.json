@@ -1,8 +1,26 @@
 {
-  "inventory_date": "2026-09-08",
+  "inventory_date": "2026-09-09",
   "module": "github.com/whhhh1500/auto-agent",
   "status": "current-observed-snapshot",
   "public_api_additions": [
+    {
+      "package": "pkg/extensions/memory",
+      "types": [
+        "KeyStore"
+      ],
+      "functions": [
+        "SliceStore.Lookup",
+        "ValidateLookupKey"
+      ],
+      "constructors": [
+        "NewLookupCapability"
+      ],
+      "variables": [],
+      "constants": [
+        "LookupCapabilityID"
+      ],
+      "note": "The additive memory.lookup capability is an explicit opt-in exact byte-for-byte key read in the caller's ownership scope. It is deliberately absent from NewStandardCapabilities and the default general profile. KeyStore is separate from Store, so existing recall/remember/forget implementations and the Core API remain unchanged; SliceStore and SQLMemoryStore implement the optional KeyStore.Lookup seam. Recall continues to be the bounded relevance query (case-insensitive key/content matching with optional tags), while lookup accepts one canonical key and performs no content search or separator normalization. This adds no Core API or SQL schema migration."
+    },
     {
       "package": "pkg/storage",
       "types": [
@@ -339,6 +357,8 @@
         "ErrVersionMismatch"
       ],
       "constants": [
+        "CodePTCID",
+        "CodePTCVersion",
         "DefaultMaxExecutors",
         "SequentialID",
         "SequentialImplementationRevision",
@@ -579,6 +599,117 @@
       "variables": null,
       "constants": null,
       "note": "Reviewed 2026-09-07 architecture exception: one exact mounted-layer replacement preserves the slot order and existing unmount closure under the registry lock. It is not a multi-layer Release/Canary projection swap or an authorization fence."
+    },
+    {
+      "package": "pkg/app/programmatic",
+      "types": [
+        "Catalog",
+        "CodePTCToolAccess",
+        "Descriptor"
+      ],
+      "functions": [
+        "Catalog.Descriptors",
+        "Catalog.Resolve",
+        "Catalog.ValidateBindings",
+        "Project"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrBindingMismatch",
+        "ErrCapabilityNotBound",
+        "ErrInvalidCatalog"
+      ],
+      "constants": [
+        "ExposureKey",
+        "ExposureVersion"
+      ]
+    },
+    {
+      "package": "pkg/adapter/programmatic/corebridge",
+      "types": [
+        "Bridge",
+        "Call"
+      ],
+      "functions": [
+        "Bridge.CallTool",
+        "Bridge.ListTools"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalidBridgeCall",
+        "ErrToolRejected"
+      ],
+      "constants": null
+    },
+    {
+      "package": "pkg/adapter/programmatic/toolcapability",
+      "types": [
+        "CatalogCapability",
+        "ExecuteCapability"
+      ],
+      "functions": [
+        "CatalogCapability.ArtifactRevision",
+        "CatalogCapability.Execute",
+        "CatalogCapability.Manifest",
+        "ExecuteCapability.ArtifactRevision",
+        "ExecuteCapability.Execute",
+        "ExecuteCapability.Manifest"
+      ],
+      "constructors": [
+        "NewCatalogCapability",
+        "NewExecuteCapability"
+      ],
+      "variables": null,
+      "constants": [
+        "CatalogID",
+        "ContractV1",
+        "ExecuteID"
+      ]
+    },
+    {
+      "package": "pkg/execution/programmatic",
+      "types": [
+        "Call",
+        "Caller",
+        "Limits",
+        "Program",
+        "Result"
+      ],
+      "functions": [
+        "Compile",
+        "Diagnostic",
+        "Program.Digest",
+        "Program.Run",
+        "Program.Tools"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrInvalidProgram",
+        "ErrProgramLimit"
+      ],
+      "constants": [
+        "Version",
+        "LanguageGuide",
+        "DefaultMaxSteps",
+        "DefaultMaxLoopIterations",
+        "DefaultMaxToolCalls",
+        "DefaultMaxContainerItems",
+        "DefaultMaxStringBytes",
+        "DefaultMaxArenaBytes",
+        "HardMaxSourceBytes",
+        "HardMaxNodes",
+        "HardMaxDepth",
+        "HardMaxSteps",
+        "HardMaxLoopIterations",
+        "HardMaxToolCalls",
+        "HardMaxContainerItems",
+        "HardMaxStringBytes",
+        "HardMaxArenaBytes",
+        "HardMaxToolResultBytes",
+        "HardMaxJSONDepth"
+      ]
     }
   ],
   "accepted_evidence": [
@@ -1991,6 +2122,8 @@
         "ErrVersionMismatch"
       ],
       "constants": [
+        "CodePTCID",
+        "CodePTCVersion",
         "DefaultMaxExecutors",
         "SequentialID",
         "SequentialImplementationRevision",
@@ -2733,6 +2866,7 @@
         "DatasetSummary",
         "Evaluator",
         "EvaluatorFunc",
+        "ExecutionEvidence",
         "GatePolicy",
         "GateResult",
         "MemoryStore",
@@ -3271,6 +3405,7 @@
       "types": [
         "Capability",
         "Entry",
+        "KeyStore",
         "SliceStore",
         "Store"
       ],
@@ -3279,17 +3414,20 @@
         "Capability.Execute",
         "Capability.Manifest",
         "SliceStore.Forget",
+        "SliceStore.Lookup",
         "SliceStore.Recall",
         "SliceStore.Remember",
         "ValidateEntry",
         "ValidateEntryID",
         "ValidateForgetID",
+        "ValidateLookupKey",
         "ValidateRecall",
         "ValidateScope",
         "ValidateTags"
       ],
       "constructors": [
         "NewCapability",
+        "NewLookupCapability",
         "NewSliceStore",
         "NewStandardCapabilities"
       ],
@@ -3297,6 +3435,7 @@
       "constants": [
         "ContractV1",
         "ForgetCapabilityID",
+        "LookupCapabilityID",
         "MaxEntriesPerScope",
         "MaxEntryContentBytes",
         "MaxEntryIDBytes",
@@ -3310,7 +3449,7 @@
         "RecallCapabilityID",
         "RememberCapabilityID"
       ],
-      "note": "Legacy single-action NewCapability remains source-compatible. NewStandardCapabilities separately exposes memory.recall (read), memory.remember (write), and approval-gated memory.forget (write); all derive scope from the accepted principal context."
+      "note": "Legacy single-action NewCapability remains source-compatible. NewStandardCapabilities separately exposes memory.recall (read), memory.remember (write), and approval-gated memory.forget (write); all derive scope from the accepted principal context. KeyStore, SliceStore.Lookup, ValidateLookupKey, LookupCapabilityID, and NewLookupCapability add an optional exact canonical-key read. memory.lookup is not in the standard menu or default general profile; it requires host registration, performs no recall-style content search/case folding/separator normalization, and does not change the Core API or SQL schema."
     },
     {
       "package": "pkg/extensions/rag",
@@ -4097,8 +4236,9 @@
         "SQLLibraryObserver.List",
         "SQLLibraryObserver.ListForTenant",
         "SQLLibraryObserver.Observe",
-        "SQLMemoryStore.Forget",
-        "SQLMemoryStore.ProjectionStats",
+      "SQLMemoryStore.Forget",
+      "SQLMemoryStore.Lookup",
+      "SQLMemoryStore.ProjectionStats",
         "SQLMemoryStore.RebuildProjection",
         "SQLMemoryStore.Recall",
         "SQLMemoryStore.Remember",
@@ -4339,113 +4479,224 @@
       ],
       "variables": [],
       "constants": []
+    },
+    {
+      "package": "pkg/app/programmatic",
+      "types": [
+        "Catalog",
+        "CodePTCToolAccess",
+        "Descriptor"
+      ],
+      "functions": [
+        "Catalog.Descriptors",
+        "Catalog.Resolve",
+        "Catalog.ValidateBindings",
+        "Project"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrBindingMismatch",
+        "ErrCapabilityNotBound",
+        "ErrInvalidCatalog"
+      ],
+      "constants": [
+        "ExposureKey",
+        "ExposureVersion"
+      ]
+    },
+    {
+      "package": "pkg/adapter/programmatic/corebridge",
+      "types": [
+        "Bridge",
+        "Call"
+      ],
+      "functions": [
+        "Bridge.CallTool",
+        "Bridge.ListTools"
+      ],
+      "constructors": [
+        "New"
+      ],
+      "variables": [
+        "ErrInvalidBridgeCall",
+        "ErrToolRejected"
+      ],
+      "constants": null
+    },
+    {
+      "package": "pkg/adapter/programmatic/toolcapability",
+      "types": [
+        "CatalogCapability",
+        "ExecuteCapability"
+      ],
+      "functions": [
+        "CatalogCapability.ArtifactRevision",
+        "CatalogCapability.Execute",
+        "CatalogCapability.Manifest",
+        "ExecuteCapability.ArtifactRevision",
+        "ExecuteCapability.Execute",
+        "ExecuteCapability.Manifest"
+      ],
+      "constructors": [
+        "NewCatalogCapability",
+        "NewExecuteCapability"
+      ],
+      "variables": null,
+      "constants": [
+        "CatalogID",
+        "ContractV1",
+        "ExecuteID"
+      ]
+    },
+    {
+      "package": "pkg/execution/programmatic",
+      "types": [
+        "Call",
+        "Caller",
+        "Limits",
+        "Program",
+        "Result"
+      ],
+      "functions": [
+        "Compile",
+        "Diagnostic",
+        "Program.Digest",
+        "Program.Run",
+        "Program.Tools"
+      ],
+      "constructors": null,
+      "variables": [
+        "ErrInvalidProgram",
+        "ErrProgramLimit"
+      ],
+      "constants": [
+        "Version",
+        "LanguageGuide",
+        "DefaultMaxSteps",
+        "DefaultMaxLoopIterations",
+        "DefaultMaxToolCalls",
+        "DefaultMaxContainerItems",
+        "DefaultMaxStringBytes",
+        "DefaultMaxArenaBytes",
+        "HardMaxSourceBytes",
+        "HardMaxNodes",
+        "HardMaxDepth",
+        "HardMaxSteps",
+        "HardMaxLoopIterations",
+        "HardMaxToolCalls",
+        "HardMaxContainerItems",
+        "HardMaxStringBytes",
+        "HardMaxArenaBytes",
+        "HardMaxToolResultBytes",
+        "HardMaxJSONDepth"
+      ]
     }
   ],
   "http_operations": [
-    "GET /healthz -\u003e health",
-    "GET /readyz -\u003e ready",
-    "GET /v1/admin/accounts -\u003e listAccounts",
-    "POST /v1/admin/accounts -\u003e createAccount",
-    "POST /v1/admin/accounts/{account}/password -\u003e setAccountPassword",
-    "POST /v1/admin/accounts/{account}/status -\u003e setAccountStatus",
-    "GET /v1/admin/approvals -\u003e listApprovals",
-    "GET /v1/admin/approvals/{approvalID} -\u003e getApproval",
-    "POST /v1/admin/approvals/{approvalID}/decision -\u003e decideApproval",
-    "GET /v1/admin/audit -\u003e listAudit",
-    "POST /v1/admin/backtests -\u003e runBacktest",
-    "GET /v1/admin/bindings -\u003e listBindings",
-    "DELETE /v1/admin/bindings/{id} -\u003e unbindBinding",
-    "POST /v1/admin/capabilities/bind -\u003e bindCapability",
-    "POST /v1/admin/capabilities/{id}/disable -\u003e disableCapability",
-    "POST /v1/admin/capabilities/{id}/enable -\u003e enableCapability",
-    "GET /v1/admin/capability-runtimes -\u003e listCapabilityRuntimes",
-    "GET /v1/admin/credentials -\u003e listCredentials",
-    "POST /v1/admin/credentials -\u003e bindCredential",
-    "GET /v1/admin/delegations -\u003e listDelegations",
-    "GET /v1/admin/evaluations/datasets -\u003e listEvaluationDatasets",
-    "POST /v1/admin/evaluations/datasets -\u003e putEvaluationDataset",
-    "GET /v1/admin/evaluations/datasets/{datasetID}/versions/{version} -\u003e getEvaluationDataset",
-    "GET /v1/admin/evaluations/runs -\u003e listEvaluationRuns",
-    "POST /v1/admin/evaluations/runs -\u003e runEvaluation",
-    "GET /v1/admin/evaluations/runs/{evaluationRunID} -\u003e getEvaluationRun",
-    "POST /v1/admin/evaluations/runs/{evaluationRunID}/gate -\u003e gateEvaluation",
-    "POST /v1/admin/evaluations/runs/{evaluationRunID}/resume -\u003e resumeEvaluation",
-    "GET /v1/admin/evidence -\u003e listEvidence",
-    "GET /v1/admin/evidence/runs/{runID} -\u003e getEvidenceRun",
-    "GET /v1/admin/evidence/stats -\u003e evidenceStats",
-    "GET /v1/admin/memory/projection -\u003e memoryProjectionStats",
-    "POST /v1/admin/memory/projection/rebuild -\u003e rebuildMemoryProjection",
-    "GET /v1/admin/metrics -\u003e adminMetrics",
-    "GET /v1/admin/model-runtimes -\u003e listModelRuntimes",
-    "GET /v1/admin/model-settings/llm -\u003e getModelSettings",
-    "PUT /v1/admin/model-settings/llm -\u003e putModelSettings",
-    "GET /v1/admin/notification-targets -\u003e listNotificationTargets",
-    "POST /v1/admin/notification-targets -\u003e createNotificationTarget",
-    "PUT /v1/admin/notification-targets -\u003e updateNotificationTarget",
-    "DELETE /v1/admin/notification-targets -\u003e deleteNotificationTarget",
-    "GET /v1/admin/obs/hits -\u003e listObservationHits",
-    "GET /v1/admin/obs/rules -\u003e listObservationRules",
-    "POST /v1/admin/obs/rules -\u003e createObservationRule",
-    "PUT /v1/admin/obs/rules/{id} -\u003e updateObservationRule",
-    "DELETE /v1/admin/obs/rules/{id} -\u003e deleteObservationRule",
-    "GET /v1/admin/overview -\u003e adminOverview",
-    "GET /v1/admin/policies -\u003e listPolicies",
-    "POST /v1/admin/policies -\u003e bindPolicy",
-    "GET /v1/admin/profiles/{id} -\u003e getAdminProfile",
-    "PUT /v1/admin/profiles/{id} -\u003e putAdminProfile",
-    "GET /v1/admin/rag/projection -\u003e ragProjectionStats",
-    "POST /v1/admin/rag/projection/rebuild -\u003e rebuildRagProjection",
-    "POST /v1/admin/runners/recover -\u003e recoverRunnerTasks",
-    "GET /v1/admin/runners/tasks -\u003e listAdminRunnerTasks",
-    "GET /v1/admin/runners/tasks/{taskID} -\u003e getAdminRunnerTask",
-    "POST /v1/admin/runners/tasks/{taskID}/cancel -\u003e cancelAdminRunnerTask",
-    "POST /v1/admin/runners/tasks/{taskID}/retry -\u003e retryAdminRunnerTask",
-    "GET /v1/admin/sandbox/providers -\u003e listSandboxProviders",
-    "GET /v1/admin/settings/{key} -\u003e getSetting",
-    "PUT /v1/admin/settings/{key} -\u003e putSetting",
-    "GET /v1/admin/storage/resources -\u003e getResourceStorage",
-    "PUT /v1/admin/storage/resources -\u003e putResourceStorage",
-    "GET /v1/admin/storage/sessions -\u003e getSessionStorage",
-    "PUT /v1/admin/storage/sessions -\u003e putSessionStorage",
-    "POST /v1/admin/storage/test -\u003e testStorage",
-    "GET /v1/admin/tenants -\u003e listTenants",
-    "POST /v1/admin/tenants -\u003e createTenant",
-    "GET /v1/admin/tool-library/observations -\u003e listToolLibraryObservations",
-    "POST /v1/auth/activate -\u003e activateInitialAccount",
-    "POST /v1/auth/login -\u003e login",
-    "POST /v1/auth/logout -\u003e logout",
-    "GET /v1/capabilities -\u003e listCapabilities",
-    "GET /v1/profiles -\u003e listProfiles",
-    "GET /v1/profiles/{id}/canaries -\u003e listCanaries",
-    "POST /v1/profiles/{id}/canaries -\u003e stageCanary",
-    "GET /v1/profiles/{id}/canaries/{canaryID} -\u003e getCanary",
-    "POST /v1/profiles/{id}/canaries/{canaryID}/pause -\u003e pauseCanary",
-    "POST /v1/profiles/{id}/canaries/{canaryID}/percentage -\u003e setCanaryPercentage",
-    "POST /v1/profiles/{id}/canaries/{canaryID}/promote -\u003e promoteCanary",
-    "POST /v1/profiles/{id}/canaries/{canaryID}/resume -\u003e resumeCanary",
-    "POST /v1/profiles/{id}/canaries/{canaryID}/rollback -\u003e rollbackCanary",
-    "GET /v1/profiles/{id}/capabilities -\u003e listProfileCapabilities",
-    "POST /v1/profiles/{id}/publish -\u003e publishProfile",
-    "GET /v1/profiles/{id}/releases -\u003e listProfileReleases",
-    "GET /v1/profiles/{id}/releases/{version} -\u003e getProfileRelease",
-    "POST /v1/profiles/{id}/rollback -\u003e rollbackProfile",
-    "GET /v1/resources -\u003e listResources",
-    "GET /v1/resources/{key} -\u003e getResource",
-    "PUT /v1/resources/{key} -\u003e putResource",
-    "DELETE /v1/resources/{key} -\u003e deleteResource",
-    "POST /v1/runners/claim -\u003e claimRunnerTask",
-    "POST /v1/runners/tasks/{id}/complete -\u003e completeRunnerTask",
-    "POST /v1/runners/tasks/{id}/renew -\u003e renewRunnerTask",
-    "GET /v1/sessions -\u003e listSessions",
-    "POST /v1/sessions -\u003e createSession",
-    "GET /v1/sessions/{id} -\u003e getSession",
-    "POST /v1/sessions/{id}/cancel -\u003e cancelActiveSessionRun",
-    "GET /v1/sessions/{id}/events -\u003e listSessionEvents",
-    "GET /v1/sessions/{id}/runs -\u003e listRuns",
-    "POST /v1/sessions/{id}/runs -\u003e runTurn",
-    "POST /v1/sessions/{id}/runs/async -\u003e enqueueRun",
-    "GET /v1/sessions/{id}/runs/{runID} -\u003e getRun",
-    "POST /v1/sessions/{id}/runs/{runID}/cancel -\u003e cancelRun"
+    "GET /healthz -> health",
+    "GET /readyz -> ready",
+    "GET /v1/admin/accounts -> listAccounts",
+    "POST /v1/admin/accounts -> createAccount",
+    "POST /v1/admin/accounts/{account}/password -> setAccountPassword",
+    "POST /v1/admin/accounts/{account}/status -> setAccountStatus",
+    "GET /v1/admin/approvals -> listApprovals",
+    "GET /v1/admin/approvals/{approvalID} -> getApproval",
+    "POST /v1/admin/approvals/{approvalID}/decision -> decideApproval",
+    "GET /v1/admin/audit -> listAudit",
+    "POST /v1/admin/backtests -> runBacktest",
+    "GET /v1/admin/bindings -> listBindings",
+    "DELETE /v1/admin/bindings/{id} -> unbindBinding",
+    "POST /v1/admin/capabilities/bind -> bindCapability",
+    "POST /v1/admin/capabilities/{id}/disable -> disableCapability",
+    "POST /v1/admin/capabilities/{id}/enable -> enableCapability",
+    "GET /v1/admin/capability-runtimes -> listCapabilityRuntimes",
+    "GET /v1/admin/credentials -> listCredentials",
+    "POST /v1/admin/credentials -> bindCredential",
+    "GET /v1/admin/delegations -> listDelegations",
+    "GET /v1/admin/evaluations/datasets -> listEvaluationDatasets",
+    "POST /v1/admin/evaluations/datasets -> putEvaluationDataset",
+    "GET /v1/admin/evaluations/datasets/{datasetID}/versions/{version} -> getEvaluationDataset",
+    "GET /v1/admin/evaluations/runs -> listEvaluationRuns",
+    "POST /v1/admin/evaluations/runs -> runEvaluation",
+    "GET /v1/admin/evaluations/runs/{evaluationRunID} -> getEvaluationRun",
+    "POST /v1/admin/evaluations/runs/{evaluationRunID}/gate -> gateEvaluation",
+    "POST /v1/admin/evaluations/runs/{evaluationRunID}/resume -> resumeEvaluation",
+    "GET /v1/admin/evidence -> listEvidence",
+    "GET /v1/admin/evidence/runs/{runID} -> getEvidenceRun",
+    "GET /v1/admin/evidence/stats -> evidenceStats",
+    "GET /v1/admin/memory/projection -> memoryProjectionStats",
+    "POST /v1/admin/memory/projection/rebuild -> rebuildMemoryProjection",
+    "GET /v1/admin/metrics -> adminMetrics",
+    "GET /v1/admin/model-runtimes -> listModelRuntimes",
+    "GET /v1/admin/model-settings/llm -> getModelSettings",
+    "PUT /v1/admin/model-settings/llm -> putModelSettings",
+    "GET /v1/admin/notification-targets -> listNotificationTargets",
+    "POST /v1/admin/notification-targets -> createNotificationTarget",
+    "PUT /v1/admin/notification-targets -> updateNotificationTarget",
+    "DELETE /v1/admin/notification-targets -> deleteNotificationTarget",
+    "GET /v1/admin/obs/hits -> listObservationHits",
+    "GET /v1/admin/obs/rules -> listObservationRules",
+    "POST /v1/admin/obs/rules -> createObservationRule",
+    "PUT /v1/admin/obs/rules/{id} -> updateObservationRule",
+    "DELETE /v1/admin/obs/rules/{id} -> deleteObservationRule",
+    "GET /v1/admin/overview -> adminOverview",
+    "GET /v1/admin/policies -> listPolicies",
+    "POST /v1/admin/policies -> bindPolicy",
+    "GET /v1/admin/profiles/{id} -> getAdminProfile",
+    "PUT /v1/admin/profiles/{id} -> putAdminProfile",
+    "GET /v1/admin/rag/projection -> ragProjectionStats",
+    "POST /v1/admin/rag/projection/rebuild -> rebuildRagProjection",
+    "POST /v1/admin/runners/recover -> recoverRunnerTasks",
+    "GET /v1/admin/runners/tasks -> listAdminRunnerTasks",
+    "GET /v1/admin/runners/tasks/{taskID} -> getAdminRunnerTask",
+    "POST /v1/admin/runners/tasks/{taskID}/cancel -> cancelAdminRunnerTask",
+    "POST /v1/admin/runners/tasks/{taskID}/retry -> retryAdminRunnerTask",
+    "GET /v1/admin/sandbox/providers -> listSandboxProviders",
+    "GET /v1/admin/settings/{key} -> getSetting",
+    "PUT /v1/admin/settings/{key} -> putSetting",
+    "GET /v1/admin/storage/resources -> getResourceStorage",
+    "PUT /v1/admin/storage/resources -> putResourceStorage",
+    "GET /v1/admin/storage/sessions -> getSessionStorage",
+    "PUT /v1/admin/storage/sessions -> putSessionStorage",
+    "POST /v1/admin/storage/test -> testStorage",
+    "GET /v1/admin/tenants -> listTenants",
+    "POST /v1/admin/tenants -> createTenant",
+    "GET /v1/admin/tool-library/observations -> listToolLibraryObservations",
+    "POST /v1/auth/activate -> activateInitialAccount",
+    "POST /v1/auth/login -> login",
+    "POST /v1/auth/logout -> logout",
+    "GET /v1/capabilities -> listCapabilities",
+    "GET /v1/profiles -> listProfiles",
+    "GET /v1/profiles/{id}/canaries -> listCanaries",
+    "POST /v1/profiles/{id}/canaries -> stageCanary",
+    "GET /v1/profiles/{id}/canaries/{canaryID} -> getCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/pause -> pauseCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/percentage -> setCanaryPercentage",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/promote -> promoteCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/resume -> resumeCanary",
+    "POST /v1/profiles/{id}/canaries/{canaryID}/rollback -> rollbackCanary",
+    "GET /v1/profiles/{id}/capabilities -> listProfileCapabilities",
+    "POST /v1/profiles/{id}/publish -> publishProfile",
+    "GET /v1/profiles/{id}/releases -> listProfileReleases",
+    "GET /v1/profiles/{id}/releases/{version} -> getProfileRelease",
+    "POST /v1/profiles/{id}/rollback -> rollbackProfile",
+    "GET /v1/resources -> listResources",
+    "GET /v1/resources/{key} -> getResource",
+    "PUT /v1/resources/{key} -> putResource",
+    "DELETE /v1/resources/{key} -> deleteResource",
+    "POST /v1/runners/claim -> claimRunnerTask",
+    "POST /v1/runners/tasks/{id}/complete -> completeRunnerTask",
+    "POST /v1/runners/tasks/{id}/renew -> renewRunnerTask",
+    "GET /v1/sessions -> listSessions",
+    "POST /v1/sessions -> createSession",
+    "GET /v1/sessions/{id} -> getSession",
+    "POST /v1/sessions/{id}/cancel -> cancelActiveSessionRun",
+    "GET /v1/sessions/{id}/events -> listSessionEvents",
+    "GET /v1/sessions/{id}/runs -> listRuns",
+    "POST /v1/sessions/{id}/runs -> runTurn",
+    "POST /v1/sessions/{id}/runs/async -> enqueueRun",
+    "GET /v1/sessions/{id}/runs/{runID} -> getRun",
+    "POST /v1/sessions/{id}/runs/{runID}/cancel -> cancelRun"
   ],
   "http_counts": {
     "openapi_total": 104,

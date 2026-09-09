@@ -16,11 +16,16 @@ func runtimeWithToolCheckpoint(runtime *core.Runtime, writer *storage.WriteBehin
 	copyOf := *runtime
 	failure := &toolCheckpointFailure{}
 	if copyOf.ToolJournal != nil {
-		copyOf.ToolJournal = &checkpointToolInvocationJournal{
+		journal := &checkpointToolInvocationJournal{
 			ToolInvocationJournal: copyOf.ToolJournal,
 			checkpoint:            writer.Checkpoint,
 			cancel:                cancel,
 			failure:               failure,
+		}
+		if reader, ok := copyOf.ToolJournal.(core.ToolInvocationReader); ok && reader != nil {
+			copyOf.ToolJournal = &checkpointToolInvocationJournalWithReader{checkpointToolInvocationJournal: journal, reader: reader}
+		} else {
+			copyOf.ToolJournal = journal
 		}
 	}
 	return &copyOf, failure
@@ -37,9 +42,14 @@ func (s *Server) runtimeWithQueuedToolCheckpoint(runtime *core.Runtime, writer *
 	}
 	copyOf := *runtime
 	failure := &toolCheckpointFailure{}
-	copyOf.ToolJournal = &nativeQueuedToolInvocationJournal{
+	journal := &nativeQueuedToolInvocationJournal{
 		ToolInvocationJournal: runtime.ToolJournal, server: s, store: store, writer: writer,
 		cancel: cancel, failure: failure, fence: fence, session: session, principal: principal, runtime: runtime,
+	}
+	if reader, ok := runtime.ToolJournal.(core.ToolInvocationReader); ok && reader != nil {
+		copyOf.ToolJournal = &nativeQueuedToolInvocationJournalWithReader{nativeQueuedToolInvocationJournal: journal, reader: reader}
+	} else {
+		copyOf.ToolJournal = journal
 	}
 	copyOf.ModelCallGate = &nativeQueuedModelCallGate{
 		server: s, store: store, writer: writer, cancel: cancel, failure: failure,
@@ -79,6 +89,18 @@ type checkpointToolInvocationJournal struct {
 	failure    *toolCheckpointFailure
 }
 
+// checkpointToolInvocationJournalWithReader preserves the optional read-only
+// journal capability only when the wrapped journal supplied it. This keeps
+// selection fail-closed for routes that require durable catalog evidence.
+type checkpointToolInvocationJournalWithReader struct {
+	*checkpointToolInvocationJournal
+	reader core.ToolInvocationReader
+}
+
+func (j *checkpointToolInvocationJournalWithReader) GetToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, bool, error) {
+	return j.reader.GetToolInvocation(ctx, invocation)
+}
+
 type nativeQueuedToolInvocationJournal struct {
 	core.ToolInvocationJournal
 	server    *Server
@@ -90,6 +112,15 @@ type nativeQueuedToolInvocationJournal struct {
 	session   *core.Session
 	principal core.Principal
 	runtime   *core.Runtime
+}
+
+type nativeQueuedToolInvocationJournalWithReader struct {
+	*nativeQueuedToolInvocationJournal
+	reader core.ToolInvocationReader
+}
+
+func (j *nativeQueuedToolInvocationJournalWithReader) GetToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, bool, error) {
+	return j.reader.GetToolInvocation(ctx, invocation)
 }
 
 func (j *nativeQueuedToolInvocationJournal) CompleteToolInvocation(ctx context.Context, invocation core.ToolInvocation, result core.CapabilityResult) (core.ToolInvocationRecord, error) {

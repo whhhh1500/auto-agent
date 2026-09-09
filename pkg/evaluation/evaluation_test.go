@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/whhhh1500/auto-agent/internal/executionroute"
+	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
 
@@ -53,6 +55,40 @@ func (m evaluationModel) Stream(_ context.Context, options core.GenerateOptions,
 	emit(core.StreamChunk{Kind: core.StreamKindAssistant, ToolCall: &call})
 	emit(core.StreamChunk{Kind: core.StreamKindFinish, FinishKind: core.FinishToolCalls})
 	return nil
+}
+
+type evaluationRouteExecutor struct{ calls *atomic.Int32 }
+
+func (e evaluationRouteExecutor) RunTurn(_ context.Context, _ core.Principal, session *core.Session, input core.TurnInput, emit func(core.SessionEvent)) (core.TurnResult, error) {
+	e.calls.Add(1)
+	appendEvent := func(kind core.SessionEventType, data any) error {
+		event, err := session.Append(input.RunID, kind, data)
+		if err == nil && emit != nil {
+			emit(event)
+		}
+		return err
+	}
+	composition := &core.RunCompositionData{
+		Profile:  core.AgentProfileSnapshot{ID: "evaluation-route", ProfileID: session.ProfileID(), Scope: session.Scope()},
+		Metadata: input.CompositionMetadata,
+	}
+	if err := appendEvent(core.EvRunStart, core.RunStartData{Composition: composition}); err != nil {
+		return core.TurnResult{}, err
+	}
+	if err := appendEvent(core.EvUserMessage, core.UserMessageData{Text: input.Text}); err != nil {
+		return core.TurnResult{}, err
+	}
+	if err := appendEvent(core.EvAssistantMessage, core.AssistantMessageData{Text: "route executor"}); err != nil {
+		return core.TurnResult{}, err
+	}
+	if err := appendEvent(core.EvRunEnd, core.RunEndData{Status: core.RunCompleted}); err != nil {
+		return core.TurnResult{}, err
+	}
+	return core.TurnResult{RunID: input.RunID, Status: core.RunCompleted, Answer: "route executor"}, nil
+}
+
+func (e evaluationRouteExecutor) ResumeTurn(context.Context, core.Principal, *core.Session, core.ResumeInput, func(core.SessionEvent)) (core.TurnResult, error) {
+	return core.TurnResult{}, nil
 }
 
 type evaluationFixture struct {
@@ -234,6 +270,103 @@ func TestEvaluationRunnerExecutesIdempotentCapabilityAndPersistsArtifacts(t *tes
 	}
 }
 
+func TestEvaluationRunnerUsesInjectedExecutionRouteAndFreezesDecision(t *testing.T) {
+	fixture := newEvaluationFixture(t, "eval.lookup")
+	segments := fixture.principal.Scope.Segments()
+	product := core.MustScopePath(segments[:2]...)
+	if err := fixture.runner.Runtime.Profiles.Bind(core.AgentProfileLayer{
+		Scope: product, ProfileID: "evaluation.agent", Metadata: map[string]string{
+			"harness.executor.id": "evaluation.route", "harness.executor.version": "1",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	executors, err := runexecutor.NewRegistry(2, runexecutor.Registration{
+		Metadata: runexecutor.Metadata{ID: "evaluation.route", Version: "1", ImplementationRevision: "evaluation-route-v1"},
+		Factory: func(runexecutor.Dependencies) (runexecutor.RunExecutor, error) {
+			return evaluationRouteExecutor{calls: &calls}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.Executors = executors
+	dataset := baseDataset("eval.lookup")
+	dataset.Cases[0].Assertions = []Assertion{
+		{ID: "status", Kind: AssertRunStatus, ExpectedStatus: core.RunCompleted},
+		{ID: "answer", Kind: AssertAnswerContains, Expected: "route executor"},
+	}
+	stored, _, err := fixture.store.PutDataset(context.Background(), dataset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := fixture.runner.Run(context.Background(), RunRequest{
+		DatasetID: stored.ID, DatasetVersion: stored.Version, Principal: fixture.principal,
+		CompositionMetadata: map[string]string{
+			"harness.assignment.id":        "route-test",
+			executionroute.RouteVersionKey: "attacker-version", executionroute.RouteModeKey: "ptc_only",
+			executionroute.RouteCatalogToolIDKey: "attacker.catalog", executionroute.RouteExecuteToolIDKey: "attacker.execute",
+			executionroute.RouteImplementationKey: "attacker-revision",
+		},
+	})
+	if err != nil || !run.Passed || calls.Load() != 1 {
+		t.Fatalf("evaluation route run=%#v calls=%d err=%v", run, calls.Load(), err)
+	}
+	session, err := fixture.runner.Sessions.Load(context.Background(), run.Cases[0].SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var start core.RunStartData
+	for _, event := range session.Events() {
+		if event.RunID == run.Cases[0].AgentRunID && event.Type == core.EvRunStart {
+			if err := json.Unmarshal(event.Data, &start); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if start.Composition == nil || start.Composition.Metadata["harness.executor.id"] != "evaluation.route" ||
+		start.Composition.Metadata["harness.executor.version"] != "1" ||
+		start.Composition.Metadata["harness.executor.implementation_revision"] != "evaluation-route-v1" ||
+		start.Composition.Metadata["harness.assignment.id"] != "route-test" ||
+		start.Composition.Metadata[executionroute.RouteVersionKey] != executionroute.RouteVersion ||
+		start.Composition.Metadata[executionroute.RouteModeKey] != "direct_only" ||
+		start.Composition.Metadata[executionroute.RouteCatalogToolIDKey] != "program.catalog" ||
+		start.Composition.Metadata[executionroute.RouteExecuteToolIDKey] != "program.execute" ||
+		start.Composition.Metadata[executionroute.RouteImplementationKey] != executionroute.RouteImplementationRevision {
+		t.Fatalf("evaluation did not persist shared route decision: %#v", start)
+	}
+}
+
+func TestEvaluationRunnerRejectsUnavailableCodePTCBeforeModelOrTool(t *testing.T) {
+	fixture := newEvaluationFixture(t, "eval.lookup")
+	segments := fixture.principal.Scope.Segments()
+	product := core.MustScopePath(segments[:2]...)
+	if err := fixture.runner.Runtime.Profiles.Bind(core.AgentProfileLayer{
+		Scope: product, ProfileID: "evaluation.agent", Metadata: map[string]string{
+			"harness.executor.id": runexecutor.CodePTCID, "harness.executor.version": runexecutor.CodePTCVersion,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, _, err := fixture.store.PutDataset(context.Background(), baseDataset("eval.lookup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := fixture.runner.Run(context.Background(), RunRequest{DatasetID: stored.ID, DatasetVersion: stored.Version, Principal: fixture.principal})
+	if err == nil || fixture.idempotent.Load() != 0 || fixture.destructive.Load() != 0 {
+		t.Fatalf("CodePTC unexpectedly executed evaluation work: run=%#v safe=%d destructive=%d err=%v", run, fixture.idempotent.Load(), fixture.destructive.Load(), err)
+	}
+	sessionID, agentRunID, _ := evaluationCaseIDs(run.ID, stored.Cases[0].ID)
+	session, loadErr := fixture.runner.Sessions.Load(context.Background(), sessionID)
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if _, exists := session.RunStatus(agentRunID); exists {
+		t.Fatalf("CodePTC created a run before unavailable selection: %#v", session.Events())
+	}
+}
+
 func TestEvaluationArtifactCarriesCompositionAndAssignmentRevisions(t *testing.T) {
 	fixture := newEvaluationFixture(t, "eval.lookup")
 	dataset, _, err := fixture.store.PutDataset(context.Background(), baseDataset("eval.lookup"))
@@ -319,8 +452,7 @@ func TestEvaluationRunnerBlocksNonIdempotentCapabilityByDefault(t *testing.T) {
 	fixture := newEvaluationFixture(t, "eval.destroy")
 	dataset := baseDataset("eval.destroy")
 	dataset.Cases[0].Assertions = []Assertion{
-		{ID: "status", Kind: AssertRunStatus, ExpectedStatus: core.RunCompleted},
-		{ID: "blocked", Kind: AssertAnswerContains, Expected: "not available"},
+		{ID: "status", Kind: AssertRunStatus, ExpectedStatus: core.RunFailed},
 	}
 	stored, _, err := fixture.store.PutDataset(context.Background(), dataset)
 	if err != nil {
@@ -329,8 +461,8 @@ func TestEvaluationRunnerBlocksNonIdempotentCapabilityByDefault(t *testing.T) {
 	run, err := fixture.runner.Run(context.Background(), RunRequest{
 		DatasetID: stored.ID, DatasetVersion: stored.Version, Principal: fixture.principal,
 	})
-	if err != nil || !run.Passed {
-		t.Fatalf("safe evaluation failed: %#v err=%v", run, err)
+	if err != nil || !run.Passed || len(run.Cases) != 1 || run.Cases[0].Status != core.RunFailed || run.Cases[0].Error != "invalid programmatic route projection" {
+		t.Fatalf("hidden non-idempotent tool did not fail closed: %#v err=%v", run, err)
 	}
 	if fixture.destructive.Load() != 0 {
 		t.Fatalf("non-idempotent provider executed %d times", fixture.destructive.Load())
@@ -389,6 +521,83 @@ func TestDatasetRevisionAndComparisonAreDeterministic(t *testing.T) {
 	})
 	if err != nil || gate.Passed || len(gate.Reasons) < 2 || gate.Comparison == nil || !gate.Comparison.Regressed {
 		t.Fatalf("regression gate wrong: %#v err=%v", gate, err)
+	}
+}
+
+func TestEvaluationRejectsNonFiniteCaseAndGateValues(t *testing.T) {
+	for _, score := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		caseScore := memoryStoreCaseResult("case-1")
+		caseScore.Score = score
+		if err := ValidateCaseResult(caseScore); err == nil {
+			t.Fatalf("case score %v was accepted", score)
+		}
+
+		assertionScore := memoryStoreCaseResult("case-1")
+		assertionScore.Assertions = []AssertionResult{{
+			AssertionID: "assert-1", Kind: AssertAnswerContains, Score: score,
+		}}
+		if err := ValidateCaseResult(assertionScore); err == nil {
+			t.Fatalf("assertion score %v was accepted", score)
+		}
+	}
+
+	valid := RunResult{Status: RunCompleted, Score: 1, Passed: true}
+	if _, err := EvaluateGate(RunResult{Status: RunCompleted, Score: math.NaN(), Passed: true}, nil, GatePolicy{RequirePassed: true}); err == nil {
+		t.Fatal("gate accepted a non-finite current score")
+	}
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if _, err := EvaluateGate(valid, nil, GatePolicy{MinScore: &value}); err == nil {
+			t.Fatalf("gate accepted non-finite minimum %v", value)
+		}
+		if _, err := EvaluateGate(valid, &valid, GatePolicy{MaxRegression: &value}); err == nil {
+			t.Fatalf("gate accepted non-finite regression tolerance %v", value)
+		}
+	}
+	current := RunResult{DatasetID: "evaluation.dataset", DatasetVersion: 1, DatasetRevision: "revision", Score: 1}
+	baseline := current
+	baseline.Score = math.Inf(1)
+	if _, err := Compare(current, baseline, 0); err == nil {
+		t.Fatal("comparison accepted a non-finite run score")
+	}
+}
+
+func TestEvaluateGateRequireAllCasesValidatesCompleteCaseLedger(t *testing.T) {
+	strict := GatePolicy{RequireAllCases: true}
+	complete := func(id string, cases []CaseResult, passed int) RunResult {
+		return RunResult{ID: id, Status: RunCompleted, Score: 1, Passed: true, TotalCases: 2, PassedCases: passed, Cases: cases}
+	}
+	passingCases := []CaseResult{{CaseID: "case-1", Passed: true}, {CaseID: "case-2", Passed: true}}
+	if gate, err := EvaluateGate(complete("eval-strict-pass", passingCases, 2), nil, strict); err != nil || !gate.Passed {
+		t.Fatalf("strict gate rejected complete passing cases: %#v err=%v", gate, err)
+	}
+
+	for name, run := range map[string]RunResult{
+		"partial":          complete("eval-strict-partial", passingCases[:1], 1),
+		"duplicate":        complete("eval-strict-duplicate", []CaseResult{{CaseID: "case-1", Passed: true}, {CaseID: "case-1", Passed: true}}, 2),
+		"passed mismatch":  complete("eval-strict-count", passingCases, 1),
+		"non-finite score": complete("eval-strict-score", []CaseResult{{CaseID: "case-1", Score: 1, Passed: true}, {CaseID: "case-2", Score: math.NaN(), Passed: true}}, 2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := EvaluateGate(run, nil, strict); err == nil {
+				t.Fatalf("strict gate accepted %s case ledger", name)
+			}
+		})
+	}
+
+	failed := complete("eval-strict-failed", []CaseResult{{CaseID: "case-1", Passed: true}, {CaseID: "case-2", Passed: false}}, 1)
+	if gate, err := EvaluateGate(failed, nil, strict); err != nil || gate.Passed {
+		t.Fatalf("strict gate accepted failed case: %#v err=%v", gate, err)
+	}
+
+	baseline := complete("eval-strict-baseline", append([]CaseResult(nil), passingCases...), 2)
+	current := complete("eval-strict-current", append([]CaseResult(nil), passingCases...), 2)
+	tolerance := 0.0
+	if _, err := EvaluateGate(current, &baseline, GatePolicy{RequireAllCases: true, MaxRegression: &tolerance}); err != nil {
+		t.Fatalf("strict regression gate rejected matching ledgers: %v", err)
+	}
+	baseline.Cases[1].CaseID = "case-other"
+	if _, err := EvaluateGate(current, &baseline, GatePolicy{RequireAllCases: true, MaxRegression: &tolerance}); err == nil {
+		t.Fatal("strict regression gate accepted different case IDs")
 	}
 }
 

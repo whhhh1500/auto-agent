@@ -92,6 +92,104 @@ func (*countingToolJournal) MarkToolInvocationUncertain(context.Context, core.To
 	return nil
 }
 
+// checkpointReaderToolJournal deliberately exposes the optional read-only
+// journal capability so the checkpoint wrappers can be tested without
+// coupling this seam to a storage implementation.
+type checkpointReaderToolJournal struct {
+	countingToolJournal
+	reads      atomic.Int32
+	ctx        context.Context
+	invocation core.ToolInvocation
+}
+
+func (j *checkpointReaderToolJournal) GetToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, bool, error) {
+	j.reads.Add(1)
+	j.ctx, j.invocation = ctx, invocation
+	return core.ToolInvocationRecord{ToolInvocation: invocation, State: core.ToolInvocationCompleted}, true, nil
+}
+
+func TestRuntimeToolCheckpointPreservesOptionalJournalReader(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	writer := storage.NewWriteBehind(fixture.sessions, fixture.session, fixture.session.Version(), -1)
+	invocation, err := core.NewToolInvocation(core.RunInfo{
+		RunID: "reader-checkpoint", SessionID: fixture.session.ID(), ProfileID: fixture.session.ProfileID(), Principal: fixture.principal,
+	}, core.ToolCall{ID: "reader-call", Name: "checkpoint.write", Args: map[string]any{}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name string
+		wrap func(*core.Runtime) (*core.Runtime, error)
+	}{
+		{
+			name: "synchronous checkpoint",
+			wrap: func(runtime *core.Runtime) (*core.Runtime, error) {
+				wrapped, _ := runtimeWithToolCheckpoint(runtime, writer, func() {})
+				return wrapped, nil
+			},
+		},
+		{
+			name: "generic queued checkpoint",
+			wrap: func(runtime *core.Runtime) (*core.Runtime, error) {
+				wrapped, _, err := fixture.server.runtimeWithQueuedToolCheckpoint(runtime, writer, func() {}, storage.SessionWriteFence{}, fixture.session, fixture.principal, false)
+				return wrapped, err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			journal := &checkpointReaderToolJournal{}
+			wrapped, err := test.wrap(&core.Runtime{ToolJournal: journal})
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, ok := wrapped.ToolJournal.(core.ToolInvocationReader)
+			if !ok {
+				t.Fatalf("wrapped journal %T lost ToolInvocationReader", wrapped.ToolJournal)
+			}
+			record, found, err := reader.GetToolInvocation(context.Background(), invocation)
+			if err != nil || !found || record.ToolInvocation != invocation || journal.reads.Load() != 1 || journal.invocation != invocation || journal.ctx == nil {
+				t.Fatalf("reader forwarding record=%+v found=%t err=%v reads=%d invocation=%+v ctx=%v", record, found, err, journal.reads.Load(), journal.invocation, journal.ctx)
+			}
+		})
+	}
+}
+
+func TestRuntimeToolCheckpointDoesNotInventOptionalJournalReader(t *testing.T) {
+	fixture := newRunWorkerFixture(t)
+	writer := storage.NewWriteBehind(fixture.sessions, fixture.session, fixture.session.Version(), -1)
+
+	for _, test := range []struct {
+		name string
+		wrap func(*core.Runtime) (*core.Runtime, error)
+	}{
+		{
+			name: "synchronous checkpoint",
+			wrap: func(runtime *core.Runtime) (*core.Runtime, error) {
+				wrapped, _ := runtimeWithToolCheckpoint(runtime, writer, func() {})
+				return wrapped, nil
+			},
+		},
+		{
+			name: "generic queued checkpoint",
+			wrap: func(runtime *core.Runtime) (*core.Runtime, error) {
+				wrapped, _, err := fixture.server.runtimeWithQueuedToolCheckpoint(runtime, writer, func() {}, storage.SessionWriteFence{}, fixture.session, fixture.principal, false)
+				return wrapped, err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wrapped, err := test.wrap(&core.Runtime{ToolJournal: &countingToolJournal{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := wrapped.ToolJournal.(core.ToolInvocationReader); ok {
+				t.Fatalf("wrapped write-only journal %T unexpectedly implements ToolInvocationReader", wrapped.ToolJournal)
+			}
+		})
+	}
+}
+
 type failingCheckpointStore struct {
 	*storage.SQLSessionStore
 	err           error

@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/whhhh1500/auto-agent/pkg/app/programmatic"
 	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
@@ -188,8 +190,16 @@ func TestRunExecutorResolvePassesCanaryRuntimeInstance(t *testing.T) {
 	if _, _, err := fixture.server.resolveRunExecutor(context.Background(), fixture.principal, fixture.session, &canaryRuntime, nil, "run-canary", false); err != nil {
 		t.Fatal(err)
 	}
-	if received != &canaryRuntime {
-		t.Fatalf("factory received runtime %p, want %p", received, &canaryRuntime)
+	if received == nil || received == &canaryRuntime {
+		t.Fatalf("factory received runtime %p, want a private route wrapper for %p", received, &canaryRuntime)
+	}
+	if received.Capabilities != canaryRuntime.Capabilities || received.Profiles != canaryRuntime.Profiles ||
+		received.ToolJournal != canaryRuntime.ToolJournal || received.ModelCallGate != canaryRuntime.ModelCallGate ||
+		received.Telemetry != canaryRuntime.Telemetry {
+		t.Fatalf("route wrapper lost canary runtime seams: received=%#v canary=%#v", received, &canaryRuntime)
+	}
+	if _, ok := received.Models.(*programmatic.ModelResolver); !ok {
+		t.Fatalf("factory model resolver was not route wrapped: %T", received.Models)
 	}
 }
 
@@ -201,6 +211,26 @@ func TestServerNilRegistryUsesDefaultSequentialHTTP(t *testing.T) {
 	fixture.server.Handler().ServeHTTP(response, req)
 	if response.Code != http.StatusOK {
 		t.Fatalf("default sequential status=%d body=%s", response.Code, response.Body.String())
+	}
+	persisted, err := fixture.sessions.Load(context.Background(), fixture.session.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]string
+	for _, event := range persisted.Events() {
+		if event.Type != core.EvRunStart {
+			continue
+		}
+		var start core.RunStartData
+		if err := json.Unmarshal(event.Data, &start); err != nil {
+			t.Fatal(err)
+		}
+		if start.Composition != nil {
+			metadata = start.Composition.Metadata
+		}
+	}
+	if metadata[runExecutorIDKey] != runexecutor.SequentialID || metadata[runExecutorVersionKey] != runexecutor.SequentialVersion || metadata[runExecutorImplementation] != runexecutor.SequentialImplementationRevision {
+		t.Fatalf("default executor evidence=%#v", metadata)
 	}
 }
 

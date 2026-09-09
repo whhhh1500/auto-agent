@@ -17,17 +17,24 @@ import (
 var errReleaseGateUnavailable = errors.New("release evaluation gate is unavailable")
 
 type releaseEvaluationGateRequest struct {
-	DatasetID                 string            `json:"dataset_id"`
-	DatasetVersion            int               `json:"dataset_version"`
-	TenantID                  string            `json:"tenant_id,omitempty"`
-	SubjectID                 string            `json:"subject_id"`
-	BaselineRunID             string            `json:"baseline_run_id,omitempty"`
-	RequirePassed             *bool             `json:"require_passed,omitempty"`
-	MinScore                  *float64          `json:"min_score,omitempty"`
-	MaxRegression             *float64          `json:"max_regression,omitempty"`
-	AllowCapabilities         []string          `json:"allow_capabilities,omitempty"`
-	AllowBreakingCapabilities []string          `json:"allow_breaking_capabilities,omitempty"`
-	Metadata                  map[string]string `json:"metadata,omitempty"`
+	DatasetID                 string   `json:"dataset_id"`
+	DatasetVersion            int      `json:"dataset_version"`
+	TenantID                  string   `json:"tenant_id,omitempty"`
+	SubjectID                 string   `json:"subject_id"`
+	BaselineRunID             string   `json:"baseline_run_id,omitempty"`
+	RequirePassed             *bool    `json:"require_passed,omitempty"`
+	RequireAllCases           *bool    `json:"require_all_cases,omitempty"`
+	MinScore                  *float64 `json:"min_score,omitempty"`
+	MaxRegression             *float64 `json:"max_regression,omitempty"`
+	AllowCapabilities         []string `json:"allow_capabilities,omitempty"`
+	AllowBreakingCapabilities []string `json:"allow_breaking_capabilities,omitempty"`
+	// EfficiencyPolicy is opt-in. Enabled policies require an already bound
+	// baseline run so the release surface never invents a comparison cohort.
+	EfficiencyPolicy *evaluation.EfficiencyGatePolicy `json:"efficiency_policy,omitempty"`
+	// EfficiencyCompositionMetadata supplies the candidate's frozen route
+	// projection; baseline route metadata remains bound to its durable run.
+	EfficiencyCompositionMetadata map[string]string `json:"efficiency_composition_metadata,omitempty"`
+	Metadata                      map[string]string `json:"metadata,omitempty"`
 }
 
 type releaseGateEvaluation struct {
@@ -123,10 +130,17 @@ func (s *Server) evaluateReleaseCandidate(
 		"release.candidate_capability_snapshot":     candidateCapabilityRevision,
 		"release.capability_compatibility_revision": compatibilityRevision,
 	}
+	for key, value := range request.EfficiencyCompositionMetadata {
+		compositionMetadata[key] = value
+	}
 	for key, value := range request.Metadata {
 		metadata[key] = value
 	}
 	var baseline *evaluation.RunResult
+	efficiencyEnabled := request.EfficiencyPolicy != nil && request.EfficiencyPolicy.Enabled
+	if efficiencyEnabled && request.BaselineRunID == "" {
+		return nil, fmt.Errorf("enabled release efficiency policy requires baseline_run_id")
+	}
 	if request.BaselineRunID != "" {
 		loaded, err := s.evaluations.GetRun(ctx, request.BaselineRunID)
 		if err != nil {
@@ -168,8 +182,20 @@ func (s *Server) evaluateReleaseCandidate(
 	if request.RequirePassed != nil {
 		requirePassed = *request.RequirePassed
 	}
+	requireAllCases := request.RequireAllCases != nil && *request.RequireAllCases
+	if requireAllCases {
+		if err := releaseRunMatchesDataset(candidateRun, dataset); err != nil {
+			return nil, fmt.Errorf("release candidate cases do not match frozen dataset: %w", err)
+		}
+		if request.MaxRegression != nil && baseline != nil {
+			if err := releaseRunMatchesDataset(*baseline, dataset); err != nil {
+				return nil, fmt.Errorf("release baseline cases do not match frozen dataset: %w", err)
+			}
+		}
+	}
 	gate, err := evaluation.EvaluateGate(candidateRun, baseline, evaluation.GatePolicy{
-		RequirePassed: requirePassed, MinScore: request.MinScore, MaxRegression: request.MaxRegression,
+		RequirePassed: requirePassed, RequireAllCases: requireAllCases,
+		MinScore: request.MinScore, MaxRegression: request.MaxRegression,
 	})
 	if err != nil {
 		return nil, err
@@ -179,10 +205,118 @@ func (s *Server) evaluateReleaseCandidate(
 		gate.Passed = false
 		gate.Reasons = append(gate.Reasons, "candidate capability declarations are incompatible with live")
 	}
+	if err := applyReleaseEfficiencyGate(&gate, candidateRun, baseline, request.EfficiencyPolicy); err != nil {
+		return nil, err
+	}
 	return &releaseGateEvaluation{
 		CandidateRevision: candidateRevision, BaseReleaseRevision: baseReleaseRevision,
 		CandidateRun: candidateRun, BaselineRun: baseline, Gate: gate,
 	}, nil
+}
+
+func applyReleaseEfficiencyGate(gate *evaluation.GateResult, candidate evaluation.RunResult, baseline *evaluation.RunResult, policy *evaluation.EfficiencyGatePolicy) error {
+	if gate == nil {
+		return fmt.Errorf("release quality gate is nil")
+	}
+	// Quality and compatibility always decide first. A rejected candidate has
+	// no release path, so an efficiency comparison is neither needed nor used
+	// to mask that rejection.
+	if !gate.Passed || policy == nil {
+		return nil
+	}
+	efficiency, err := evaluateReleaseEfficiency(candidate, baseline, *policy)
+	if err != nil {
+		return err
+	}
+	gate.Efficiency = &efficiency
+	if policy.Enabled && efficiency.Verdict != evaluation.EfficiencyGatePassed {
+		gate.Passed = false
+		gate.Reasons = append(gate.Reasons, "release efficiency gate did not pass")
+	}
+	if policy.Enabled {
+		gate.RequiredEfficiencyContract = policy.ContractID
+	}
+	return nil
+}
+
+// evaluateReleaseEfficiency keeps release-only identity and metadata handling
+// at the server boundary. The pure evaluator receives only the fixed
+// efficiency cohort metadata, while the complete durable runs remain attached
+// to the release decision and canary record by ID.
+func evaluateReleaseEfficiency(candidate evaluation.RunResult, baseline *evaluation.RunResult, policy evaluation.EfficiencyGatePolicy) (evaluation.EfficiencyGateResult, error) {
+	if !policy.Enabled {
+		return evaluation.EvaluateEfficiencyGate(candidate, evaluation.RunResult{}, policy)
+	}
+	if baseline == nil || !releaseEfficiencyIdentityMatches(candidate, *baseline) ||
+		!releaseEfficiencyArtifactsBound(candidate) || !releaseEfficiencyArtifactsBound(*baseline) {
+		return evaluation.EfficiencyGateResult{
+			ContractID: policy.ContractID,
+			Verdict:    evaluation.EfficiencyGateInconclusive,
+			ReasonCodes: []evaluation.EfficiencyGateReasonCode{
+				evaluation.EfficiencyReasonRunInvalid,
+			},
+		}, nil
+	}
+	candidate.Metadata = releaseEfficiencyMetadata(candidate.Metadata)
+	baselineCopy := *baseline
+	baselineCopy.Metadata = releaseEfficiencyMetadata(baselineCopy.Metadata)
+	return evaluation.EvaluateEfficiencyGate(candidate, baselineCopy, policy)
+}
+
+func releaseEfficiencyArtifactsBound(run evaluation.RunResult) bool {
+	expectedAssignment, err := core.CompositionMetadataRevision(run.CompositionMetadata)
+	if err != nil || expectedAssignment == "" || run.AssignmentRevision != expectedAssignment {
+		return false
+	}
+	for _, result := range run.Cases {
+		// AssignmentRevision binds the requested route projection to the actual
+		// per-case composed execution. CompositionRevision must also be present
+		// so no synthetic or pre-artifact result can satisfy this release gate.
+		if result.Artifacts.AssignmentRevision != expectedAssignment || result.Artifacts.CompositionRevision == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func releaseEfficiencyIdentityMatches(candidate, baseline evaluation.RunResult) bool {
+	return candidate.TenantID == baseline.TenantID &&
+		candidate.SubjectID == baseline.SubjectID &&
+		candidate.ProfileID == baseline.ProfileID &&
+		candidate.DatasetID == baseline.DatasetID &&
+		candidate.DatasetVersion == baseline.DatasetVersion &&
+		candidate.DatasetRevision == baseline.DatasetRevision
+}
+
+func releaseEfficiencyMetadata(metadata map[string]string) map[string]string {
+	filtered := make(map[string]string)
+	for key, value := range metadata {
+		if strings.HasPrefix(key, "efficiency.") {
+			filtered[key] = value
+		}
+	}
+	return filtered
+}
+
+func releaseRunMatchesDataset(run evaluation.RunResult, dataset evaluation.Dataset) error {
+	if len(run.Cases) != len(dataset.Cases) {
+		return fmt.Errorf("case count is %d, want %d", len(run.Cases), len(dataset.Cases))
+	}
+	expected := make(map[string]bool, len(dataset.Cases))
+	for _, evalCase := range dataset.Cases {
+		expected[evalCase.ID] = true
+	}
+	seen := make(map[string]bool, len(run.Cases))
+	for _, result := range run.Cases {
+		if !expected[result.CaseID] {
+			return fmt.Errorf("case %q is not in frozen dataset", result.CaseID)
+		}
+		if seen[result.CaseID] {
+			return fmt.Errorf("case %q is duplicated", result.CaseID)
+		}
+		seen[result.CaseID] = true
+	}
+	return nil
 }
 
 func (s *Server) releaseCapabilityDeclarations(
@@ -516,10 +650,11 @@ func (s *Server) handleEvaluationGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var request struct {
-		BaselineRunID string   `json:"baseline_run_id,omitempty"`
-		RequirePassed bool     `json:"require_passed,omitempty"`
-		MinScore      *float64 `json:"min_score,omitempty"`
-		MaxRegression *float64 `json:"max_regression,omitempty"`
+		BaselineRunID   string   `json:"baseline_run_id,omitempty"`
+		RequirePassed   bool     `json:"require_passed,omitempty"`
+		RequireAllCases bool     `json:"require_all_cases,omitempty"`
+		MinScore        *float64 `json:"min_score,omitempty"`
+		MaxRegression   *float64 `json:"max_regression,omitempty"`
 	}
 	if !s.decodeJSON(w, r, &request) {
 		return
@@ -538,7 +673,8 @@ func (s *Server) handleEvaluationGate(w http.ResponseWriter, r *http.Request) {
 		baseline = &loaded
 	}
 	gate, err := evaluation.EvaluateGate(current, baseline, evaluation.GatePolicy{
-		RequirePassed: request.RequirePassed, MinScore: request.MinScore, MaxRegression: request.MaxRegression,
+		RequirePassed: request.RequirePassed, RequireAllCases: request.RequireAllCases,
+		MinScore: request.MinScore, MaxRegression: request.MaxRegression,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

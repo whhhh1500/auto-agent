@@ -157,6 +157,13 @@ messagesLoop:
 						continue messagesLoop
 					}
 				}
+				// A nested result without its model-visible parent cannot safely
+				// be treated as conversational context. Preserve the legacy
+				// behavior for an unpaired direct result, which may originate in
+				// an older projection outside this model context.
+				if strings.Contains(message.ToolCallID, "/") {
+					return nil, ErrInvalid
+				}
 			}
 			if i < latestUser && len(message.Content) > a.maxToolResultBytes {
 				message.Content = toolMarker(message.Content)

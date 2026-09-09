@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -126,6 +127,13 @@ func ValidateCanaryRecord(record CanaryRecord) error {
 	}
 	if !record.Gate.Passed {
 		return fmt.Errorf("canary gate did not pass")
+	}
+	if record.Gate.RequiredEfficiencyContract != "" {
+		if record.Gate.RequiredEfficiencyContract != evaluation.EfficiencyGateContractV1 || record.Gate.Efficiency == nil ||
+			record.Gate.Efficiency.ContractID != record.Gate.RequiredEfficiencyContract ||
+			record.Gate.Efficiency.Verdict != evaluation.EfficiencyGatePassed {
+			return fmt.Errorf("canary required efficiency gate did not pass")
+		}
 	}
 	if record.Status == CanaryPromoted {
 		if record.ReleaseVersion < 1 {
@@ -583,6 +591,13 @@ func cloneCanaryRecord(record CanaryRecord) CanaryRecord {
 		compatibility.Issues = append([]evaluation.CapabilityCompatibilityIssue(nil), compatibility.Issues...)
 		out.Gate.CapabilityCompatibility = &compatibility
 	}
+	if record.Gate.Efficiency != nil {
+		efficiency := *record.Gate.Efficiency
+		efficiency.ReasonCodes = append([]evaluation.EfficiencyGateReasonCode(nil), record.Gate.Efficiency.ReasonCodes...)
+		efficiency.Pairs = append([]evaluation.EfficiencyGatePair(nil), record.Gate.Efficiency.Pairs...)
+		efficiency.Strata = append([]evaluation.EfficiencyGateStratum(nil), record.Gate.Efficiency.Strata...)
+		out.Gate.Efficiency = &efficiency
+	}
 	return out
 }
 
@@ -590,7 +605,9 @@ func matchCanaryArtifact(local, durable CanaryRecord) error {
 	if local.ID != durable.ID || local.ProfileID != durable.ProfileID || !local.Scope.Equal(durable.Scope) ||
 		local.Revision != durable.Revision || local.BaseReleaseRevision != durable.BaseReleaseRevision ||
 		local.CandidateEvaluationRunID != durable.CandidateEvaluationRunID ||
-		local.BaselineEvaluationRunID != durable.BaselineEvaluationRunID {
+		local.BaselineEvaluationRunID != durable.BaselineEvaluationRunID ||
+		local.Gate.RequiredEfficiencyContract != durable.Gate.RequiredEfficiencyContract ||
+		!reflect.DeepEqual(local.Gate.Efficiency, durable.Gate.Efficiency) {
 		return fmt.Errorf("durable canary %s changed immutable fields", local.ID)
 	}
 	return nil
