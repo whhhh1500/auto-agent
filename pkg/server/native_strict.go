@@ -38,6 +38,9 @@ type NativeStrictServerConfig struct {
 
 	Logger    *slog.Logger
 	Telemetry core.Telemetry
+	// RouteEvidenceDelivery is an optional synchronous receipt sink. The native
+	// SQL store supplies the outbox and candidate reader automatically.
+	RouteEvidenceDelivery RouteEvidenceDelivery
 }
 
 // NativeStrictBootstrap is a static, caller-provided catalogue. The
@@ -178,14 +181,17 @@ func newNativeStrictServer(ctx context.Context, cfg NativeStrictServerConfig, af
 			MaxRequestBody:   cfg.MaxRequestBody,
 			MaxWriteDelay:    cfg.MaxWriteDelay,
 
-			AuthorizationEpochReader: queuedPrincipal,
-			Leaser:                   sessions,
-			LeaseTTL:                 cfg.LeaseTTL,
-			Accounts:                 accounts,
-			RunControl:               runControl,
-			RunQueue:                 runControl,
-			RunPrincipalResolver:     queuedPrincipal,
-			Approvals:                approvals,
+			AuthorizationEpochReader:     queuedPrincipal,
+			Leaser:                       sessions,
+			LeaseTTL:                     cfg.LeaseTTL,
+			Accounts:                     accounts,
+			RunControl:                   runControl,
+			RunQueue:                     runControl,
+			RunPrincipalResolver:         queuedPrincipal,
+			Approvals:                    approvals,
+			RouteEvidenceOutbox:          sessions,
+			RouteEvidenceCandidateReader: sessions,
+			RouteEvidenceDelivery:        cfg.RouteEvidenceDelivery,
 
 			RunCancelPollInterval: cfg.RunCancelPollInterval,
 			RunStaleAfter:         cfg.RunStaleAfter,

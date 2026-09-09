@@ -60,7 +60,9 @@ func permanentQueuedPrincipalError(err error) bool {
 // StartRunWorkers starts the configured number of local durable queue
 // consumers. It is idempotent while workers are already running.
 func (s *Server) StartRunWorkers(ctx context.Context) error {
-	if s.runQueue == nil {
+	routeEvidenceReconcile := s.routeEvidenceOutbox != nil && s.routeEvidenceCandidates != nil
+	routeEvidenceDelivery := s.routeEvidenceOutbox != nil && s.routeEvidenceDelivery != nil
+	if s.runQueue == nil && !routeEvidenceReconcile && !routeEvidenceDelivery {
 		return nil
 	}
 	if ctx == nil {
@@ -79,16 +81,18 @@ func (s *Server) StartRunWorkers(ctx context.Context) error {
 	s.workersCancelActive = cancelActive
 	s.workersDone = done
 	s.workersMu.Unlock()
-	if err := s.recoverExpiredRunClaims(claimCtx); err != nil {
-		stopClaims()
-		cancelActive()
-		s.workersMu.Lock()
-		s.workersRunning = false
-		s.workersStopClaims = nil
-		s.workersCancelActive = nil
-		s.workersDone = nil
-		s.workersMu.Unlock()
-		return err
+	if s.runQueue != nil {
+		if err := s.recoverExpiredRunClaims(claimCtx); err != nil {
+			stopClaims()
+			cancelActive()
+			s.workersMu.Lock()
+			s.workersRunning = false
+			s.workersStopClaims = nil
+			s.workersCancelActive = nil
+			s.workersDone = nil
+			s.workersMu.Unlock()
+			return err
+		}
 	}
 	if s.approvals != nil {
 		opCtx, cancel := context.WithTimeout(claimCtx, runControlOperationTimeout)
@@ -107,11 +111,13 @@ func (s *Server) StartRunWorkers(ctx context.Context) error {
 		}
 		s.observeApprovalMetrics(claimCtx)
 	}
-	s.workersWG.Add(1)
-	go func() {
-		defer s.workersWG.Done()
-		s.runClaimRecoveryLoop(claimCtx)
-	}()
+	if s.runQueue != nil {
+		s.workersWG.Add(1)
+		go func() {
+			defer s.workersWG.Done()
+			s.runClaimRecoveryLoop(claimCtx)
+		}()
+	}
 	if s.approvals != nil {
 		s.workersWG.Add(1)
 		go func() {
@@ -128,13 +134,30 @@ func (s *Server) StartRunWorkers(ctx context.Context) error {
 			s.runNativeQueuedModelInvocationRetention(claimCtx)
 		}()
 	}
-	for index := 0; index < s.runWorkerCount; index++ {
-		workerID := fmt.Sprintf("%s:run-worker:%d", s.instanceID, index)
+	if routeEvidenceReconcile {
+		s.reconcileRouteEvidenceOnce(claimCtx)
 		s.workersWG.Add(1)
 		go func() {
 			defer s.workersWG.Done()
-			s.runWorkerLoop(claimCtx, activeCtx, workerID)
+			s.runRouteEvidenceReconcileLoop(claimCtx)
 		}()
+	}
+	if routeEvidenceDelivery {
+		s.workersWG.Add(1)
+		go func() {
+			defer s.workersWG.Done()
+			s.runRouteEvidenceDeliveryLoop(claimCtx)
+		}()
+	}
+	if s.runQueue != nil {
+		for index := 0; index < s.runWorkerCount; index++ {
+			workerID := fmt.Sprintf("%s:run-worker:%d", s.instanceID, index)
+			s.workersWG.Add(1)
+			go func() {
+				defer s.workersWG.Done()
+				s.runWorkerLoop(claimCtx, activeCtx, workerID)
+			}()
+		}
 	}
 	go func() {
 		s.workersWG.Wait()
@@ -460,6 +483,9 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 				return err
 			}
 			s.observeTerminalRouteEvidence(workerCtx, s.runtime, session, principal, task.RunID, existingStatus)
+			if err := s.materializeTerminalRouteEvidence(workerCtx, s.runtime, session, principal, task.RunID, existingStatus); err != nil {
+				s.logRouteEvidenceFailure("route evidence materialization failed", task.RunID)
+			}
 			return nil
 		}
 	}
@@ -605,6 +631,9 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 		return err
 	}
 	s.observeTerminalRouteEvidence(runCtx, runRuntime, session, principal, task.RunID, status)
+	if err := s.materializeTerminalRouteEvidence(runCtx, runRuntime, session, principal, task.RunID, status); err != nil {
+		s.logRouteEvidenceFailure("route evidence materialization failed", task.RunID)
+	}
 	if s.runStats != nil {
 		s.recordRunStat(context.WithoutCancel(runCtx), session, task.RunID, principal, status, started)
 	}

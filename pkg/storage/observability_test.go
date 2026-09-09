@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -235,7 +236,7 @@ func TestSQLSchemaV48ClearsLegacyObsHitSnippets(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT value FROM store_meta WHERE key = 'schema_version'").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if snippet != "" || version != "48" {
+	if snippet != "" || version != strconv.Itoa(SQLSchemaVersion) {
 		t.Fatalf("legacy snippet=%q schema version=%q", snippet, version)
 	}
 }

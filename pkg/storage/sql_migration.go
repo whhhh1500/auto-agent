@@ -245,6 +245,12 @@ func openSQLSessionStore(ctx context.Context, storeDB *sql.DB, db sqlSchemaExecu
 		if _, err := db.ExecContext(ctx, sqlSchemaV46NativeQueuedModelOutcomes); err != nil {
 			return nil, fmt.Errorf("ensure native queued model outcomes: %w", err)
 		}
+		if _, err := db.ExecContext(ctx, sqlSchemaV49RouteEvidenceOutbox); err != nil {
+			return nil, fmt.Errorf("ensure route evidence outbox: %w", err)
+		}
+		if _, err := db.ExecContext(ctx, sqlSchemaV50ExternalEffectReceipts); err != nil {
+			return nil, fmt.Errorf("ensure external effect receipts: %w", err)
+		}
 		// v27 itself rebuilds the projection with this binary's tokenizer while
 		// upgrading pre-v27 stores. Only stores that already had the v27
 		// projection need the v47 semantic reindex.
@@ -394,6 +400,12 @@ func initializeSQLSchema(ctx context.Context, db sqlSchemaExecutor, dialect SQLD
 	}
 	if _, err := db.ExecContext(ctx, sqlSchemaV46NativeQueuedModelOutcomes); err != nil {
 		return fmt.Errorf("ensure native queued model outcomes: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, sqlSchemaV49RouteEvidenceOutbox); err != nil {
+		return fmt.Errorf("ensure route evidence outbox: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, sqlSchemaV50ExternalEffectReceipts); err != nil {
+		return fmt.Errorf("ensure external effect receipts: %w", err)
 	}
 	result, err := db.ExecContext(ctx, sqlUpdateMetaRow.bind(dialect), strconv.Itoa(SQLSchemaVersion))
 	if err != nil {

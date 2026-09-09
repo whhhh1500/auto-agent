@@ -186,6 +186,17 @@ type Config struct {
 	// RunStats records finished-run outcomes for the metrics endpoint. When
 	// nil, metrics are unavailable.
 	RunStats storage.RunStatsStore
+	// RouteEvidenceOutbox persists immutable, content-free route receipts and
+	// their delivery state. Session and Tool Journal records remain canonical.
+	RouteEvidenceOutbox storage.RouteEvidenceOutboxStore
+	// RouteEvidenceCandidateReader discovers terminal runs missing a receipt.
+	// It is required with RouteEvidenceOutbox so reconciliation can repair a
+	// crash after terminal persistence; it never supplies canonical evidence.
+	RouteEvidenceCandidateReader storage.RouteEvidenceTerminalCandidateFinder
+	// RouteEvidenceDelivery synchronously confirms a receipt delivery. Nil keeps
+	// receipts pending and disables claiming; telemetry never acknowledges this
+	// outbox.
+	RouteEvidenceDelivery RouteEvidenceDelivery
 	// RunControl persists live/terminal run status and cross-instance cancel
 	// requests. When nil, status remains request-local for compatibility.
 	RunControl storage.RunControlStore
@@ -294,6 +305,11 @@ type Server struct {
 	retention                storage.RetentionPruner
 	journal                  storage.BindingJournal
 	runStats                 storage.RunStatsStore
+	routeEvidenceOutbox      storage.RouteEvidenceOutboxStore
+	routeEvidenceCandidates  storage.RouteEvidenceTerminalCandidateFinder
+	routeEvidenceDelivery    RouteEvidenceDelivery
+	routeEvidenceReconcileMu sync.Mutex
+	routeEvidenceCursor      storage.RouteEvidenceTerminalCursor
 	runControl               storage.RunControlStore
 	runQueue                 storage.RunQueueStore
 	runPrincipal             RunPrincipalResolver
@@ -382,6 +398,15 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 	if config.Runtime == nil || config.Sessions == nil || config.Authenticator == nil {
 		return nil, fmt.Errorf("server dependencies are incomplete")
 	}
+	if config.RouteEvidenceOutbox == nil && config.RouteEvidenceCandidateReader != nil {
+		return nil, fmt.Errorf("route evidence candidate reader requires an outbox")
+	}
+	if config.RouteEvidenceOutbox == nil && config.RouteEvidenceDelivery != nil {
+		return nil, fmt.Errorf("route evidence delivery requires an outbox")
+	}
+	if config.RouteEvidenceOutbox != nil && config.RouteEvidenceCandidateReader == nil {
+		return nil, fmt.Errorf("route evidence outbox requires a candidate reader")
+	}
 	if config.RunQueue != nil && config.Leaser == nil {
 		return nil, fmt.Errorf("durable run queue requires a session leaser")
 	}
@@ -449,7 +474,7 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		runControl = config.RunQueue
 	}
 	instanceID := ""
-	if config.Leaser != nil || config.RunQueue != nil {
+	if config.Leaser != nil || config.RunQueue != nil || config.RouteEvidenceOutbox != nil || config.RouteEvidenceCandidateReader != nil || config.RouteEvidenceDelivery != nil {
 		var err error
 		instanceID, err = newInstanceUUID()
 		if err != nil {
@@ -624,7 +649,9 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		maxResourceBytes: maxResourceBytes, maxResourceFallbackBytes: maxResourceFallbackBytes, tokenTTL: tokenTTL,
 		audit: config.Audit, retention: config.Retention,
 		journal: config.BindingJournal, runStats: config.RunStats,
-		runControl: runControl, runQueue: config.RunQueue, runPrincipal: config.RunPrincipalResolver, approvals: config.Approvals,
+		routeEvidenceOutbox: config.RouteEvidenceOutbox, routeEvidenceCandidates: config.RouteEvidenceCandidateReader,
+		routeEvidenceDelivery: config.RouteEvidenceDelivery,
+		runControl:            runControl, runQueue: config.RunQueue, runPrincipal: config.RunPrincipalResolver, approvals: config.Approvals,
 		notificationTargets: config.NotificationTargets,
 		sandboxProviders:    config.SandboxProviders,
 		delegationLinks:     config.DelegationLinks, delegationCatalog: delegationCatalog,

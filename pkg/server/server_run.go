@@ -228,6 +228,9 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if controlFinished {
 		s.observeTerminalRouteEvidence(runCtx, runRuntime, session, principal, runID, status)
+		if err := s.materializeTerminalRouteEvidence(runCtx, runRuntime, session, principal, runID, status); err != nil {
+			s.logRouteEvidenceFailure("route evidence materialization failed", runID)
+		}
 	}
 	if s.runStats != nil {
 		s.recordRunStat(context.WithoutCancel(runCtx), session, runID, principal, status, runStart)

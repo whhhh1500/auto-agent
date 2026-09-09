@@ -5,7 +5,7 @@ package storage
 // Lower versions are upgraded in place. Most migrations add objects; semantic
 // migrations may atomically rebuild a derived projection before advancing the
 // recorded version.
-const SQLSchemaVersion = 48
+const SQLSchemaVersion = 50
 
 const sqlSchemaV1 = `
 CREATE TABLE IF NOT EXISTS store_meta (
@@ -934,4 +934,89 @@ CREATE TABLE IF NOT EXISTS native_queued_model_invocation_outcomes (
 );
 CREATE INDEX IF NOT EXISTS native_queued_model_invocation_outcomes_run_created
 	ON native_queued_model_invocation_outcomes (run_id, created_at);
+`
+
+// sqlSchemaV49RouteEvidenceOutbox stores a content-free, immutable route
+// evidence receipt beside a separately mutable delivery ledger. Session events
+// and the Tool Journal remain canonical: this receipt is only a bounded
+// projection with a stable source cursor and digest. The outbox is intentionally
+// separate so delivery retries, leases, and exporter state cannot alter audit
+// facts.
+const sqlSchemaV49RouteEvidenceOutbox = `
+CREATE TABLE IF NOT EXISTS route_evidence_receipts (
+	receipt_id          TEXT PRIMARY KEY CHECK (length(receipt_id) = 67),
+	protocol            TEXT NOT NULL CHECK (protocol = 'route_evidence_receipt/v1'),
+	session_id          TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id              TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	terminal_event_seq  BIGINT NOT NULL CHECK (terminal_event_seq >= 0),
+	source_session_version BIGINT NOT NULL CHECK (source_session_version > terminal_event_seq),
+	terminal_status     TEXT NOT NULL CHECK (terminal_status IN ('completed', 'limited', 'failed', 'cancelled')),
+	payload_json        TEXT NOT NULL CHECK (length(payload_json) BETWEEN 2 AND 32768),
+	payload_sha256      TEXT NOT NULL CHECK (length(payload_sha256) = 64),
+	created_at          BIGINT NOT NULL CHECK (created_at > 0),
+	UNIQUE (session_id, run_id, terminal_event_seq)
+);
+CREATE INDEX IF NOT EXISTS route_evidence_receipts_run_created
+	ON route_evidence_receipts (run_id, created_at);
+CREATE TABLE IF NOT EXISTS route_evidence_outbox (
+	receipt_id          TEXT PRIMARY KEY,
+	state               TEXT NOT NULL CHECK (state IN ('pending', 'leased', 'delivered')),
+	available_at        BIGINT NOT NULL,
+	lease_owner         TEXT NOT NULL DEFAULT '',
+	lease_generation    BIGINT NOT NULL DEFAULT 0 CHECK (lease_generation >= 0),
+	lease_expires_at    BIGINT NOT NULL DEFAULT 0,
+	attempts            BIGINT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+	last_error_class    TEXT NOT NULL DEFAULT '',
+	delivered_at        BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS route_evidence_outbox_due
+	ON route_evidence_outbox (state, available_at, receipt_id);
+CREATE INDEX IF NOT EXISTS route_evidence_outbox_lease
+	ON route_evidence_outbox (state, lease_expires_at, receipt_id);
+CREATE INDEX IF NOT EXISTS run_control_terminal_route_evidence
+	ON run_control (status, completed_at, run_id);
+`
+
+// sqlSchemaV50ExternalEffectReceipts stores provider-neutral, content-free
+// external-effect evidence. Target/payload bytes, provider receipt bodies,
+// and read-back response bodies are intentionally absent: callers persist only
+// their bound SHA-256 digests. The session/run/call primary key fences unsafe
+// logical identity reuse; all mutable transitions are checked by the Store.
+const sqlSchemaV50ExternalEffectReceipts = `
+CREATE TABLE IF NOT EXISTS external_effect_receipts (
+	tenant_id         TEXT NOT NULL CHECK (length(tenant_id) BETWEEN 1 AND 512),
+	subject_id        TEXT NOT NULL CHECK (length(subject_id) BETWEEN 1 AND 512),
+	session_id        TEXT NOT NULL CHECK (length(session_id) BETWEEN 1 AND 128),
+	run_id            TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+	call_id           TEXT NOT NULL CHECK (length(call_id) BETWEEN 1 AND 256),
+	capability_id     TEXT NOT NULL CHECK (length(capability_id) BETWEEN 1 AND 128),
+	args_digest       TEXT NOT NULL CHECK (length(args_digest) = 64),
+	idempotent        INTEGER NOT NULL CHECK (idempotent IN (0, 1)),
+	protocol          TEXT NOT NULL CHECK (protocol = 'harness.external-effect/v1'),
+	driver_id         TEXT NOT NULL CHECK (length(driver_id) BETWEEN 1 AND 128),
+	driver_version    TEXT NOT NULL CHECK (length(driver_version) BETWEEN 1 AND 64),
+	target_digest     TEXT NOT NULL CHECK (length(target_digest) = 64),
+	payload_digest    TEXT NOT NULL CHECK (length(payload_digest) = 64),
+	intent_digest     TEXT NOT NULL CHECK (length(intent_digest) = 64),
+	operation_key     TEXT NOT NULL CHECK (length(operation_key) = 64),
+	state             TEXT NOT NULL CHECK (state IN ('prepared', 'dispatching', 'accepted', 'confirmed', 'rejected', 'unknown')),
+	dispatch_attempts BIGINT NOT NULL CHECK (dispatch_attempts BETWEEN 0 AND 1024),
+	receipt_digest    TEXT NOT NULL DEFAULT '' CHECK (length(receipt_digest) IN (0, 64)),
+	evidence_digest   TEXT NOT NULL DEFAULT '' CHECK (length(evidence_digest) IN (0, 64)),
+	error_code        TEXT NOT NULL DEFAULT '' CHECK (error_code IN ('', 'driver_failure', 'driver_panic', 'driver_invalid_submission', 'read_back_failure', 'read_back_panic', 'read_back_mismatch', 'read_back_invalid', 'read_back_pending', 'read_back_unknown')),
+	created_at        BIGINT NOT NULL CHECK (created_at > 0),
+	updated_at        BIGINT NOT NULL CHECK (updated_at > 0),
+	CHECK (
+		(state = 'prepared' AND dispatch_attempts = 0 AND receipt_digest = '' AND evidence_digest = '' AND error_code = '') OR
+		(state = 'dispatching' AND dispatch_attempts > 0 AND receipt_digest = '' AND evidence_digest = '' AND error_code = '') OR
+		(state = 'accepted' AND dispatch_attempts > 0 AND length(receipt_digest) = 64 AND evidence_digest = '' AND error_code = '') OR
+		(state IN ('confirmed', 'rejected') AND dispatch_attempts > 0 AND length(evidence_digest) = 64 AND error_code = '') OR
+		(state = 'unknown' AND dispatch_attempts > 0 AND evidence_digest = '' AND error_code <> '')
+	),
+	PRIMARY KEY (session_id, run_id, call_id)
+);
+CREATE INDEX IF NOT EXISTS external_effect_receipts_unresolved
+	ON external_effect_receipts (driver_id, driver_version, state, updated_at, tenant_id, subject_id, session_id, run_id, call_id);
+CREATE INDEX IF NOT EXISTS external_effect_receipts_run
+	ON external_effect_receipts (tenant_id, subject_id, session_id, run_id, call_id);
 `

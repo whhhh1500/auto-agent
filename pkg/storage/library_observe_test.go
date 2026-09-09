@@ -66,7 +66,7 @@ func TestSQLLibraryObserverTableExistsOnOpen(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("v29 table missing: exists=%t err=%v", exists, err)
 	}
-	if SQLSchemaVersion != 48 {
+	if SQLSchemaVersion != 50 {
 		t.Fatalf("schema version = %d", SQLSchemaVersion)
 	}
 }
