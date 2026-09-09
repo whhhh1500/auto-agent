@@ -406,9 +406,11 @@ func TestNilContextDoesNotReachPorts(t *testing.T) {
 	driver := &fakeDriver{ref: request.Intent.Driver}
 	service := testService(t, store, driver)
 
+	//lint:ignore SA1012 This test verifies the public nil-context rejection contract.
 	if _, err := service.Execute(nil, request); !errors.Is(err, ErrInvalidContext) {
 		t.Fatalf("nil execute context error = %v, want ErrInvalidContext", err)
 	}
+	//lint:ignore SA1012 This test verifies the public nil-context rejection contract.
 	if _, err := service.Reconcile(nil, request.Intent); !errors.Is(err, ErrInvalidContext) {
 		t.Fatalf("nil reconcile context error = %v, want ErrInvalidContext", err)
 	}

@@ -380,14 +380,6 @@ func configureLiveProfile(f *fixture, provider, modelID string, maxSteps, maxToo
 	return configureLiveProfileOptions(f, provider, modelID, maxSteps, maxToolCalls, liveProfileOptions{})
 }
 
-// configureLiveProfileWithStrategy leaves the normal profile intact. The two
-// large-result control arms may add one fixed, test-only strategy directive;
-// the task text, tool menu, output contracts, and all runtime budgets remain
-// identical across the arms.
-func configureLiveProfileWithStrategy(f *fixture, provider, modelID string, maxSteps, maxToolCalls int, strategy string) error {
-	return configureLiveProfileOptions(f, provider, modelID, maxSteps, maxToolCalls, liveProfileOptions{strategy: strategy})
-}
-
 // configureLiveLargeDetailProfile is private to the large-result experiment.
 // It deliberately changes only the catalog guidance's scope: catalog is
 // mandatory when the model has chosen program.execute, not for every route.

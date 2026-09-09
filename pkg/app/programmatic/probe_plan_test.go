@@ -391,13 +391,6 @@ func nestedProbeValue(depth int) any {
 	return value
 }
 
-func testCandidatePTCSource(t *testing.T, followup string) string {
-	t.Helper()
-	return testPTCSource(t, followup, map[string]any{
-		"op": "get", "object": map[string]any{"op": "var", "name": "target"}, "key": "args",
-	})
-}
-
 func testForgedPTCSource(t *testing.T, followup string) string {
 	t.Helper()
 	return testPTCSource(t, followup, map[string]any{

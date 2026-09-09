@@ -154,10 +154,6 @@ func firstNonSpace(r *bufio.Reader) (byte, error) {
 	}
 }
 
-func parseChatSSE(reader io.Reader, emit modelexecution.Emit) error {
-	return parseChatSSEWithAliases(reader, nil, emit)
-}
-
 func parseChatSSEWithAliases(reader io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
@@ -251,10 +247,6 @@ func parseChatSSEWithAliases(reader io.Reader, aliases *toolNameAliases, emit mo
 		pendingFinish = &inferred
 	}
 	return emit(modelexecution.Event{Kind: modelexecution.EventFinish, Finish: *pendingFinish})
-}
-
-func parseChatSingle(raw []byte, emit modelexecution.Emit) error {
-	return parseChatSingleWithAliases(raw, nil, emit)
 }
 
 func parseChatSingleWithAliases(raw []byte, aliases *toolNameAliases, emit modelexecution.Emit) error {

@@ -15,8 +15,6 @@ const (
 	runExecutorImplementation = executionroute.ExecutorImplementationKey
 )
 
-var errExecutorSelection = executionroute.ErrSelection
-
 // resolveRunExecutor is shared by synchronous and queued execution. It
 // resolves profile selection after canary runtime selection, then freezes the
 // selected executor identity into the run composition metadata.

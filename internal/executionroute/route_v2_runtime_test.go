@@ -17,13 +17,6 @@ import (
 	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
-const v2RuntimePTCSource = `{"version":"ptc-ir/v1","body":[{"op":"for","var":"target","in":{"op":"get","object":{"op":"var","name":"input"},"key":"targets"},"body":[{"op":"call","assign":"detail","tool":"records.detail","args":{"op":"get","object":{"op":"var","name":"target"},"key":"args"}}]},{"op":"return","value":{"op":"literal","value":null}}]}`
-
-// This remains within the route's candidate-bound grammar, but deliberately
-// returns the child data so the program's model-visible result exceeds the
-// probe-declared bound when records.detail emits its oversized fixture value.
-const v2RuntimeOversizedPTCSource = `{"version":"ptc-ir/v1","body":[{"op":"assign","name":"details","value":{"op":"list","items":[]}},{"op":"for","var":"target","in":{"op":"get","object":{"op":"var","name":"input"},"key":"targets"},"body":[{"op":"call","assign":"detail","tool":"records.detail","args":{"op":"get","object":{"op":"var","name":"target"},"key":"args"}},{"op":"append","target":"details","value":{"op":"get","object":{"op":"var","name":"detail"},"key":"data"}}]},{"op":"return","value":{"op":"var","name":"details"}}]}`
-
 func TestV2RuntimeProbeDirectBatchCompletesInThreeCalls(t *testing.T) {
 	fixture := newV2RuntimeFixture(t, v2RuntimeDirect, false, false)
 	result, err := fixture.run(t, "run_v2_direct")

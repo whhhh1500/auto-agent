@@ -10,8 +10,6 @@ import (
 	"github.com/whhhh1500/auto-agent/pkg/core"
 )
 
-const probeRoutePTCSource = `{"version":"ptc-ir/v1","body":[{"op":"for","var":"target","in":{"op":"get","object":{"op":"var","name":"input"},"key":"targets"},"body":[{"op":"call","assign":"detail","tool":"records.detail","args":{"op":"get","object":{"op":"var","name":"target"},"key":"args"}}]},{"op":"return","value":{"op":"literal","value":null}}]}`
-
 // These tests specify the v2 model-facing boundary.  They use a local plan
 // only: a real host verifier must reconstruct the same plan from frozen
 // composition, session events, and the completed tool journal.

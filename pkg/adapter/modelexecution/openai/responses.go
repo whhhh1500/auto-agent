@@ -142,10 +142,6 @@ type responsesStreamState struct {
 	aliases            *toolNameAliases
 }
 
-func parseResponsesSSE(reader io.Reader, emit modelexecution.Emit) error {
-	return parseResponsesSSEWithAliases(reader, nil, emit)
-}
-
 func parseResponsesSSEWithAliases(reader io.Reader, aliases *toolNameAliases, emit modelexecution.Emit) error {
 	scanner := bufio.NewScanner(reader)
 	// A valid normalized text/tool fragment may be as large as its contract
@@ -529,10 +525,6 @@ func (s *responsesStreamState) finishReason() modelexecution.FinishReason {
 }
 func contentKey(output, content int, itemID string) string {
 	return fmt.Sprintf("%d/%d/%s", output, content, itemID)
-}
-
-func parseResponsesSingle(raw []byte, emit modelexecution.Emit) error {
-	return parseResponsesSingleWithAliases(raw, nil, emit)
 }
 
 func parseResponsesSingleWithAliases(raw []byte, aliases *toolNameAliases, emit modelexecution.Emit) error {

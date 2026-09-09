@@ -123,6 +123,9 @@ func TestMemoryAuthorityDescriptionV3UsesProductionRecallContract(t *testing.T) 
 		t.Fatal("production memory.recall properties are absent")
 	}
 	query, ok := properties["query"].(map[string]any)
+	if !ok {
+		t.Fatal("production memory.recall query parameters are absent")
+	}
 	description, ok := query["description"].(string)
 	if !ok || !strings.Contains(description, "canonical identifier") || !strings.Contains(description, "copy it exactly") || !strings.Contains(description, "does not automatically rewrite") {
 		t.Fatal("production memory.recall query description lacks the canonical exact-query contract")

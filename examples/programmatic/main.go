@@ -267,14 +267,6 @@ type readOnlyFixtureTool struct {
 	execute  func(map[string]any) (string, error)
 }
 
-func newInventoryTool(activeRows int) *readOnlyFixtureTool {
-	return newInventoryToolWithFixtureOptions(activeRows, false, false)
-}
-
-func newInventoryToolWithOutputContract(activeRows int, outputContract bool) *readOnlyFixtureTool {
-	return newInventoryToolWithFixtureOptions(activeRows, outputContract, false)
-}
-
 func newInventoryToolWithFixtureOptions(activeRows int, outputContract, declareExactOutputLimit bool) *readOnlyFixtureTool {
 	manifest := core.CapabilityManifest{
 		ID: listToolID, Version: "1.0.0", Name: "Fixture inventory", Description: "Read deterministic fixture inventory.",
@@ -293,14 +285,6 @@ func newInventoryToolWithFixtureOptions(activeRows int, outputContract, declareE
 	return &readOnlyFixtureTool{manifest: manifest, execute: func(map[string]any) (string, error) {
 		return fixtureInventoryContent(activeRows)
 	}}
-}
-
-func newDetailTool(activeRows int) *readOnlyFixtureTool {
-	return newDetailToolWithFixtureOptions(activeRows, false, 0, false)
-}
-
-func newDetailToolWithOutputContract(activeRows int, outputContract bool) *readOnlyFixtureTool {
-	return newDetailToolWithFixtureOptions(activeRows, outputContract, 0, false)
 }
 
 func newDetailToolWithFixtureOptions(activeRows int, outputContract bool, irrelevantBytes int, exposeOutputSize bool) *readOnlyFixtureTool {
