@@ -3,9 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sync"
 
+	"github.com/whhhh1500/auto-agent/pkg/app/effectreceipt"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
@@ -119,6 +119,97 @@ type nativeQueuedToolInvocationJournalWithReader struct {
 	reader core.ToolInvocationReader
 }
 
+// nativeQueuedEffectDispatchAdmitter derives every admission input at the
+// provider boundary. It deliberately retains no epoch or Session version from
+// worker startup: the pre-tool checkpoint and execution-projection lease make
+// those values current for the SQL transaction that follows.
+type nativeQueuedEffectDispatchAdmitter struct {
+	server    *Server
+	store     *storage.SQLSessionStore
+	writer    *storage.WriteBehind
+	cancel    context.CancelFunc
+	failure   *toolCheckpointFailure
+	fence     storage.SessionWriteFence
+	session   *core.Session
+	principal core.Principal
+}
+
+func (a *nativeQueuedEffectDispatchAdmitter) BeginDispatch(ctx context.Context, intent effectreceipt.Intent) (record effectreceipt.Record, begun bool, err error) {
+	defer func() {
+		if recover() != nil {
+			record, begun, err = a.fail(effectreceipt.ErrDispatchAdmissionPanic)
+		}
+	}()
+	if a == nil || a.server == nil || a.store == nil || a.writer == nil || a.session == nil {
+		return a.fail(effectreceipt.ErrDispatchAdmission)
+	}
+	invocation := intent.Invocation
+	if invocation.TenantID != a.fence.TenantID || invocation.SubjectID != a.fence.SubjectID ||
+		invocation.SessionID != a.fence.SessionID || invocation.RunID != a.fence.RunID {
+		return a.fail(effectreceipt.ErrDispatchAdmission)
+	}
+	if err := a.writer.Checkpoint(ctx); err != nil {
+		return a.fail(err)
+	}
+	version := a.writer.SavedVersion()
+	if version != a.session.Version() {
+		return a.fail(fmt.Errorf("native queued effect dispatch checkpoint is not the complete session prefix"))
+	}
+	lease, err := a.server.acquireExecutionProjection(ctx)
+	if err != nil {
+		return a.fail(err)
+	}
+	defer lease.Release()
+	epoch, err := lease.appliedEpoch()
+	if err != nil {
+		return a.fail(err)
+	}
+	resolver, ok := a.server.runPrincipal.(*storage.SQLQueuedPrincipalResolver)
+	if !ok {
+		return a.fail(fmt.Errorf("native queued effect dispatch requires the native SQL principal resolver"))
+	}
+	currentPrincipal, err := resolver.ResolveRunPrincipal(ctx, invocation.TenantID, invocation.SubjectID)
+	if err != nil {
+		return a.fail(err)
+	}
+	if !sameNativeQueuedPrincipal(currentPrincipal, a.principal) {
+		return a.fail(fmt.Errorf("native queued principal changed before external effect dispatch"))
+	}
+	admitter, err := a.store.NewNativeQueuedEffectDispatchAdmitter(storage.NativeQueuedEffectDispatchAdmission{
+		Fence: a.fence, ExpectedSessionVersion: version, ExpectedAuthorizationEpoch: epoch,
+	})
+	if err != nil {
+		return a.fail(err)
+	}
+	record, begun, err = admitter.BeginDispatch(ctx, intent)
+	if err != nil {
+		return a.fail(err)
+	}
+	return record, begun, nil
+}
+
+func (a *nativeQueuedEffectDispatchAdmitter) fail(err error) (effectreceipt.Record, bool, error) {
+	if a != nil {
+		if a.failure != nil {
+			a.failure.record(err)
+		}
+		if a.cancel != nil {
+			a.cancel()
+		}
+	}
+	return effectreceipt.Record{}, false, err
+}
+
+func (s *Server) withNativeQueuedEffectDispatchAdmission(ctx context.Context, store *storage.SQLSessionStore, writer *storage.WriteBehind, cancel context.CancelFunc, failure *toolCheckpointFailure, fence storage.SessionWriteFence, session *core.Session, principal core.Principal) context.Context {
+	if s == nil || s.nativeStrict == nil {
+		return ctx
+	}
+	return effectreceipt.WithDispatchAdmitter(ctx, &nativeQueuedEffectDispatchAdmitter{
+		server: s, store: store, writer: writer, cancel: cancel, failure: failure,
+		fence: fence, session: session, principal: principal,
+	})
+}
+
 func (j *nativeQueuedToolInvocationJournalWithReader) GetToolInvocation(ctx context.Context, invocation core.ToolInvocation) (core.ToolInvocationRecord, bool, error) {
 	return j.reader.GetToolInvocation(ctx, invocation)
 }
@@ -170,7 +261,7 @@ func (j *nativeQueuedToolInvocationJournal) BeginToolInvocation(ctx context.Cont
 	if err != nil {
 		return j.fail(err)
 	}
-	if !reflect.DeepEqual(currentPrincipal, j.principal) {
+	if !sameNativeQueuedPrincipal(currentPrincipal, j.principal) {
 		return j.fail(fmt.Errorf("native queued principal changed before tool admission"))
 	}
 	snapshot, err := (core.CapabilityResolver{Registry: j.runtime.Capabilities}).Resolve(j.principal, j.session.Scope())
@@ -198,6 +289,28 @@ func (j *nativeQueuedToolInvocationJournal) BeginToolInvocation(ctx context.Cont
 		return j.fail(err)
 	}
 	return record, decision, nil
+}
+
+// sameNativeQueuedPrincipal compares the authenticated authority represented by
+// a Principal without treating nil and empty maps as different identities.
+// SQL round-trips may normalize those representations, while any actual grant
+// or verified-attribute change must still revoke the in-flight admission.
+func sameNativeQueuedPrincipal(left, right core.Principal) bool {
+	if left.SubjectID != right.SubjectID || left.TenantID != right.TenantID || !left.Scope.Equal(right.Scope) ||
+		len(left.Grants) != len(right.Grants) || len(left.Attributes) != len(right.Attributes) {
+		return false
+	}
+	for permission, allowed := range left.Grants {
+		if right.Grants[permission] != allowed {
+			return false
+		}
+	}
+	for key, value := range left.Attributes {
+		if right.Attributes[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func (j *nativeQueuedToolInvocationJournal) fail(err error) (core.ToolInvocationRecord, core.ToolInvocationDecision, error) {

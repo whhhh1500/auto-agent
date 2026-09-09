@@ -7,6 +7,7 @@ import (
 	"fmt"
 	modelsettingsadapter "github.com/whhhh1500/auto-agent/pkg/adapter/modelsettings"
 	capabilityruntime "github.com/whhhh1500/auto-agent/pkg/app/capabilityruntime"
+	"github.com/whhhh1500/auto-agent/pkg/app/effectreceipt"
 	appidentity "github.com/whhhh1500/auto-agent/pkg/app/identity"
 	"github.com/whhhh1500/auto-agent/pkg/app/modelcatalog"
 	appmodelsettings "github.com/whhhh1500/auto-agent/pkg/app/modelsettings"
@@ -197,6 +198,12 @@ type Config struct {
 	// receipts pending and disables claiming; telemetry never acknowledges this
 	// outbox.
 	RouteEvidenceDelivery RouteEvidenceDelivery
+	// EffectReceiptRecovery performs read-back only recovery for registered
+	// external-effect drivers. It never exposes a dispatch path.
+	EffectReceiptRecovery *effectreceipt.RecoveryCoordinator
+	// EvaluationEffectReceipts is optional canonical effect evidence for a
+	// caller-supplied generic evaluation runner.
+	EvaluationEffectReceipts effectreceipt.RunReader
 	// RunControl persists live/terminal run status and cross-instance cancel
 	// requests. When nil, status remains request-local for compatibility.
 	RunControl storage.RunControlStore
@@ -289,53 +296,57 @@ type Server struct {
 	ragProjection           storage.RagProjectionMaintainer
 	memoryProjection        storage.MemoryProjectionMaintainer
 
-	accounts                 storage.AccountStore
-	identityUseCases         appidentity.UseCases
-	accountAdminUseCases     appidentity.AdminUseCases
-	settingsRepository       appsettings.Repository
-	settingsUseCases         appsettings.UseCases
-	modelSettingsUseCases    appmodelsettings.UseCases
-	modelCatalog             modelcatalog.View
-	storageConfigUseCases    appstorageconfig.UseCases
-	resources                storage.ObjectStore
-	maxResourceBytes         int64
-	maxResourceFallbackBytes int64
-	tokenTTL                 time.Duration
-	audit                    storage.AuditStore
-	retention                storage.RetentionPruner
-	journal                  storage.BindingJournal
-	runStats                 storage.RunStatsStore
-	routeEvidenceOutbox      storage.RouteEvidenceOutboxStore
-	routeEvidenceCandidates  storage.RouteEvidenceTerminalCandidateFinder
-	routeEvidenceDelivery    RouteEvidenceDelivery
-	routeEvidenceReconcileMu sync.Mutex
-	routeEvidenceCursor      storage.RouteEvidenceTerminalCursor
-	runControl               storage.RunControlStore
-	runQueue                 storage.RunQueueStore
-	runPrincipal             RunPrincipalResolver
-	approvals                storage.ApprovalStore
-	notificationTargets      *appnotification.Service
-	sandboxProviders         *executionsandbox.Registry
-	delegationLinks          subagent.DelegationLinkStore
-	delegationCatalog        subagent.DelegationLinkCatalog
-	evaluations              evaluation.Store
-	evidence                 storage.EvidenceStore
-	evaluationRunner         *evaluation.Runner
-	runCancelPoll            time.Duration
-	runStaleAfter            time.Duration
-	runWorkerPoll            time.Duration
-	runWorkerClaimTTL        time.Duration
-	runWorkerCount           int
-	runWorkerAttempts        int
-	embeddedResources        storage.ObjectStore
-	obs                      storage.ObsStore
-	libraryObserver          *storage.SQLLibraryObserver
-	obsMatcher               *obsMatcher
-	logger                   *slog.Logger
-	telemetry                core.Telemetry
-	adminOnce                sync.Once
-	admin                    *adminState
-	console                  http.Handler
+	accounts                  storage.AccountStore
+	identityUseCases          appidentity.UseCases
+	accountAdminUseCases      appidentity.AdminUseCases
+	settingsRepository        appsettings.Repository
+	settingsUseCases          appsettings.UseCases
+	modelSettingsUseCases     appmodelsettings.UseCases
+	modelCatalog              modelcatalog.View
+	storageConfigUseCases     appstorageconfig.UseCases
+	resources                 storage.ObjectStore
+	maxResourceBytes          int64
+	maxResourceFallbackBytes  int64
+	tokenTTL                  time.Duration
+	audit                     storage.AuditStore
+	retention                 storage.RetentionPruner
+	journal                   storage.BindingJournal
+	runStats                  storage.RunStatsStore
+	routeEvidenceOutbox       storage.RouteEvidenceOutboxStore
+	routeEvidenceCandidates   storage.RouteEvidenceTerminalCandidateFinder
+	routeEvidenceDelivery     RouteEvidenceDelivery
+	routeEvidenceReconcileMu  sync.Mutex
+	routeEvidenceCursor       storage.RouteEvidenceTerminalCursor
+	effectReceiptRecovery     *effectreceipt.RecoveryCoordinator
+	effectRecoveryMu          sync.Mutex
+	effectRecoveryCursors     map[effectreceipt.DriverRef]effectreceipt.RecoveryCursor
+	effectRecoveryRetrySweeps map[effectreceipt.DriverRef]effectRecoveryRetrySweep
+	runControl                storage.RunControlStore
+	runQueue                  storage.RunQueueStore
+	runPrincipal              RunPrincipalResolver
+	approvals                 storage.ApprovalStore
+	notificationTargets       *appnotification.Service
+	sandboxProviders          *executionsandbox.Registry
+	delegationLinks           subagent.DelegationLinkStore
+	delegationCatalog         subagent.DelegationLinkCatalog
+	evaluations               evaluation.Store
+	evidence                  storage.EvidenceStore
+	evaluationRunner          *evaluation.Runner
+	runCancelPoll             time.Duration
+	runStaleAfter             time.Duration
+	runWorkerPoll             time.Duration
+	runWorkerClaimTTL         time.Duration
+	runWorkerCount            int
+	runWorkerAttempts         int
+	embeddedResources         storage.ObjectStore
+	obs                       storage.ObsStore
+	libraryObserver           *storage.SQLLibraryObserver
+	obsMatcher                *obsMatcher
+	logger                    *slog.Logger
+	telemetry                 core.Telemetry
+	adminOnce                 sync.Once
+	admin                     *adminState
+	console                   http.Handler
 	// profileMu serializes durable profile layer replacement. Readers may
 	// resolve concurrently; each PUT has one journal commit boundary.
 	profileMu sync.Mutex
@@ -600,7 +611,8 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		}
 		evaluationRunner = &evaluation.Runner{
 			Runtime: config.Runtime, Sessions: config.Sessions, Store: config.Evaluations, Evaluators: evaluators,
-			Executors: config.RunExecutors,
+			Executors:      config.RunExecutors,
+			EffectReceipts: config.EvaluationEffectReceipts,
 		}
 	}
 	runWorkerCount := config.RunWorkerConcurrency
@@ -651,7 +663,9 @@ func newServer(config Config, nativeStrict *nativeStrictOwnership) (*Server, err
 		journal: config.BindingJournal, runStats: config.RunStats,
 		routeEvidenceOutbox: config.RouteEvidenceOutbox, routeEvidenceCandidates: config.RouteEvidenceCandidateReader,
 		routeEvidenceDelivery: config.RouteEvidenceDelivery,
-		runControl:            runControl, runQueue: config.RunQueue, runPrincipal: config.RunPrincipalResolver, approvals: config.Approvals,
+		effectReceiptRecovery: config.EffectReceiptRecovery, effectRecoveryCursors: map[effectreceipt.DriverRef]effectreceipt.RecoveryCursor{},
+		effectRecoveryRetrySweeps: map[effectreceipt.DriverRef]effectRecoveryRetrySweep{},
+		runControl:                runControl, runQueue: config.RunQueue, runPrincipal: config.RunPrincipalResolver, approvals: config.Approvals,
 		notificationTargets: config.NotificationTargets,
 		sandboxProviders:    config.SandboxProviders,
 		delegationLinks:     config.DelegationLinks, delegationCatalog: delegationCatalog,

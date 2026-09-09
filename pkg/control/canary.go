@@ -128,6 +128,9 @@ func ValidateCanaryRecord(record CanaryRecord) error {
 	if !record.Gate.Passed {
 		return fmt.Errorf("canary gate did not pass")
 	}
+	if err := evaluation.ValidateGateResult(record.Gate); err != nil {
+		return fmt.Errorf("canary coverage gate: %w", err)
+	}
 	if record.Gate.RequiredEfficiencyContract != "" {
 		if record.Gate.RequiredEfficiencyContract != evaluation.EfficiencyGateContractV1 || record.Gate.Efficiency == nil ||
 			record.Gate.Efficiency.ContractID != record.Gate.RequiredEfficiencyContract ||
@@ -173,6 +176,10 @@ func (m *CanaryManager) Restore(ctx context.Context) error {
 		}
 	}
 	for _, record := range records {
+		if err := ValidateCanaryRecord(record); err != nil {
+			releaseReservations()
+			return fmt.Errorf("restore canary %s: %w", record.ID, err)
+		}
 		if record.Status == CanaryPromoting {
 			if _, err := m.reconcilePromotion(ctx, record); err != nil {
 				releaseReservations()
@@ -232,6 +239,10 @@ func (m *CanaryManager) Refresh(ctx context.Context) error {
 		}
 	}
 	for _, record := range records {
+		if err := ValidateCanaryRecord(record); err != nil {
+			releaseNewReservations()
+			return fmt.Errorf("refresh canary %s: %w", record.ID, err)
+		}
 		if record.Status == CanaryPromoting {
 			if _, err := m.reconcilePromotion(ctx, record); err != nil {
 				releaseNewReservations()
@@ -598,6 +609,11 @@ func cloneCanaryRecord(record CanaryRecord) CanaryRecord {
 		efficiency.Strata = append([]evaluation.EfficiencyGateStratum(nil), record.Gate.Efficiency.Strata...)
 		out.Gate.Efficiency = &efficiency
 	}
+	if record.Gate.Coverage != nil {
+		coverage := *record.Gate.Coverage
+		coverage.ReasonCodes = append([]evaluation.CoverageReasonCode(nil), record.Gate.Coverage.ReasonCodes...)
+		out.Gate.Coverage = &coverage
+	}
 	return out
 }
 
@@ -606,6 +622,8 @@ func matchCanaryArtifact(local, durable CanaryRecord) error {
 		local.Revision != durable.Revision || local.BaseReleaseRevision != durable.BaseReleaseRevision ||
 		local.CandidateEvaluationRunID != durable.CandidateEvaluationRunID ||
 		local.BaselineEvaluationRunID != durable.BaselineEvaluationRunID ||
+		local.Gate.RequiredCoverageRevision != durable.Gate.RequiredCoverageRevision ||
+		!reflect.DeepEqual(local.Gate.Coverage, durable.Gate.Coverage) ||
 		local.Gate.RequiredEfficiencyContract != durable.Gate.RequiredEfficiencyContract ||
 		!reflect.DeepEqual(local.Gate.Efficiency, durable.Gate.Efficiency) {
 		return fmt.Errorf("durable canary %s changed immutable fields", local.ID)

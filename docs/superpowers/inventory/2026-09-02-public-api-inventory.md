@@ -16,8 +16,7 @@ The current public package paths are:
 
 ```text
 pkg/adapter/coreplugin
-pkg/adapter/programmatic/corebridge
-pkg/adapter/programmatic/toolcapability
+pkg/adapter/effectreceipt
 pkg/adapter/graphapproval
 pkg/adapter/graphtelemetry
 pkg/adapter/httpapi/accountadmin
@@ -42,6 +41,8 @@ pkg/adapter/notification/notifybridge
 pkg/adapter/notification/runtime
 pkg/adapter/notification/webhook
 pkg/adapter/notification/webhook/targetresolver
+pkg/adapter/programmatic/corebridge
+pkg/adapter/programmatic/toolcapability
 pkg/adapter/runexecutor/graph
 pkg/adapter/sandboxexec
 pkg/adapter/sql/artifactmigration
@@ -58,14 +59,15 @@ pkg/adapter/storageconfig
 pkg/app/artifactmigration
 pkg/app/capabilityruntime
 pkg/app/contextassembly
+pkg/app/effectreceipt
 pkg/app/identity
 pkg/app/modelcatalog
 pkg/app/modelcontrol
 pkg/app/modelexecution
 pkg/app/modelsettings
 pkg/app/notification
-pkg/app/runexecutor
 pkg/app/programmatic
+pkg/app/runexecutor
 pkg/app/runliveness
 pkg/app/secretview
 pkg/app/settings
@@ -77,8 +79,8 @@ pkg/core
 pkg/evaluation
 pkg/execution
 pkg/execution/graph
-pkg/execution/sandbox
 pkg/execution/programmatic
+pkg/execution/sandbox
 pkg/extensions
 pkg/extensions/graph
 pkg/extensions/memory

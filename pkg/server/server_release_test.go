@@ -9,6 +9,7 @@ import (
 	"github.com/whhhh1500/auto-agent/pkg/storage"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -151,6 +152,11 @@ func newGatedReleaseServer(t *testing.T) (*httptest.Server, *core.AgentProfileRe
 }
 
 func newGatedCanaryServer(t *testing.T) (*httptest.Server, *core.AgentProfileRegistry, evaluation.Store, *releaseAuditStore) {
+	httpServer, profiles, evaluations, audit, _ := newGatedCanaryServerWithDB(t)
+	return httpServer, profiles, evaluations, audit
+}
+
+func newGatedCanaryServerWithDB(t *testing.T) (*httptest.Server, *core.AgentProfileRegistry, evaluation.Store, *releaseAuditStore, *sql.DB) {
 	t.Helper()
 	db, err := sql.Open("sqlite", t.TempDir()+"/canary.db")
 	if err != nil {
@@ -248,7 +254,7 @@ func newGatedCanaryServer(t *testing.T) (*httptest.Server, *core.AgentProfileReg
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newTestHTTPServer(t, api.Handler()), profiles, evaluations, audit
+	return newTestHTTPServer(t, api.Handler()), profiles, evaluations, audit, db
 }
 
 // openListerDB provides the SQLite handle for the listing test.
@@ -557,6 +563,9 @@ func TestCanaryStageRoutesPauseResumeAndPromote(t *testing.T) {
 	if stage.StatusCode != http.StatusCreated {
 		t.Fatalf("stage status=%d body=%s", stage.StatusCode, stageBody)
 	}
+	if strings.Contains(stageBody, `"required_coverage_revision"`) || strings.Contains(stageBody, `"coverage"`) {
+		t.Fatalf("legacy canary response unexpectedly added a coverage artifact: %s", stageBody)
+	}
 	var staged struct {
 		Canary control.CanaryRecord `json:"canary"`
 	}
@@ -625,6 +634,109 @@ func TestCanaryStageRoutesPauseResumeAndPromote(t *testing.T) {
 	history := readBody(t, doJSON(t, http.MethodGet, httpServer.URL+"/v1/profiles/release.agent/releases", "alice", ""))
 	if strings.Count(history, `"version":1`) != 1 || !strings.Contains(history, `"operation_id":"`+staged.Canary.ID+`"`) {
 		t.Fatalf("promotion release history wrong: %s", history)
+	}
+}
+
+func TestCanaryCoverageGateSurvivesHTTPStageSQLAndRestore(t *testing.T) {
+	ctx := context.Background()
+	httpServer, profiles, evaluations, _, db := newGatedCanaryServerWithDB(t)
+	dataset, _, err := evaluations.PutDataset(ctx, evaluation.Dataset{
+		ID: "release.coverage", Version: 1, Name: "Release Coverage", ProfileID: "release.agent",
+		Cases: []evaluation.Case{{
+			ID: "case-coverage", Input: "evaluate coverage",
+			Assertions: []evaluation.Assertion{
+				{ID: "status", Kind: evaluation.AssertRunStatus, ExpectedStatus: core.RunCompleted},
+				{ID: "answer", Kind: evaluation.AssertAnswerContains, Expected: "candidate"},
+			},
+			Coverage: &evaluation.CoverageContract{
+				Version: evaluation.CoverageContractV1, RequireCasePassed: true,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedMarker, err := evaluation.DatasetCoverageRevision(dataset, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := doJSON(t, http.MethodPost, httpServer.URL+"/v1/profiles/release.agent/canaries", "alice", `{
+		"scope":[{"kind":"global","id":"global"},{"kind":"product","id":"product"},{"kind":"tenant","id":"acme"}],
+		"layer":{"profile_id":"release.agent","model":{"provider":"release-gate","model":"candidate"}},
+		"basis_points":10000,
+		"evaluation_gate":{"dataset_id":"release.coverage","dataset_version":1,"subject_id":"alice","require_coverage_contracts":true}
+	}`)
+	stageBody := readBody(t, stage)
+	if stage.StatusCode != http.StatusCreated {
+		t.Fatalf("coverage canary stage status=%d body=%s", stage.StatusCode, stageBody)
+	}
+	var staged struct {
+		Canary     control.CanaryRecord `json:"canary"`
+		Evaluation struct {
+			Gate evaluation.GateResult `json:"gate"`
+		} `json:"evaluation"`
+	}
+	if err := json.Unmarshal([]byte(stageBody), &staged); err != nil {
+		t.Fatal(err)
+	}
+	if staged.Canary.ID == "" || staged.Canary.Gate.RequiredCoverageRevision != expectedMarker ||
+		staged.Canary.Gate.Coverage == nil || staged.Canary.Gate.Coverage.Status != evaluation.CoverageSatisfied ||
+		staged.Canary.Gate.Coverage.RequiredCases != 1 || staged.Canary.Gate.Coverage.SatisfiedCases != 1 {
+		t.Fatalf("stage lost required coverage gate: %#v", staged.Canary.Gate)
+	}
+	if !reflect.DeepEqual(staged.Canary.Gate, staged.Evaluation.Gate) {
+		t.Fatalf("stage response diverged from release evaluation gate: canary=%#v evaluation=%#v", staged.Canary.Gate, staged.Evaluation.Gate)
+	}
+
+	get := doJSON(t, http.MethodGet, httpServer.URL+"/v1/profiles/release.agent/canaries/"+staged.Canary.ID, "alice", "")
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("coverage canary get status=%d body=%s", get.StatusCode, readBody(t, get))
+	}
+	var returned control.CanaryRecord
+	if err := json.Unmarshal([]byte(readBody(t, get)), &returned); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(returned.Gate, staged.Canary.Gate) {
+		t.Fatalf("HTTP canary read lost coverage gate: got=%#v want=%#v", returned.Gate, staged.Canary.Gate)
+	}
+
+	canaryStore, err := storage.NewSQLCanaryStore(db, storage.SQLDialectSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	durable, err := canaryStore.GetCanary(ctx, staged.Canary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(durable.Gate, staged.Canary.Gate) {
+		t.Fatalf("SQL canary read lost coverage gate: got=%#v want=%#v", durable.Gate, staged.Canary.Gate)
+	}
+
+	restoredReleases, err := control.NewReleaseManager(profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := control.NewCanaryManager(restoredReleases, canaryStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.Restore(ctx); err != nil {
+		t.Fatalf("restore lost coverage canary: %v", err)
+	}
+	recovered, err := restored.Get(ctx, staged.Canary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(recovered.Gate, staged.Canary.Gate) {
+		t.Fatalf("restored canary lost coverage gate: got=%#v want=%#v", recovered.Gate, staged.Canary.Gate)
+	}
+	principal := core.Principal{
+		TenantID: "acme", SubjectID: "alice", Scope: staged.Canary.Scope,
+		Grants: core.NewPermissionSet(core.PermRead),
+	}
+	_, selected := restored.Select(principal, staged.Canary.ProfileID)
+	if selected == nil || !reflect.DeepEqual(selected.Gate, staged.Canary.Gate) {
+		t.Fatalf("restored canary routing state lost coverage gate: %#v", selected)
 	}
 }
 

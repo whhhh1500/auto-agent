@@ -24,6 +24,7 @@ type releaseEvaluationGateRequest struct {
 	BaselineRunID             string   `json:"baseline_run_id,omitempty"`
 	RequirePassed             *bool    `json:"require_passed,omitempty"`
 	RequireAllCases           *bool    `json:"require_all_cases,omitempty"`
+	RequireCoverageContracts  bool     `json:"require_coverage_contracts,omitempty"`
 	MinScore                  *float64 `json:"min_score,omitempty"`
 	MaxRegression             *float64 `json:"max_regression,omitempty"`
 	AllowCapabilities         []string `json:"allow_capabilities,omitempty"`
@@ -204,6 +205,37 @@ func (s *Server) evaluateReleaseCandidate(
 	if !compatibility.Compatible {
 		gate.Passed = false
 		gate.Reasons = append(gate.Reasons, "candidate capability declarations are incompatible with live")
+	}
+	coverageRequired := request.RequireCoverageContracts
+	for _, evalCase := range dataset.Cases {
+		if evalCase.Coverage != nil {
+			coverageRequired = true
+			break
+		}
+	}
+	if coverageRequired {
+		coverage, coverageErr := candidateRunner.RevalidateCoverageGate(ctx, dataset, candidateRun, target, evaluation.CoverageGatePolicy{RequireContracts: request.RequireCoverageContracts})
+		if coverageErr != nil {
+			return nil, fmt.Errorf("revalidate release candidate coverage: %w", coverageErr)
+		}
+		revision, revisionErr := evaluation.DatasetCoverageRevision(dataset, request.RequireCoverageContracts)
+		if revisionErr != nil {
+			return nil, revisionErr
+		}
+		gate.Coverage, gate.RequiredCoverageRevision = &coverage, revision
+		if coverage.Status != evaluation.CoverageSatisfied {
+			gate.Passed = false
+			gate.Reasons = append(gate.Reasons, "candidate coverage contracts are not satisfied")
+			return &releaseGateEvaluation{CandidateRevision: candidateRevision, BaseReleaseRevision: baseReleaseRevision, CandidateRun: candidateRun, BaselineRun: baseline, Gate: gate}, nil
+		}
+	}
+	if efficiencyEnabled && coverageRequired && baseline != nil {
+		baselineCoverage, coverageErr := s.evaluationRunner.RevalidateCoverageGate(ctx, dataset, *baseline, target, evaluation.CoverageGatePolicy{RequireContracts: request.RequireCoverageContracts})
+		if coverageErr != nil || baselineCoverage.Status != evaluation.CoverageSatisfied {
+			gate.Passed = false
+			gate.Reasons = append(gate.Reasons, "baseline coverage contracts are not satisfied")
+			return &releaseGateEvaluation{CandidateRevision: candidateRevision, BaseReleaseRevision: baseReleaseRevision, CandidateRun: candidateRun, BaselineRun: baseline, Gate: gate}, nil
+		}
 	}
 	if err := applyReleaseEfficiencyGate(&gate, candidateRun, baseline, request.EfficiencyPolicy); err != nil {
 		return nil, err

@@ -1,8 +1,8 @@
 # Agent 模块实现、性能与扩展评估
 
-评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-09、本地 Git `ad90ac0` 加本次程序化执行工作树；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
+评估记录起始日期：2026-09-06。该日的模型验收、性能数字和原始源码评估基线（本地 Git `5beed15`、初版文档提交 `af3a99f`）均是历史证据，不能表述成当前复测结果。本文的**当前源码盘点**截至 2026-09-09、本地 Git `aac9ece` 加本次 Coverage、canary 与 NativeStrict recovery 工作树；对象为 `auto-agent`（本地工作目录名为 `harness-core`），不包含父目录中的其他 Agent 仓库。
 
-本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **81 个包（79 个公开包与 2 个内部支持包）**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
+本文按 **44 个逻辑模块**解释实现与取舍；截至上述当前源码盘点，用 Go **1.25.13** 执行 `go list ./pkg/...` 得到 **83 个包（81 个公开包与 2 个内部支持包）**。逻辑模块按职责划分，一个包可能承担多个模块，不能用包数代替能力数。`cmd`、`internal`、示例和质量工具另列。具体类比与官方依据见[主流框架对比](agent-framework-comparison.md)，测量方法、原始样本及证据限制见[性能记录](performance/2026-09-06-module-benchmarks.md)。[architecture.md](architecture.md)继续作为依赖方向与支持边界的简要说明，本文用于详细评估和扩展决策。
 
 ### 当前基线与证据类型
 
@@ -365,6 +365,8 @@ flowchart TD
 
 **实现 / 状态：** [tool_journal.go](../pkg/core/tool_journal.go)、[repair.go](../pkg/core/repair.go)记录接受、执行与结果证据；默认服务注入 SQL ToolJournal。服务为每个同步/queued Run 浅复制 Runtime，以私有 journal wrapper 在底层 Begin 前调用可重复 `WriteBehind.Checkpoint`，同步保存已追加的 tool call；Run 结束仍由 `Flush` 终结并关闭 writer，之后的 `MarkDirty` / `Checkpoint` 不再持久化或重启调度，共享 Runtime 不变。稳定 call identity 用于去重与恢复；非幂等工具执行结果未知时关闭自动重放，避免猜测副作用。注册的自定义 executor 通过依赖收到这份 Runtime，只有在方法返回前使用其受保护工具路径才在该保证内；返回后异步使用 Runtime/emit 不在合同内。
 
+`pkg/app/effectreceipt`补充了可选的 provider-neutral 外部效果账本：不可变 `Intent` 仅保存调用身份、精确动态 `DriverRef` 与 target/payload digest，原始 provider receipt、payload 和错误文本不进入记录。`accepted` 只是 provider 已接受的回执，不能证明效果；只有同一 `OperationKey` 与 `IntentDigest` 绑定的 `ReadBack` 才能写成 `confirmed` 或 `rejected`。恢复协调器只对已注册的精确 driver 做 bounded read-back，并由宿主重新核验当前 Session scope、principal、profile 和 capability 后才读取；它没有 Dispatch 路径，因此不能在恢复中猜测或重复外部写入。
+
 **扩展：** E1：实现 ToolInvocationJournal，或给工具接入可验证幂等键 / 外部状态查询。新增外部副作用必须设计“服务已执行但本地未落库”的处理，单靠内部事务无法原子提交第三方世界。
 
 **性能：** 每个使用 journal 的受保护工具副作用前新增一次同步 durable append；普通模型流 chunk 仍批量 write-behind，不逐 chunk 同步。已有本地受控测量：SQLite file 的 durable checkpoint 16,000 次操作为 p50 **491.578 µs**、p95 **942.478 µs**、p99 **1.064956 ms**；Memory 与 SQLite 分布和方法见[专项性能量化](performance/2026-09-06-pre-tool-durable-checkpoint.md)。SQLite 数值不是 PostgreSQL 或 live-model tail；后续本机 PostgreSQL 17.6 的 batch-normalized measurement 以 **109.079 秒**总测量时间通过，仍不是生产 tail 分布。既有 127.38 完整会话/秒基线早于本次修复，不能写成已包含这项新增成本。
@@ -569,7 +571,9 @@ flowchart TD
 
 ### M34 — Session 持久化、SQL 与事件查询
 
-**实现 / 状态：** [session_store.go](../pkg/core/session_store.go)、[pkg/storage](../pkg/storage)提供 File、SQL、S3 等会话/对象实现，支持可选事件追加、write-behind 与证据查询。SQL 支持 SQLite / PostgreSQL。此处的累计 schema **v41** 是 2026-09-06 的历史快照；当前 schema 为 **v47**，见[当前研究台账](research/2026-09-08-module-optimization-ledger.md)。两者都有启动迁移、锁与未来版本拒绝路径。各 Store 能力不应假定完全相同。
+**实现 / 状态：** [session_store.go](../pkg/core/session_store.go)、[pkg/storage](../pkg/storage)提供 File、SQL、S3 等会话/对象实现，支持可选事件追加、write-behind 与证据查询。SQL 支持 SQLite / PostgreSQL。此处的累计 schema **v41** 是 2026-09-06 的历史快照；当前 schema 为 **v50**：v49 增加 route evidence receipt/outbox，v50 增加 provider-neutral external-effect receipt，见[当前验证记录](verification/2026-09-09-durable-evidence-contracts.md)。两者都有启动迁移、锁与未来版本拒绝路径。各 Store 能力不应假定完全相同。
+
+route receipt 是 content-free、不可变的 Session/Run terminal 投影，绑定 terminal event sequence 和 source Session version；receipt 与可变 outbox 在同一 SQL 事务中创建。reconciler 的 terminal run-control 查询只是候选发现，必须重载并重核 Session、Journal、tenant/subject/status 后才能建 receipt，不能把候选行当审计证据。outbox 以 claim lease generation 围栏 ack/retry；sink 已接收而 ack 前崩溃会以同一 `receipt_id` 重投，所以交付是 at-least-once，receiver 必须按 receipt ID 去重。Session 与 Tool Journal仍是权威来源，route receipt 不能反向认证或替代它们。
 
 **扩展：** E1：实现 SessionStore / SessionAppender、查询和相关业务 Store；使用新数据库需保留原子性、乐观并发、所有权过滤和恢复约束。仅实现 session Save/Load 不会自动支持 SQL 队列、审批、发布与 Graph 历史。
 
@@ -582,6 +586,8 @@ flowchart TD
 ### M35 — Artifact、对象存储流与迁移
 
 **实现 / 状态：** [objectstore.go](../pkg/storage/objectstore.go)、[dynamicstore.go](../pkg/storage/dynamicstore.go)、[artifactmigration](../pkg/app/artifactmigration)及 SQL/存储适配器处理文件与 S3 对象、可选 streaming get/put、配置切换、迁移代次、CAS 与日志。流接口是可选能力；仅有 Put/Get 的实现可能仍需整对象缓冲。
+
+`pkg/adapter/effectreceipt`还给出 reference object-store driver：以 `namespace/operation-key` 条件写入并只保存 digest。条件写成功仍只是 `accepted`；重启或恢复后的 exact read-back 比较对象 digest 后才产生 `confirmed` 或 `rejected`，因此它示范外部对象存储的提供方无关合同，而不是宣称对象存储事务与 SQL 原子提交。
 
 **扩展：** E1：实现 ObjectStore 和可选 streaming 接口，或迁移控制端口；E0：配置已有本地/S3 连接。需要验证 key/path 边界、tenant 归属、校验、迁移重试和中断一致性，不能简单把换 endpoint 当作旧产物迁移完成。
 
@@ -632,6 +638,8 @@ flowchart TD
 ### M39 — Evaluation、数据集与回归门禁
 
 **实现 / 状态：** [pkg/evaluation](../pkg/evaluation)包含不可变数据集、Case 执行、Evaluator 注册、持久结果、恢复、回归 gate 与能力声明兼容性校验。默认评估权限以只读/幂等等约束收缩，避免任意生产副作用。
+
+每个 Dataset case 可声明版本化 `CoverageContract`，其 canonical revision 随数据集冻结。合同把 required route、效果次数/receipt level、质量和成本要求写成可重验输入；release 在 candidate 的 capability 检查后重新从权威 records 计算任何已声明合同，显式 `require_coverage_contracts` 才要求未声明 case 也有合同。启用 efficiency 时，所有已 required 的 baseline coverage 也必须现场满足才会比较效率。provider read-back 级别只接受 confirmed/rejected 的 bound evidence；`accepted`、unknown 和缺 reader 都不能充当效果完成证明。CoverageContract 仍是任务级结构与证据一致性合同，不是业务语义或远端账单的万能判定器。
 
 Release 可选接入 `efficiency-gate/v1`：显式启用后才要求同一冻结 holdout cohort 的不同 candidate/baseline run、精确 baseline 引用、route/assignment 绑定，以及完整 ledger 与 `ExecutionEvidence` 的有限资源核对；未请求时不改变既有质量 gate。它约束成本非劣化与最小改进门槛，不是外部效果、语义完成度或 `CoverageContract` 的完整证明。
 
@@ -695,7 +703,7 @@ checkpoint 持久化失败时，内部取消只用于立即停止工具路径和
 
 **实现 / 状态：** [core/telemetry.go](../pkg/core/telemetry.go)定义中立接口，[telemetry/otel](../pkg/telemetry/otel)适配 OpenTelemetry；[logging](../pkg/logging)与 [buildinfo](../pkg/buildinfo)提供运行诊断。高基数运行关联主要进入 span，避免自动复制到 metrics；遥测失败有隔离处理。OTel error status 与 exception message 只输出固定 `error`，exception type 只保留 unknown/canceled/deadline 三类，默认传播只含 W3C TraceContext，不传播 Baggage。
 
-terminal `auto_probe_once` 在 run/queue control 成功落成终态后，额外发出 `harness.programmatic.route.evidence` span。它只投影冻结 route identity、选择、probe candidate coverage、Journal 完成数、Session usage ledger 和 summary archive 的状态/计数；外部效果与最终 context assembly 保持 unavailable。该 span 有独立短超时且按 best effort 交付，进程失败窗口可导致缺失或重复，Session 与 Tool Journal 才是权威证据。
+terminal `auto_probe_once` 在 run/queue control 成功落成终态后，仍额外发出 `harness.programmatic.route.evidence` span。它只投影冻结 route identity、选择、probe candidate coverage、Journal 完成数、Session usage ledger 和 summary archive 的状态/计数；外部效果与最终 context assembly 保持 unavailable。该 span 有独立短超时且按 best effort 交付，进程失败窗口可导致缺失或重复。另一个持久 route receipt/outbox 从相同的 Session/Journal 权威事实建立 content-free receipt，并按 lease-fenced at-least-once 交付；OTel 的即时观察不会确认或 ack 该 outbox。无论 receipt 还是 span，Session 与 Tool Journal才是权威证据。
 
 **扩展：** E1：注入 exporter/telemetry 或日志实现，接现有观测后端；明确采样、敏感内容与属性基数。OTel span 是可采样、可丢失的观测投影，只能与 durable evidence 做一致性核对；它不能补造、替代或反向认证 Session、Tool Journal、SQL event、provider receipt、计费或外部效果。审计与 release 判断必须回到各自版本化的 durable records、评测结果和宿主合同。
 
@@ -710,6 +718,8 @@ terminal `auto_probe_once` 在 run/queue control 成功落成终态后，额外�
 **实现 / 状态：** [测试支持](../internal/testdb)、[PostgreSQL 门禁](../scripts/test-postgres)、[OpenAPI 核验](../scripts/verify-openapi)、[性能工具](../internal/perfp0)及包内测试覆盖合同和集成。既有验收包含全仓测试、构建、vet、Staticcheck、针对性 race、真实 PG 与 Windows Medium，各记录注明执行范围。这里“34 个生产文件、8,721 非空物理行、公共表面计数 905（不是 905 个接口）”是 2026-09-06 的历史快照。当前状态见[研究台账 M44](research/2026-09-08-module-optimization-ledger.md)：34 个生产文件、8,819 非空行、910 个公共 API 项；硬限仍是 8,821 行和 910 个公共 API 项。当时新增一个复用协议校验器的 usage 消费函数，门禁阈值未放宽，摘要策略/计量扩展位于 app。生成文件识别已从文件名猜测改为 Go AST 的 generated marker；perfp0 现把吞吐明确为 attempt ops/s，比较成功路径时必须同时检查 `Errors==0`。
 
 **本轮门禁：** 代码基线 `1f78ef0` 上，Go **1.25.13** 的 `go build ./...`、`go vet ./pkg/server`、固定 `staticcheck@v0.7.0 ./pkg/server`、以及未设置 `HARNESS_TEST_PG_DSN` 的 `go test -count=1 -timeout 600s ./...` 均通过；后者是常规非 PG 路径。独立 55441 PostgreSQL 17.6 runner 的 `go run ./scripts/test-postgres` 另行通过：1,577 JSONL event 全部可解析、109 顶层和 105 子测试、10 个包、214 named run/pass，skip/fail 均为 0。格式、OpenAPI 102 operations、固定 `govulncheck@v1.7.0` 与覆盖率阈值也通过；这些本机结果不替代 CI 的 Linux container 或 Windows hosted runner。
+
+**本次 durable evidence 最终本机验证：** 见[2026-09-09 验证记录](verification/2026-09-09-durable-evidence-contracts.md)。modulecheck、公开包盘点、SQLite、route/effect receipt 的真实子进程 hard-kill、全仓普通测试与 race、build、vet、固定 Staticcheck、govulncheck、覆盖率阈值和 102 项 OpenAPI 对照均已通过。记录同时保留证据边界：本机未配置 `HARNESS_TEST_PG_DSN`，三项 PostgreSQL 用例为显式 skip；未安装本地 Docker/gitleaks，secret scan 仍以 CI 为准；默认 prompt、工具菜单和 route policy 未变化，因此本批未新增真实模型请求。
 
 **扩展：** 新 adapter 应增加能验证合同的测试和必要真实环境入口；新执行语义要补恢复、重复、权限和未知结果案例。公共 API 仍是 pre-GA，不能把“通过架构预算”当成兼容性保证或完整安全审计。
 

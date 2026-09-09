@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/whhhh1500/auto-agent/pkg/app/effectreceipt"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 	"github.com/whhhh1500/auto-agent/pkg/storage"
 )
@@ -41,6 +42,9 @@ type NativeStrictServerConfig struct {
 	// RouteEvidenceDelivery is an optional synchronous receipt sink. The native
 	// SQL store supplies the outbox and candidate reader automatically.
 	RouteEvidenceDelivery RouteEvidenceDelivery
+	// EffectReceiptDrivers registers exact dynamic provider read-back adapters.
+	// A nil registry disables external-effect recovery.
+	EffectReceiptDrivers *effectreceipt.DriverRegistry
 }
 
 // NativeStrictBootstrap is a static, caller-provided catalogue. The
@@ -147,6 +151,10 @@ func newNativeStrictServer(ctx context.Context, cfg NativeStrictServerConfig, af
 	if err != nil {
 		return nil, fmt.Errorf("open native strict approval store: %w", err)
 	}
+	effectStore, err := storage.NewSQLExternalEffectReceiptStore(cfg.DB, cfg.Dialect)
+	if err != nil {
+		return nil, fmt.Errorf("open native strict external effect receipt store: %w", err)
+	}
 	if err := storage.ValidateAuthorizationEpochSQLPrincipalAuthority(
 		queuedPrincipal, sessions, runControl, sessions, toolJournal,
 	); err != nil {
@@ -165,6 +173,13 @@ func newNativeStrictServer(ctx context.Context, cfg NativeStrictServerConfig, af
 		runtime, err := newNativeStrictRuntime(cfg.Bootstrap, toolJournal, approvals, cfg.Telemetry)
 		if err != nil {
 			return nil, err
+		}
+		var effectRecovery *effectreceipt.RecoveryCoordinator
+		if effectStore != nil && cfg.EffectReceiptDrivers != nil {
+			effectRecovery, err = effectreceipt.NewRecoveryCoordinator(effectStore, effectStore, cfg.EffectReceiptDrivers, nativeStrictEffectRecoveryAuthorizer{runtime: runtime, resolver: queuedPrincipal, sessions: sessions})
+			if err != nil {
+				return nil, fmt.Errorf("construct native strict external effect recovery: %w", err)
+			}
 		}
 		ownership := &nativeStrictOwnership{
 			bootstrapRevision: cfg.Bootstrap.Revision,
@@ -192,6 +207,8 @@ func newNativeStrictServer(ctx context.Context, cfg NativeStrictServerConfig, af
 			RouteEvidenceOutbox:          sessions,
 			RouteEvidenceCandidateReader: sessions,
 			RouteEvidenceDelivery:        cfg.RouteEvidenceDelivery,
+			EffectReceiptRecovery:        effectRecovery,
+			EvaluationEffectReceipts:     effectStore,
 
 			RunCancelPollInterval: cfg.RunCancelPollInterval,
 			RunStaleAfter:         cfg.RunStaleAfter,

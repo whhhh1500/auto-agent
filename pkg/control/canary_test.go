@@ -169,6 +169,21 @@ func canaryTestRecord(t *testing.T, id string, scope core.ScopePath, name string
 	}
 }
 
+const (
+	canaryCoverageMarkerA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	canaryCoverageMarkerB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
+func satisfiedCanaryCoverageGate(marker string) evaluation.GateResult {
+	return evaluation.GateResult{
+		Passed:                   true,
+		RequiredCoverageRevision: marker,
+		Coverage: &evaluation.CoverageGateResult{
+			Status: evaluation.CoverageSatisfied, RequiredCases: 1, SatisfiedCases: 1,
+		},
+	}
+}
+
 func resolvedCanaryName(t *testing.T, profiles *core.AgentProfileRegistry, principal core.Principal) string {
 	t.Helper()
 	profile, err := profiles.Resolve(principal, principal.Scope, "product.agent")
@@ -279,6 +294,130 @@ func TestCanaryRequiredEfficiencyGateSurvivesCloneAndFailsClosedWhenMissing(t *t
 	if err := ValidateCanaryRecord(clone); err == nil {
 		t.Fatal("canary validation accepted a record whose required efficiency verdict was lost")
 	}
+}
+
+func TestCanaryRequiredCoverageGateStagesClonesAndFailsClosedWhenMissing(t *testing.T) {
+	ctx := context.Background()
+	manager, scope, _ := newCanaryTestManager(t, newMemoryCanaryStore())
+
+	missing := canaryTestRecord(t, "canary-coverage-missing", scope, "Missing", 1000)
+	missing.Gate.Passed = true
+	missing.Gate.RequiredCoverageRevision = canaryCoverageMarkerA
+	if _, err := manager.Stage(ctx, missing); err == nil {
+		t.Fatal("required coverage marker without a gate result staged a canary")
+	}
+
+	record := canaryTestRecord(t, "canary-coverage-clone", scope, "Candidate", 1000)
+	record.Gate = satisfiedCanaryCoverageGate(canaryCoverageMarkerA)
+	staged, err := manager.Stage(ctx, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloneCanaryRecord(staged)
+	if clone.Gate.Coverage == staged.Gate.Coverage {
+		t.Fatal("canary clone aliased coverage result")
+	}
+	clone.Gate.Coverage = nil
+	if err := ValidateCanaryRecord(clone); err == nil {
+		t.Fatal("canary validation accepted a record whose required coverage result was lost")
+	}
+
+	withReasons := CanaryRecord{Gate: evaluation.GateResult{Coverage: &evaluation.CoverageGateResult{
+		Status: evaluation.CoverageUnavailable, RequiredCases: 1, UnavailableCases: 1,
+		ReasonCodes: []evaluation.CoverageReasonCode{evaluation.CoverageReasonEffectUnavailable},
+	}}}
+	deepClone := cloneCanaryRecord(withReasons)
+	deepClone.Gate.Coverage.ReasonCodes[0] = evaluation.CoverageReasonRouteUnavailable
+	if withReasons.Gate.Coverage.ReasonCodes[0] != evaluation.CoverageReasonEffectUnavailable {
+		t.Fatal("canary clone aliased coverage reason codes")
+	}
+}
+
+func TestCanaryCoverageArtifactDriftFailsRefresh(t *testing.T) {
+	ctx := context.Background()
+	for _, test := range []struct {
+		name   string
+		mutate func(*CanaryRecord)
+	}{
+		{
+			name: "marker",
+			mutate: func(record *CanaryRecord) {
+				record.Gate.RequiredCoverageRevision = canaryCoverageMarkerB
+			},
+		},
+		{
+			name: "coverage_result",
+			mutate: func(record *CanaryRecord) {
+				record.Gate.Coverage = &evaluation.CoverageGateResult{
+					Status: evaluation.CoverageSatisfied, RequiredCases: 2, SatisfiedCases: 2,
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newMemoryCanaryStore()
+			manager, scope, _ := newCanaryTestManager(t, store)
+			record := canaryTestRecord(t, "canary-coverage-drift-"+test.name, scope, "Candidate", 1000)
+			record.Gate = satisfiedCanaryCoverageGate(canaryCoverageMarkerA)
+			if _, err := manager.Stage(ctx, record); err != nil {
+				t.Fatal(err)
+			}
+
+			durable := cloneCanaryRecord(store.records[record.ID])
+			test.mutate(&durable)
+			store.records[record.ID] = durable
+			store.revision++
+			if err := manager.Refresh(ctx); err == nil {
+				t.Fatal("refresh accepted coverage artifact drift")
+			}
+		})
+	}
+}
+
+func TestCanaryCoverageGateRestoreFailsClosedAndLegacyRemainsCompatible(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("required coverage missing after persistence", func(t *testing.T) {
+		store := newMemoryCanaryStore()
+		first, scope, _ := newCanaryTestManager(t, store)
+		record := canaryTestRecord(t, "canary-coverage-restore-invalid", scope, "Candidate", 1000)
+		record.Gate = satisfiedCanaryCoverageGate(canaryCoverageMarkerA)
+		if _, err := first.Stage(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+		durable := cloneCanaryRecord(store.records[record.ID])
+		durable.Gate.Coverage = nil
+		store.records[record.ID] = durable
+		store.revision++
+
+		restored, err := NewCanaryManager(first.Releases, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := restored.Restore(ctx); err == nil {
+			t.Fatal("restore accepted a required coverage marker without a satisfied result")
+		}
+	})
+
+	t.Run("legacy gate", func(t *testing.T) {
+		store := newMemoryCanaryStore()
+		first, scope, principal := newCanaryTestManager(t, store)
+		record := canaryTestRecord(t, "canary-coverage-legacy", scope, "Legacy", 10000)
+		if _, err := first.Stage(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+		restored, err := NewCanaryManager(first.Releases, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := restored.Restore(ctx); err != nil {
+			t.Fatalf("restore rejected legacy gate JSON: %v", err)
+		}
+		profiles, selected := restored.Select(principal, record.ProfileID)
+		if selected == nil || selected.ID != record.ID || resolvedCanaryName(t, profiles, principal) != "Legacy" {
+			t.Fatalf("legacy canary did not restore: %#v", selected)
+		}
+	})
 }
 
 func TestCanarySubjectBucketingIsStable(t *testing.T) {

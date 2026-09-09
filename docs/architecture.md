@@ -90,11 +90,22 @@ implementation.
 - `pkg/extensions/*` contains optional capability consumers. In particular,
   `pkg/extensions/memory` keeps the relevance-oriented `Store.Recall` contract
   separate from the optional exact-key `KeyStore.Lookup` seam.
-- `pkg/storage` implements persistence and SQL-backed operational stores.
+- `pkg/storage` implements persistence and SQL-backed operational stores. Its
+  v49 route-evidence receipt/outbox records a content-free terminal projection
+  separately from Session and Tool Journal authority; delivery uses a fenced,
+  at-least-once lease protocol and a stable receipt ID for receiver dedupe.
 - `pkg/control` owns control-plane orchestration such as restorable profile releases, evaluation-gated durable canaries, and revision-driven shared-store synchronization.
 - `pkg/evaluation` owns immutable datasets, isolated Case execution,
   deterministic/custom evaluators, durable results, recovery, regression
-  gates, and provider-neutral Capability declaration compatibility checks.
+  gates, provider-neutral Capability declaration compatibility checks, and
+  versioned task-level CoverageContract revalidation. A declared contract can
+  require provider read-back evidence; accepted provider acknowledgement alone
+  never satisfies that level.
+- `pkg/app/effectreceipt` is the small provider-neutral external-effect
+  contract. `pkg/adapter/effectreceipt` bridges an accepted core tool call to
+  exact dynamic drivers and includes a reference object-store read-back
+  adapter; provider transport and raw receipt material remain outside both
+  public packages.
 - `pkg/server` adapts these components to HTTP/SSE and administration routes.
 - `pkg/telemetry/otel` adapts the kernel telemetry seam to OpenTelemetry; the
   dependency direction remains outward and the kernel imports no OTel SDK.
@@ -379,6 +390,11 @@ to the adapter configuration, outside the core contract.
   run/call identity and argument digest are recorded before the provider sees
   the request; completed outcomes replay canonically, while unknown
   non-idempotent outcomes fail closed instead of repeating a side effect.
+- External effects use a separate immutable intent containing only stable
+  identity and digests. `accepted` records a provider acknowledgement, not
+  the effect itself; only a bound provider read-back can settle it confirmed or
+  rejected. Recovery enumerates exact registered drivers and performs
+  authorized read-back only, never Dispatch.
 - The server creates one `WriteBehind` per synchronous Run and, after fenced
   repair, one `NewFencedWriteBehind` per queued Run before resolving its
   executor. `Checkpoint` is the repeatable synchronous operation:
@@ -417,6 +433,12 @@ to the adapter configuration, outside the core contract.
 - Runtime and infrastructure paths emit through a bounded `core.Telemetry`
   seam. IDs stay trace-only, operational metric dimensions stay bounded, and
   telemetry failures or panics never affect execution semantics.
+- Route observation has two distinct paths: an immediate OTel span remains
+  best effort and never acknowledges delivery; a terminal receipt is
+  reconstructed from canonical Session/Journal facts, written with an outbox,
+  and delivered at least once under a lease-generation fence. Neither the
+  trace nor the receipt replaces the source Session and Tool Journal as audit
+  authority.
 - Evaluation uses the general subtractive `TurnInput.CapabilityFilter`; the
   kernel contains no Dataset/Score/Gate concepts. By default only idempotent,
   non-approval tools remain visible. Case IDs deterministically derive their

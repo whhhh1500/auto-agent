@@ -1052,6 +1052,17 @@ Gate JSON and durable Audit records, and correlated to the Evaluation Run by
 Live/Candidate Capability Snapshot IDs plus a stable compatibility revision.
 Rejected Publish and Canary Stage attempts are audited without changing Live.
 
+An `evaluation_gate` may set `require_coverage_contracts: true` to make every
+frozen Dataset Case require a versioned `CoverageContract`. A Dataset that
+already declares one or more contracts is also revalidated before Publish or
+Canary Stage. The server rebuilds the required coverage verdict from the
+canonical evaluation sources; it never authorizes a rollout from a stored Case
+snapshot alone. A successful coverage gate persists the Dataset-bound
+`required_coverage_revision` and the complete, content-free `coverage` result
+inside the Canary Gate artifact, and restart recovery validates both before
+routing. Existing response JSON without coverage fields remains compatible for
+legacy gates that did not opt in.
+
 - `POST /v1/profiles/{id}/canaries` — evaluate and stage a candidate; `basis_points` is `1..10000` and `evaluation_gate` is required.
 - `GET /v1/profiles/{id}/canaries` — list visible rollout history.
 - `POST /v1/profiles/{id}/canaries/{canaryID}/percentage` — change `basis_points` while active or paused.

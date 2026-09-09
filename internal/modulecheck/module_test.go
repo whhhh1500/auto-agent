@@ -328,13 +328,18 @@ func TestFoundationalDependencyBaseline(t *testing.T) {
 			allowed: []string{"app/modelsettings", "app/settings"},
 		},
 		{
-			name:    "evaluation may depend on core, the shared execution route, and its exact private ledger collector",
+			name:    "evaluation may depend on core, the shared execution route, provider-neutral effect evidence, and its exact private ledger collector",
 			from:    "evaluation",
-			allowed: []string{"core", "app/runexecutor"},
+			allowed: []string{"core", "app/runexecutor", "app/effectreceipt"},
 			allowedExact: []string{
 				modulePath + "/internal/executionroute",
 				modulePath + "/internal/evaluationledger",
 			},
+		},
+		{
+			name:    "external effect adapter may depend only on core and the exact provider-neutral effect contract",
+			from:    "adapter/effectreceipt",
+			allowed: []string{"core", "app/effectreceipt"},
 		},
 		{
 			name:    "control may depend on core and evaluation among internal packages",

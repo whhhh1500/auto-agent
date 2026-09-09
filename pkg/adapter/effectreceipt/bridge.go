@@ -24,6 +24,7 @@ const (
 	CodeStoreFailed                = "external_effect_store_failed"
 	CodeDriverFailed               = "external_effect_driver_failed"
 	CodeReadBackFailed             = "external_effect_read_back_failed"
+	CodeDispatchAdmissionFailed    = "external_effect_dispatch_admission_failed"
 	CodeBridgePanic                = "external_effect_bridge_panic"
 )
 
@@ -257,6 +258,8 @@ func bridgeFailure(record appreceipt.Record, cause error) core.CapabilityResult 
 		return recordResult(record)
 	}
 	switch {
+	case errors.Is(cause, appreceipt.ErrDispatchAdmission), errors.Is(cause, appreceipt.ErrDispatchAdmissionPanic):
+		return bridgeResult(appreceipt.StateUnknown, CodeDispatchAdmissionFailed)
 	case errors.Is(cause, appreceipt.ErrStore), errors.Is(cause, appreceipt.ErrStorePanic), errors.Is(cause, appreceipt.ErrConflict), errors.Is(cause, appreceipt.ErrNotFound):
 		return bridgeResult(appreceipt.StateUnknown, CodeStoreFailed)
 	case errors.Is(cause, appreceipt.ErrReadBack), errors.Is(cause, appreceipt.ErrReadBackPanic), errors.Is(cause, appreceipt.ErrReadBackMismatch):

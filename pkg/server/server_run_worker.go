@@ -62,7 +62,8 @@ func permanentQueuedPrincipalError(err error) bool {
 func (s *Server) StartRunWorkers(ctx context.Context) error {
 	routeEvidenceReconcile := s.routeEvidenceOutbox != nil && s.routeEvidenceCandidates != nil
 	routeEvidenceDelivery := s.routeEvidenceOutbox != nil && s.routeEvidenceDelivery != nil
-	if s.runQueue == nil && !routeEvidenceReconcile && !routeEvidenceDelivery {
+	effectRecovery := s.effectReceiptRecovery != nil
+	if s.runQueue == nil && !routeEvidenceReconcile && !routeEvidenceDelivery && !effectRecovery {
 		return nil
 	}
 	if ctx == nil {
@@ -147,6 +148,14 @@ func (s *Server) StartRunWorkers(ctx context.Context) error {
 		go func() {
 			defer s.workersWG.Done()
 			s.runRouteEvidenceDeliveryLoop(claimCtx)
+		}()
+	}
+	if effectRecovery {
+		s.runEffectReceiptRecoveryOnce(claimCtx)
+		s.workersWG.Add(1)
+		go func() {
+			defer s.workersWG.Done()
+			s.runEffectReceiptRecoveryLoop(claimCtx)
 		}()
 	}
 	if s.runQueue != nil {
@@ -542,6 +551,9 @@ func (s *Server) executeQueuedRunWithFence(workerCtx, runCtx context.Context, ca
 			return s.stopQueuedFencedWriter(cancelRun, claim, writer, err)
 		}
 		return s.settleQueuedPreparationFailure(workerCtx, task, workerID, session, &fence, writer, resume, "tool_checkpoint_init_failed", err, false)
+	}
+	if sqlStore, ok := s.sessions.(*storage.SQLSessionStore); ok {
+		runCtx = s.withNativeQueuedEffectDispatchAdmission(runCtx, sqlStore, writer, cancelRun, checkpointFailure, fence, session, principal)
 	}
 	var runExecutor runexecutor.RunExecutor
 	var compositionMetadata map[string]string

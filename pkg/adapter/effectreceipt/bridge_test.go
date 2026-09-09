@@ -85,6 +85,31 @@ func TestBridgeRequiresAcceptedInvocation(t *testing.T) {
 	}
 }
 
+func TestBridgeClassifiesDispatchAdmissionFailureWithoutCallingProvider(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		admitter appreceipt.DispatchAdmitter
+	}{
+		{name: "error", admitter: bridgeDispatchAdmitterFunc(func(context.Context, appreceipt.Intent) (appreceipt.Record, bool, error) {
+			return appreceipt.Record{}, false, appreceipt.ErrDispatchAdmission
+		})},
+		{name: "panic", admitter: bridgeDispatchAdmitterFunc(func(context.Context, appreceipt.Intent) (appreceipt.Record, bool, error) {
+			panic("admission internals must remain private")
+		})},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objects := newMemoryObjects()
+			bridge := newTestBridge(t, objects, &testBinder{target: []byte("effects/test"), payload: []byte("payload")})
+			ctx := appreceipt.WithDispatchAdmitter(context.Background(), test.admitter)
+			result, puts, _ := runBridgeCapabilityContext(t, ctx, bridge, false)
+			state, code := decodeEffectResult(t, result)
+			if result.OK || state != appreceipt.StateUnknown || code != CodeDispatchAdmissionFailed || puts != 0 {
+				t.Fatalf("admission failure result=%#v puts=%d", result, puts)
+			}
+		})
+	}
+}
+
 func TestBridgeArtifactRevisionBindsManifestAndDriverWithoutLeakingThem(t *testing.T) {
 	objects := newMemoryObjects()
 	manifest := core.CapabilityManifest{
@@ -238,6 +263,10 @@ func newTestBridge(t *testing.T, objects *memoryObjects, binder Binder) *Bridge 
 }
 
 func runBridgeCapability(t *testing.T, bridge *Bridge, duplicate bool) (core.CapabilityResult, int, int32) {
+	return runBridgeCapabilityContext(t, context.Background(), bridge, duplicate)
+}
+
+func runBridgeCapabilityContext(t *testing.T, ctx context.Context, bridge *Bridge, duplicate bool) (core.CapabilityResult, int, int32) {
 	t.Helper()
 	registry := core.NewCapabilityRegistry()
 	product := core.MustScopePath(
@@ -272,7 +301,7 @@ func runBridgeCapability(t *testing.T, bridge *Bridge, duplicate bool) (core.Cap
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn, err := agent.RunTurn(context.Background(), core.TurnInput{RunID: "effect-run", Text: "perform effect"})
+	turn, err := agent.RunTurn(ctx, core.TurnInput{RunID: "effect-run", Text: "perform effect"})
 	if err != nil || turn.Status != core.RunCompleted {
 		t.Fatalf("run=%#v err=%v", turn, err)
 	}
@@ -293,6 +322,12 @@ func runBridgeCapability(t *testing.T, bridge *Bridge, duplicate bool) (core.Cap
 		t.Fatal("test binder type")
 	}
 	return result, memory.putCount(), binder.calls.Load()
+}
+
+type bridgeDispatchAdmitterFunc func(context.Context, appreceipt.Intent) (appreceipt.Record, bool, error)
+
+func (f bridgeDispatchAdmitterFunc) BeginDispatch(ctx context.Context, intent appreceipt.Intent) (appreceipt.Record, bool, error) {
+	return f(ctx, intent)
 }
 
 func decodeEffectResult(t *testing.T, result core.CapabilityResult) (appreceipt.State, string) {
