@@ -62,13 +62,16 @@ type Assertion struct {
 }
 
 type Case struct {
-	ID            string            `json:"id"`
-	Input         string            `json:"input"`
-	ProfileID     string            `json:"profile_id,omitempty"`
-	Context       []ContextMessage  `json:"context,omitempty"`
-	Assertions    []Assertion       `json:"assertions"`
-	PassThreshold float64           `json:"pass_threshold,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	ID            string           `json:"id"`
+	Input         string           `json:"input"`
+	ProfileID     string           `json:"profile_id,omitempty"`
+	Context       []ContextMessage `json:"context,omitempty"`
+	Assertions    []Assertion      `json:"assertions"`
+	PassThreshold float64          `json:"pass_threshold,omitempty"`
+	// Coverage is an optional, versioned task contract. When present it is
+	// normalized before the containing Dataset revision is calculated.
+	Coverage *CoverageContract `json:"coverage,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type Dataset struct {
@@ -148,10 +151,13 @@ type CaseResult struct {
 	Evidence   *ExecutionEvidence `json:"execution_evidence,omitempty"`
 	// Ledger is absent for historical case JSON where this evidence was not
 	// collected. Current evaluation runs populate a content-free projection.
-	Ledger      *ExecutionLedger `json:"execution_ledger,omitempty"`
-	DurationMS  int64            `json:"duration_ms"`
-	ToolCalls   []string         `json:"tool_calls,omitempty"`
-	CompletedAt time.Time        `json:"completed_at"`
+	Ledger *ExecutionLedger `json:"execution_ledger,omitempty"`
+	// Coverage is an optional content-free host verification projection. It is
+	// absent in historical case JSON and is not inferred from legacy evidence.
+	Coverage    *CoverageEvidence `json:"coverage,omitempty"`
+	DurationMS  int64             `json:"duration_ms"`
+	ToolCalls   []string          `json:"tool_calls,omitempty"`
+	CompletedAt time.Time         `json:"completed_at"`
 }
 
 // ExecutionLedger never contains prompt/messages, tools or arguments, model
@@ -354,6 +360,11 @@ func validateCase(evalCase *Case, defaultProfile string) error {
 			return fmt.Errorf("assertion %s: %w", assertion.ID, err)
 		}
 	}
+	if evalCase.Coverage != nil {
+		if err := ValidateCoverageContract(evalCase.Coverage); err != nil {
+			return fmt.Errorf("coverage contract: %w", err)
+		}
+	}
 	return validateMetadata(evalCase.Metadata)
 }
 
@@ -394,13 +405,17 @@ func validateAssertion(assertion Assertion) error {
 }
 
 func DatasetRevision(dataset Dataset) (string, error) {
+	cases, err := canonicalCasesForDatasetRevision(dataset.Cases)
+	if err != nil {
+		return "", err
+	}
 	projection := struct {
 		ID, Name, Description, ProfileID string
 		Version                          int
 		PassThreshold                    float64
 		Cases                            []Case
 		Metadata                         map[string]string
-	}{dataset.ID, dataset.Name, dataset.Description, dataset.ProfileID, dataset.Version, normalizedThreshold(dataset.PassThreshold), dataset.Cases, dataset.Metadata}
+	}{dataset.ID, dataset.Name, dataset.Description, dataset.ProfileID, dataset.Version, normalizedThreshold(dataset.PassThreshold), cases, dataset.Metadata}
 	encoded, err := json.Marshal(projection)
 	if err != nil {
 		return "", fmt.Errorf("encode dataset revision: %w", err)
@@ -410,6 +425,28 @@ func DatasetRevision(dataset Dataset) (string, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// canonicalCasesForDatasetRevision prevents direct DatasetRevision callers
+// from obtaining a definition digest that depends on Coverage slice order or
+// a caller-supplied Coverage revision. Full dataset validation remains the
+// responsibility of ValidateDataset.
+func canonicalCasesForDatasetRevision(cases []Case) ([]Case, error) {
+	if cases == nil {
+		return nil, nil
+	}
+	out := append([]Case(nil), cases...)
+	for index := range out {
+		if out[index].Coverage == nil {
+			continue
+		}
+		contract := cloneCoverageContract(*out[index].Coverage)
+		if err := ValidateCoverageContract(&contract); err != nil {
+			return nil, fmt.Errorf("case %d coverage contract: %w", index, err)
+		}
+		out[index].Coverage = &contract
+	}
+	return out, nil
 }
 
 func Compare(current, baseline RunResult, tolerance float64) (Comparison, error) {
@@ -646,6 +683,11 @@ func ValidateCaseResult(result CaseResult) error {
 	}
 	if result.Ledger != nil {
 		if err := validateExecutionLedger(*result.Ledger); err != nil {
+			return err
+		}
+	}
+	if result.Coverage != nil {
+		if err := ValidateCoverageEvidence(*result.Coverage); err != nil {
 			return err
 		}
 	}
