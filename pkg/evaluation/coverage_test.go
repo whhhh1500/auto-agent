@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -255,6 +256,135 @@ func TestMemoryStoreDeepCopiesCoverageContract(t *testing.T) {
 	}
 }
 
+func TestDatasetCoverageRevisionCanonicalizesContractsAndBindsFrozenDefinition(t *testing.T) {
+	build := func(effects []EffectCoverageRequirement) Dataset {
+		dataset := baseDataset("eval.lookup")
+		dataset.Cases[0].Coverage = &CoverageContract{Version: CoverageContractV1, Effects: effects}
+		second := dataset.Cases[0]
+		second.ID = "case-2"
+		second.Coverage = nil
+		dataset.Cases = append(dataset.Cases, second)
+		if err := ValidateDataset(&dataset); err != nil {
+			t.Fatal(err)
+		}
+		return dataset
+	}
+	left := build([]EffectCoverageRequirement{
+		{ID: "write", CapabilityID: "example.write", MinOccurrences: 1, MaxOccurrences: 1, ReceiptLevel: EffectReceiptJournalCompleted},
+		{ID: "read", CapabilityID: "example.read", MinOccurrences: 0, MaxOccurrences: 1, ReceiptLevel: EffectReceiptProviderReadBack},
+	})
+	right := build([]EffectCoverageRequirement{
+		{ID: "read", CapabilityID: "example.read", MinOccurrences: 0, MaxOccurrences: 1, ReceiptLevel: EffectReceiptProviderReadBack},
+		{ID: "write", CapabilityID: "example.write", MinOccurrences: 1, MaxOccurrences: 1, ReceiptLevel: EffectReceiptJournalCompleted},
+	})
+	leftMarker, err := DatasetCoverageRevision(left, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightMarker, err := DatasetCoverageRevision(right, true)
+	if err != nil || left.Revision != right.Revision || leftMarker != rightMarker {
+		t.Fatalf("equivalent canonical coverage markers differ: left=%q right=%q revisions=%q/%q err=%v", leftMarker, rightMarker, left.Revision, right.Revision, err)
+	}
+	permissive, err := DatasetCoverageRevision(left, false)
+	if err != nil || permissive == leftMarker {
+		t.Fatalf("strict policy bit was not bound: strict=%q permissive=%q err=%v", leftMarker, permissive, err)
+	}
+	drifted := left
+	drifted.Cases = append([]Case(nil), left.Cases...)
+	contract := cloneCoverageContract(*drifted.Cases[0].Coverage)
+	contract.RequireCasePassed = true
+	contract.Revision = ""
+	drifted.Cases[0].Coverage = &contract
+	drifted.Revision = ""
+	if err := ValidateDataset(&drifted); err != nil {
+		t.Fatal(err)
+	}
+	driftedMarker, err := DatasetCoverageRevision(drifted, true)
+	if err != nil || driftedMarker == leftMarker {
+		t.Fatalf("coverage contract drift did not change marker: original=%q drifted=%q err=%v", leftMarker, driftedMarker, err)
+	}
+	// The marker sorts case entries, but DatasetRevision is intentionally also
+	// bound. Reordering frozen cases therefore changes the marker rather than
+	// silently treating a different Dataset definition as the same release.
+	reordered := left
+	reordered.Cases = append([]Case(nil), left.Cases...)
+	reordered.Cases[0], reordered.Cases[1] = reordered.Cases[1], reordered.Cases[0]
+	reordered.Revision = ""
+	if err := ValidateDataset(&reordered); err != nil {
+		t.Fatal(err)
+	}
+	reorderedMarker, err := DatasetCoverageRevision(reordered, true)
+	if err != nil || reorderedMarker == leftMarker {
+		t.Fatalf("reordered frozen dataset did not drift marker: original=%q reordered=%q err=%v", leftMarker, reorderedMarker, err)
+	}
+}
+
+func TestCoverageGateArtifactValidationIsStrictAndLegacyCompatible(t *testing.T) {
+	dataset := baseDataset("eval.lookup")
+	dataset.Cases[0].Coverage = &CoverageContract{Version: CoverageContractV1, RequireCasePassed: true}
+	if err := ValidateDataset(&dataset); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DatasetCoverageRevision(dataset, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := GateResult{
+		Passed: true, RequiredCoverageRevision: marker,
+		Coverage: &CoverageGateResult{Status: CoverageSatisfied, RequiredCases: 1, SatisfiedCases: 1},
+	}
+	if err := ValidateGateResult(gate); err != nil {
+		t.Fatalf("valid coverage gate artifact: %v", err)
+	}
+	if err := ValidateCoverageGateBinding(dataset, true, gate); err != nil {
+		t.Fatalf("valid frozen coverage binding: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*GateResult){
+		"marker without coverage": func(value *GateResult) { value.Coverage = nil },
+		"unsatisfied coverage": func(value *GateResult) {
+			value.Coverage = &CoverageGateResult{
+				Status: CoverageUnavailable, RequiredCases: 1, UnavailableCases: 1,
+				ReasonCodes: []CoverageReasonCode{CoverageReasonEffectUnavailable},
+			}
+		},
+		"inconsistent satisfied count": func(value *GateResult) {
+			value.Coverage = &CoverageGateResult{Status: CoverageSatisfied, RequiredCases: 1}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := gate
+			mutate(&invalid)
+			if err := ValidateGateResult(invalid); err == nil {
+				t.Fatalf("invalid durable coverage gate was accepted: %#v", invalid)
+			}
+		})
+	}
+	drifted := gate
+	drifted.RequiredCoverageRevision = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := ValidateGateResult(drifted); err != nil {
+		t.Fatalf("well-formed but unrelated marker should require dataset binding: %v", err)
+	}
+	if err := ValidateCoverageGateBinding(dataset, true, drifted); err == nil {
+		t.Fatalf("dataset marker drift was accepted: %#v", drifted)
+	}
+
+	legacy := GateResult{Passed: true}
+	if err := ValidateGateResult(legacy); err != nil {
+		t.Fatalf("legacy gate JSON was rejected: %v", err)
+	}
+	if err := ValidateCoverageGateBinding(dataset, false, legacy); err != nil {
+		t.Fatalf("permissive legacy binding was rejected: %v", err)
+	}
+	if err := ValidateCoverageGateBinding(dataset, true, legacy); err == nil {
+		t.Fatal("strict coverage binding accepted legacy gate without marker")
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil || string(encoded) == "" || containsJSONKey(string(encoded), "coverage") || containsJSONKey(string(encoded), "required_coverage_revision") {
+		t.Fatalf("legacy gate JSON changed: %s err=%v", encoded, err)
+	}
+}
+
 func coverageGateRun(dataset Dataset, result CaseResult) RunResult {
 	return RunResult{
 		ID: "evalrun-coverage-gate", DatasetID: dataset.ID, DatasetVersion: dataset.Version, DatasetRevision: dataset.Revision,
@@ -271,4 +401,8 @@ func containsCoverageReason(reasons []CoverageReasonCode, want CoverageReasonCod
 		}
 	}
 	return false
+}
+
+func containsJSONKey(value, key string) bool {
+	return strings.Contains(value, "\""+key+"\"")
 }

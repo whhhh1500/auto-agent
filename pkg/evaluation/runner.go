@@ -12,6 +12,7 @@ import (
 
 	"github.com/whhhh1500/auto-agent/internal/evaluationledger"
 	"github.com/whhhh1500/auto-agent/internal/executionroute"
+	"github.com/whhhh1500/auto-agent/pkg/app/effectreceipt"
 	"github.com/whhhh1500/auto-agent/pkg/app/runexecutor"
 	core "github.com/whhhh1500/auto-agent/pkg/core"
 )
@@ -37,7 +38,11 @@ type Runner struct {
 	// Executors is the same application-level registry used by the server.
 	// A nil registry preserves embedded-runner compatibility with sequential.
 	Executors *runexecutor.Registry
-	Now       func() time.Time
+	// EffectReceipts optionally provides scoped, provider-neutral external
+	// effect read-back evidence for CoverageContract requirements. A nil reader
+	// leaves those requirements unavailable; it never changes normal execution.
+	EffectReceipts effectreceipt.RunReader
+	Now            func() time.Time
 }
 
 func (r *Runner) Run(ctx context.Context, request RunRequest) (RunResult, error) {
@@ -435,6 +440,13 @@ func (r *Runner) runCase(
 		return CaseResult{}, err
 	}
 	caseResult.Ledger = projectExecutionLedger(ledger)
+	if evalCase.Coverage != nil {
+		coverage, err := r.collectCoverageEvidence(ctx, session, principal, evalCase.Coverage, caseResult)
+		if err != nil {
+			return CaseResult{}, err
+		}
+		caseResult.Coverage = &coverage
+	}
 	return caseResult, nil
 }
 

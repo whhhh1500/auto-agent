@@ -45,6 +45,12 @@ var (
 		FROM tool_invocations
 		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ? AND call_id = ?
 		AND capability_id = ? AND args_digest = ? AND idempotent = ?`}
+	sqlListRunToolInvocations = sqlQuery{`SELECT tenant_id, subject_id, session_id, run_id, call_id,
+		capability_id, args_digest, idempotent, state, result_json, error_code,
+		started_at, updated_at, completed_at
+		FROM tool_invocations
+		WHERE tenant_id = ? AND subject_id = ? AND session_id = ? AND run_id = ?
+		ORDER BY call_id LIMIT ?`}
 	sqlCompleteToolInvocation = sqlQuery{`UPDATE tool_invocations
 		SET state = 'completed', result_json = ?, error_code = '', updated_at = ?, completed_at = ?
 		WHERE session_id = ? AND run_id = ? AND call_id = ?
@@ -236,6 +242,41 @@ func (s *SQLToolInvocationJournal) GetToolInvocation(ctx context.Context, invoca
 		return core.ToolInvocationRecord{}, false, err
 	}
 	return core.CloneToolInvocationRecord(record), true, nil
+}
+
+// ListRunToolInvocations returns one complete, exact-principal run scope for
+// evidence reconstruction. It is an optional structural companion consumed by
+// evaluation; it never creates or changes journal records.
+func (s *SQLToolInvocationJournal) ListRunToolInvocations(ctx context.Context, principal core.Principal, sessionID, runID string) ([]core.ToolInvocationRecord, error) {
+	if s == nil || s.db == nil || !validExternalEffectPrincipalPart(principal.TenantID) || !validExternalEffectPrincipalPart(principal.SubjectID) {
+		return nil, fmt.Errorf("tool invocation run scope is invalid")
+	}
+	if err := core.ValidateSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	if err := core.ValidateRunID(runID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, sqlListRunToolInvocations.bind(s.dialect), principal.TenantID, principal.SubjectID, sessionID, runID, MaxToolInvocations+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	records := make([]core.ToolInvocationRecord, 0)
+	for rows.Next() {
+		record, err := scanToolInvocation(rows)
+		if err != nil {
+			return nil, err
+		}
+		if len(records) == MaxToolInvocations {
+			return nil, fmt.Errorf("tool invocation run scope exceeds maximum of %d", MaxToolInvocations)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (s *SQLToolInvocationJournal) getToolInvocation(ctx context.Context, sessionID, runID, callID string) (core.ToolInvocationRecord, error) {

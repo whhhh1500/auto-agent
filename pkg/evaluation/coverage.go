@@ -20,6 +20,10 @@ const (
 	// evidence projection currently supported by the contract.
 	CoverageRouteProtocolAutoProbeOnceV2 = "auto_probe_once/v2"
 
+	// CoverageGateMarkerV1 identifies the canonical Dataset projection bound
+	// into a durable release/canary Gate artifact.
+	CoverageGateMarkerV1 = "coverage-gate/v1"
+
 	MaxCoverageEffects = 64
 	MaxCoverageReasons = 16
 )
@@ -194,6 +198,127 @@ type CoverageGateResult struct {
 	FailedCases      int                  `json:"failed_cases"`
 	UnavailableCases int                  `json:"unavailable_cases"`
 	ReasonCodes      []CoverageReasonCode `json:"reason_codes,omitempty"`
+}
+
+// DatasetCoverageRevision returns the marker a release/canary must persist
+// when it requires a coverage gate. It binds the frozen Dataset identity, the
+// strict-policy bit, and every Case's contract identity. Case rows are sorted
+// by ID in the marker projection; contract detail remains bound through its
+// own canonical revision rather than being duplicated here.
+func DatasetCoverageRevision(dataset Dataset, requireContracts bool) (string, error) {
+	if err := ValidateDataset(&dataset); err != nil {
+		return "", err
+	}
+	type markerCase struct {
+		ID               string `json:"id"`
+		ContractVersion  string `json:"contract_version,omitempty"`
+		ContractRevision string `json:"contract_revision,omitempty"`
+	}
+	cases := make([]markerCase, 0, len(dataset.Cases))
+	for _, evalCase := range dataset.Cases {
+		entry := markerCase{ID: evalCase.ID}
+		if evalCase.Coverage != nil {
+			entry.ContractVersion = evalCase.Coverage.Version
+			entry.ContractRevision = evalCase.Coverage.Revision
+		}
+		cases = append(cases, entry)
+	}
+	sort.Slice(cases, func(i, j int) bool { return cases[i].ID < cases[j].ID })
+	projection := struct {
+		Protocol         string       `json:"protocol"`
+		DatasetID        string       `json:"dataset_id"`
+		DatasetVersion   int          `json:"dataset_version"`
+		DatasetRevision  string       `json:"dataset_revision"`
+		RequireContracts bool         `json:"require_contracts"`
+		Cases            []markerCase `json:"cases"`
+	}{
+		Protocol: CoverageGateMarkerV1, DatasetID: dataset.ID, DatasetVersion: dataset.Version,
+		DatasetRevision: dataset.Revision, RequireContracts: requireContracts, Cases: cases,
+	}
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		return "", fmt.Errorf("encode coverage gate marker: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// ValidateCoverageGateResult validates a bounded, content-free coverage gate
+// aggregate before it is attached to a durable release/canary artifact.
+func ValidateCoverageGateResult(result CoverageGateResult) error {
+	if !validCoverageStatus(result.Status) || result.RequiredCases < 0 || result.RequiredCases > MaxDatasetCases ||
+		result.SatisfiedCases < 0 || result.FailedCases < 0 || result.UnavailableCases < 0 ||
+		result.SatisfiedCases > result.RequiredCases || result.FailedCases > result.RequiredCases || result.UnavailableCases > result.RequiredCases ||
+		result.SatisfiedCases+result.FailedCases+result.UnavailableCases != result.RequiredCases {
+		return fmt.Errorf("coverage gate result counts are invalid")
+	}
+	if len(result.ReasonCodes) > MaxCoverageReasons || !sort.SliceIsSorted(result.ReasonCodes, func(i, j int) bool { return result.ReasonCodes[i] < result.ReasonCodes[j] }) {
+		return fmt.Errorf("coverage gate result reasons are not canonical")
+	}
+	for index, reason := range result.ReasonCodes {
+		if !coverageReasonCodes[reason] || (index > 0 && result.ReasonCodes[index-1] == reason) {
+			return fmt.Errorf("coverage gate result reason %q is invalid", reason)
+		}
+	}
+	switch result.Status {
+	case CoverageSatisfied:
+		if result.SatisfiedCases != result.RequiredCases || result.FailedCases != 0 || result.UnavailableCases != 0 || len(result.ReasonCodes) != 0 {
+			return fmt.Errorf("satisfied coverage gate result is inconsistent")
+		}
+	case CoverageFailed:
+		if result.FailedCases == 0 || len(result.ReasonCodes) == 0 {
+			return fmt.Errorf("failed coverage gate result is inconsistent")
+		}
+	case CoverageUnavailable:
+		if result.FailedCases != 0 || result.UnavailableCases == 0 || len(result.ReasonCodes) == 0 {
+			return fmt.Errorf("unavailable coverage gate result is inconsistent")
+		}
+	}
+	return nil
+}
+
+// ValidateGateResult verifies only the durable optional gate artifacts owned
+// by evaluation. Legacy quality-gate JSON is valid with both coverage fields
+// absent. A non-empty coverage marker is an opt-in strict promise and cannot
+// be carried without a fully satisfied coverage result.
+func ValidateGateResult(result GateResult) error {
+	if result.RequiredCoverageRevision == "" {
+		return nil
+	}
+	if !validCoverageRevision(result.RequiredCoverageRevision) || result.Coverage == nil {
+		return fmt.Errorf("required coverage gate artifact is incomplete")
+	}
+	if err := ValidateCoverageGateResult(*result.Coverage); err != nil {
+		return err
+	}
+	if result.Coverage.Status != CoverageSatisfied || result.Coverage.RequiredCases != result.Coverage.SatisfiedCases {
+		return fmt.Errorf("required coverage gate did not satisfy every case")
+	}
+	return nil
+}
+
+// ValidateCoverageGateBinding checks a Gate's optional coverage artifact
+// against one frozen Dataset and strict-policy bit. Strict callers must reject
+// an omitted marker; compatibility callers may continue to read old artifacts
+// that predate CoverageContract.
+func ValidateCoverageGateBinding(dataset Dataset, requireContracts bool, result GateResult) error {
+	if err := ValidateGateResult(result); err != nil {
+		return err
+	}
+	if result.RequiredCoverageRevision == "" {
+		if requireContracts {
+			return fmt.Errorf("strict coverage gate marker is missing")
+		}
+		return nil
+	}
+	expected, err := DatasetCoverageRevision(dataset, requireContracts)
+	if err != nil {
+		return err
+	}
+	if result.RequiredCoverageRevision != expected {
+		return fmt.Errorf("coverage gate marker does not match frozen dataset")
+	}
+	return nil
 }
 
 // CoverageContractRevision returns the SHA-256 digest of the normalized v1

@@ -249,6 +249,14 @@ type GateResult struct {
 	Reasons                 []string                       `json:"reasons,omitempty"`
 	Comparison              *Comparison                    `json:"comparison,omitempty"`
 	CapabilityCompatibility *CapabilityCompatibilityResult `json:"capability_compatibility,omitempty"`
+	// Coverage is populated by a release surface after it has revalidated the
+	// frozen Dataset against canonical Session and receipt sources. Historical
+	// Gate JSON remains valid when this field and its marker are absent.
+	Coverage *CoverageGateResult `json:"coverage,omitempty"`
+	// RequiredCoverageRevision binds a durable Gate artifact to the Dataset's
+	// declared coverage contracts and strict-policy bit. It is empty when a
+	// release/canary did not opt in to coverage enforcement.
+	RequiredCoverageRevision string `json:"required_coverage_revision,omitempty"`
 	// Efficiency is populated only by release surfaces that explicitly opt in
 	// to the independent efficiency comparison. It remains separate from the
 	// legacy quality verdict so existing callers retain their prior semantics.
